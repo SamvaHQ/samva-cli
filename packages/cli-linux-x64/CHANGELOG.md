@@ -1,3 +1,11 @@
+## @samva/cli-linux-x64@0.26.1
+
+### Open every package README by saying what Samva is
+
+The `samva`, `@samva/webhooks`, `@samva/cli`, native CLI, and `@samva/mailbox` READMEs now open
+with a one-line description of Samva. `@samva/cli` describes itself as an email tool and drops the
+`cpaas` and `messaging` keywords.
+
 ## @samva/cli-linux-x64@0.26.0
 
 ### Subscribe contacts to topics

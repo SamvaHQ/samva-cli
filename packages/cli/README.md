@@ -1,5 +1,7 @@
 # @samva/cli
 
+Samva is the email API for your app: transactional and campaign sending, inbound mail, and webhooks behind one API.
+
 The `samva` CLI sends and operates email from a terminal. The npm package includes
 the JavaScript implementation and selects a self-contained native executable when
 one is available. Template authoring commands run the project's `@samva/vite`
@@ -15,8 +17,8 @@ samva --help
 The npm package prefers the matching macOS or Linux executable. If npm omits
 optional dependencies, the same command falls back to the packaged JavaScript
 implementation when Bun is installed. Native executables for each platform, with a `SHA256SUMS`
-file, are also attached to the [GitHub releases](https://github.com/SamvaHQ/samva-cli/releases)
-of the CLI's source mirror.
+file, are also attached to the CLI's [GitHub releases](https://github.com/SamvaHQ/samva-cli/releases),
+beside its source.
 
 ## Shell completions
 

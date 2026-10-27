@@ -37,14 +37,13 @@ quarantined by macOS; `xattr -d com.apple.quarantine samva` clears it.
 
 ## This repository
 
-This repository is a read-only mirror. Samva's release process writes it after every release,
-copying each package's source exactly as it is built and published, and tags every CLI version as
-`v<version>`. It does not accept pull requests, and the CLI does not build here: it imports Samva's
-internal `@samva/core` and `@samva/contracts` modules and builds inside Samva's own repository. The
+Samva's release process publishes each release's source here, exactly as it is built and published
+to npm, and tags every CLI version as `v<version>`. The CLI imports Samva's internal `@samva/core`
+and `@samva/contracts` modules and builds in Samva's own repository, so it does not build here. The
 executables and the npm package bundle that code.
 
-Report a bug or request a change as an issue in this repository. See [SECURITY.md](./SECURITY.md)
-for vulnerabilities.
+Issues and pull requests are welcome; [CONTRIBUTING.md](./CONTRIBUTING.md) explains how a pull
+request reaches a release. See [SECURITY.md](./SECURITY.md) for vulnerabilities.
 
 ## License
 

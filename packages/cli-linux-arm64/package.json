@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli-linux-arm64",
-  "version": "0.26.0",
+  "version": "0.26.1",
   "description": "Samva CLI native executable for linux-arm64",
   "keywords": [
     "cli",

@@ -1,13 +1,13 @@
 {
   "name": "@samva/cli",
-  "version": "0.26.0",
-  "description": "Samva CLI — email and platform operations from your terminal",
+  "version": "0.26.1",
+  "description": "Samva CLI: send email, manage domains and templates from your terminal",
   "keywords": [
     "cli",
-    "cpaas",
     "email",
-    "messaging",
-    "samva"
+    "email-api",
+    "samva",
+    "transactional-email"
   ],
   "homepage": "https://samva.dev",
   "bugs": {
@@ -56,16 +56,16 @@
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.28.0",
+    "samva": "workspace:0.28.1",
     "tsc-rs": "catalog:",
     "vite": "~8.3.0",
     "vitest": "catalog:"
   },
   "optionalDependencies": {
-    "@samva/cli-darwin-arm64": "workspace:0.26.0",
-    "@samva/cli-darwin-x64": "workspace:0.26.0",
-    "@samva/cli-linux-arm64": "workspace:0.26.0",
-    "@samva/cli-linux-x64": "workspace:0.26.0"
+    "@samva/cli-darwin-arm64": "workspace:0.26.1",
+    "@samva/cli-darwin-x64": "workspace:0.26.1",
+    "@samva/cli-linux-arm64": "workspace:0.26.1",
+    "@samva/cli-linux-x64": "workspace:0.26.1"
   },
   "engines": {
     "node": ">=18"
