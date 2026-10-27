@@ -58,8 +58,8 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   campaignsResumeRun: "campaigns runs resume",
   campaignsCancelRun: "campaigns runs cancel",
   campaignsListRecipients: "campaigns runs recipients",
-  campaignsPreview: "api",
-  campaignsSendTest: "api",
+  campaignsPreview: "campaigns preview",
+  campaignsSendTest: "campaigns test",
 
   contactGroupsList: "api",
   contactGroupsCreate: "api",
@@ -277,6 +277,23 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   topicFormsCreate: "api",
   topicFormsUpdate: "api",
   topicFormsRemove: "api",
+
+  // Custom publication domains are managed through samva api; the curated archive settings live on topics.
+  topicPublicationDomainsAdd: "api",
+  topicPublicationDomainsGet: "api",
+  topicPublicationDomainsRemove: "api",
+
+  topicIssuesList: "topics issues list",
+  topicIssuesOpen: "topics issues open",
+  topicIssuesGet: "topics issues read",
+  topicIssuesCreate: "topics issues create",
+  topicIssuesUpdate: "topics issues update",
+  topicIssuesRemove: "topics issues delete",
+  topicIssuesSave: "topics issues save",
+  topicIssuesCheck: "topics issues check",
+  topicIssuesRender: "topics issues render",
+  topicIssuesHead: "topics issues head",
+  topicIssuesHistory: "topics issues history",
 
   topicsList: "topics list",
   topicsGet: "topics get",

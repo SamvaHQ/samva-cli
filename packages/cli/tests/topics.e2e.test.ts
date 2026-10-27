@@ -18,6 +18,8 @@ const topic = {
   defaultSenderId: null,
   replyMailboxId: null,
   templateId: null,
+  archiveEnabled: false,
+  publicationSlug: null,
   subscriptions: {
     email: { subscribed: 7, unsubscribed: 2 },
     sms: { subscribed: 0, unsubscribed: 0 },
@@ -113,6 +115,35 @@ describe("topics subprocess contract", () => {
       expect(human.stdout).toContain("Newsletter");
       expect(human.stdout).toContain("opt_in");
       expect(human.stdout).not.toContain("\u001b[");
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("propagates hosted publication settings in create and update requests", async () => {
+    const api = await startApi();
+    try {
+      for (const args of [
+        [
+          "create",
+          "--name",
+          "Newsletter",
+          "--default",
+          "opt_in",
+          "--archive",
+          "enabled",
+          "--publication-slug",
+          "news",
+        ],
+        ["update", ID, "--archive", "disabled", "--publication-slug", "none"],
+      ]) {
+        const result = await runCli(["topics", ...args, "--json"], { configHome, env: api.env });
+        expect(result.code, result.stderr).toBe(0);
+      }
+      expect(api.requests.map((request) => request.body)).toEqual([
+        { name: "Newsletter", default: "opt_in", archiveEnabled: true, publicationSlug: "news" },
+        { archiveEnabled: false, publicationSlug: null },
+      ]);
     } finally {
       await api.close();
     }

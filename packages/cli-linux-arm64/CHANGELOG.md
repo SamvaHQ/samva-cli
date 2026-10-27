@@ -1,3 +1,37 @@
+## @samva/cli-linux-arm64@0.27.0
+
+### Author newsletter issues and pin saved content to campaigns
+
+The SDK adds `topicIssues` on the Promise client and `TopicIssues` at
+`samva/effect/topic-issues`. The CLI adds `samva topics issues` for creating and editing Markdown
+issues, checking and previewing email or web output, and saving commits. Listing issues returns
+each draft's title and its latest campaign send, and needs messages read access beside contacts
+read access. Issue authoring is Preview and requires access for your organization.
+
+Campaigns accept `content.issue: { path, commit }` with `audience.topicId` to select a saved issue.
+The saved title and preheader supply the email content, and each run keeps its selected path and
+commit. Use the CLI's `--issue-path` and `--issue-commit` options to select that content.
+
+### Use SML 0.21 for template projects
+
+Update your project's `@samva/markup` and `@samva/vite` packages to 0.21.0. Compiled templates use
+`sml: 2`; direct renderer calls select output with `{ target: "email" }` instead of
+`{ channel: "email" }`.
+
+### Publish sent newsletter issues on the web
+
+Publication sites are Preview and available to selected organizations. Enable an opt-in topic's
+archive with `archiveEnabled` and choose its `<publicationSlug>.samva.app` hostname. Sent issues
+appear in the archive, RSS feed and sitemap; saving a draft does not publish it.
+
+The SDK adds `topicPublicationDomains` on the Promise client and `TopicPublicationDomains` at
+`samva/effect/publication-domains` to add, inspect and remove custom publication domains. The CLI
+adds `--archive enabled|disabled` and `--publication-slug <label|none>` to topic settings.
+
+Email sent with publication Preview access includes a private view-in-browser link to that
+delivery's frozen content. Compiled templates must support SML's web renderer; raw API HTML and
+text are also supported.
+
 ## @samva/cli-linux-arm64@0.26.1
 
 ### Open every package README by saying what Samva is

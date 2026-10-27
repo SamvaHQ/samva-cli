@@ -470,6 +470,8 @@ describe("the raw-JSON guard", () => {
   it("limits JSON-by-design output to the commands listed here", () => {
     // Each entry returns its complete result as JSON because the next call consumes it.
     const jsonByDesign: Record<string, string> = {
+      "commands/topic-issues.ts":
+        "topics issues returns complete workspace revisions, saved pins, and diagnostics consumed by the next fenced call",
       "commands/templates/workspace.ts":
         "templates workspace * returns revisions, digests, and diagnostics that are inputs to the next call (packages/cli/AGENTS.md)",
       "commands/templates/render-command.ts":

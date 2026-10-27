@@ -13,6 +13,7 @@ import { getClientProvider } from "../lib/client";
 import { confirmDestructive } from "../lib/confirm";
 import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
+import { issuesCommand } from "./topic-issues";
 
 const idArgument = Argument.String("id").pipe(Argument.withDescription("Topic id (unsub_...)"));
 const optionalString = (name: string, description: string) =>
@@ -32,6 +33,14 @@ const defaultFlag = Flag.Literals("default", ["opt_in", "opt_out"]).pipe(
   Flag.optional,
 );
 const publishingFlags = {
+  archiveEnabled: Flag.Literals("archive", ["enabled", "disabled"]).pipe(
+    Flag.withDescription("Publish sent opt_in issues to the public archive"),
+    Flag.optional,
+  ),
+  publicationSlug: optionalString(
+    "publication-slug",
+    "Hosted publication label at samva.app; pass none to clear",
+  ),
   description: optionalString("description", "Description; pass none to clear"),
   defaultSenderId: optionalString("default-sender-id", "Default sender id; pass none to clear"),
   replyMailboxId: optionalString("reply-mailbox-id", "Reply mailbox id; pass none to clear"),
@@ -52,6 +61,8 @@ const topicFields = (topic: {
   readonly defaultSenderId: string | null;
   readonly replyMailboxId: string | null;
   readonly templateId: string | null;
+  readonly archiveEnabled?: boolean;
+  readonly publicationSlug?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }) =>
@@ -65,6 +76,8 @@ const topicFields = (topic: {
     ["Default sender", topic.defaultSenderId],
     ["Reply mailbox", topic.replyMailboxId],
     ["Template", topic.templateId],
+    ["Public archive", topic.archiveEnabled ? "enabled" : "disabled"],
+    ["Publication slug", topic.publicationSlug],
     ["Created", topic.createdAt],
     ["Updated", topic.updatedAt],
   ]);
@@ -124,6 +137,8 @@ const create = Command.make("create", {
       defaultSenderId,
       replyMailboxId,
       templateId,
+      archiveEnabled,
+      publicationSlug,
       dryRun,
       json,
     }) =>
@@ -136,6 +151,10 @@ const create = Command.make("create", {
           defaultSenderId: nullableValue(defaultSenderId),
           replyMailboxId: nullableValue(replyMailboxId),
           templateId: nullableValue(templateId),
+          archiveEnabled: Option.map(archiveEnabled, (value) => value === "enabled").pipe(
+            Option.getOrUndefined,
+          ),
+          publicationSlug: nullableValue(publicationSlug),
         };
         if (dryRun)
           return yield* json
@@ -172,14 +191,23 @@ const update = Command.make("update", {
       defaultSenderId,
       replyMailboxId,
       templateId,
+      archiveEnabled,
+      publicationSlug,
       dryRun,
       json,
     }) =>
       Effect.gen(function* () {
         if (
-          [name, eligibility, description, defaultSenderId, replyMailboxId, templateId].every(
-            Option.isNone,
-          )
+          [
+            name,
+            eligibility,
+            description,
+            defaultSenderId,
+            replyMailboxId,
+            templateId,
+            archiveEnabled,
+            publicationSlug,
+          ].every(Option.isNone)
         )
           return yield* new CliUsageError({
             code: "nothing_to_update",
@@ -193,6 +221,10 @@ const update = Command.make("update", {
           defaultSenderId: nullableValue(defaultSenderId),
           replyMailboxId: nullableValue(replyMailboxId),
           templateId: nullableValue(templateId),
+          archiveEnabled: Option.map(archiveEnabled, (value) => value === "enabled").pipe(
+            Option.getOrUndefined,
+          ),
+          publicationSlug: nullableValue(publicationSlug),
         };
         if (dryRun)
           return yield* json
@@ -447,5 +479,14 @@ const subscriptions = Command.make("subscriptions").pipe(
 export const topicsCommand = Command.make("topics").pipe(
   Command.withDescription("Manage topics and per-channel contact subscriptions"),
   Command.withExamples([{ command: "samva topics list --json" }]),
-  Command.withSubcommands([list, get, create, update, remove, setDefault, subscriptions]),
+  Command.withSubcommands([
+    list,
+    get,
+    create,
+    update,
+    remove,
+    setDefault,
+    subscriptions,
+    issuesCommand,
+  ]),
 );

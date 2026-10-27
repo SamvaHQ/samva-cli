@@ -106,6 +106,8 @@ const commandTree = {
   },
   campaigns: {
     report: {},
+    preview: {},
+    test: {},
     create: {},
     list: {},
     get: {},
@@ -218,6 +220,19 @@ const commandTree = {
     remove: {},
     default: {},
     subscriptions: { list: {}, set: {}, check: {} },
+    issues: {
+      list: {},
+      open: {},
+      read: {},
+      create: {},
+      update: {},
+      delete: {},
+      save: {},
+      check: {},
+      render: {},
+      head: {},
+      history: {},
+    },
   },
   help: {},
 } as const;

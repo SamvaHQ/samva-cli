@@ -474,5 +474,28 @@ returns effective preferences, including topic defaults. Explicit status is writ
 For recipient-confirmed consent, use `samva subscriptions subscribe --topic-id <id>
 --email ada@example.com --from news@example.com --json`; acceptance waits for recipient confirmation.
 
+`samva topics issues <list|open|read|create|update|delete|save|check|render|head|history>`
+authors topic-owned Markdown issues through the hosted workspace. Results are complete JSON
+receipts in human mode and versioned envelopes with `--json`. Start with `list <topic-id>` or
+`head <topic-id>` to read the revision; `open` returns the existing workspace without creating a
+repository. `read`, `update`, `delete`, `check`, and `render` require `--path issues/<name>.md`
+and `--revision`. `create` and `update` read Markdown from `--file <file>` or `--file -` for piped
+stdin. Omit `create --revision` only when creating the first issue or retrying that request.
+All writes require `--idempotency-key`; keep the key and payload identical across retries.
+`save` additionally requires `--head <commit>` and `--message <text>` and returns the commit an
+issue send pins. Create or replace campaign content with
+`samva campaigns create --name October --topic-id <topic-id> --issue-path issues/october.md
+--issue-commit <commit>` or `samva campaigns update <campaign-id> --issue-path issues/october.md
+--issue-commit <commit>`. Both pin `{issue: {path, commit}, email: {}}` in the email campaign.
+`campaigns preview` and `campaigns test` take the same content flags and required `--topic-id`;
+the test sends only to the authenticated account email, with optional `--contact-id` for
+personalization. `--template-data` supplies recipient fallbacks. An issue supplies subject,
+preheader and body, so inline content and template references cannot accompany its pin.
+After creating the campaign, `samva campaigns runs create <campaign-id> --at <instant>
+--idempotency-key <key>` schedules its pinned definition; scheduling takes no content override.
+`render` takes `--fixture <name> --target email|web`. `history --limit 20`
+returns a bounded set of commits. Writes support `--dry-run`; `delete` requires `--yes` outside
+a terminal. Namespace grants and the `issueContent` and `email` flags are enforced by the API.
+
 Topic mutations accept `--dry-run`. Removal uses `topics remove <id> --yes` outside a terminal.
 `topics subscriptions list <id> --limit 20 --json` reads one page; `--all --jsonl` streams every page.

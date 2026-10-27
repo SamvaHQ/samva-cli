@@ -1,3 +1,4 @@
+import { IssuePin } from "@samva/core/contacts/issues";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -7,6 +8,7 @@ import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as References from "effect/References";
+import * as Schema from "effect/Schema";
 import type { JsonValue } from "samva/effect";
 import * as Campaigns from "samva/effect/campaigns";
 
@@ -80,6 +82,8 @@ export const parseTagList = (values: ReadonlyArray<string>): ReadonlyArray<strin
 export interface CampaignCreateInput {
   readonly name: string;
   readonly subject: string | undefined;
+  readonly preheader?: string | undefined;
+  readonly issue?: IssuePin | undefined;
   readonly html: string | undefined;
   readonly text: string | undefined;
   readonly templateId: string | undefined;
@@ -108,8 +112,10 @@ export const assembleCampaignCreatePayload = (
     channel: "email",
     content: {
       channel: "email",
+      ...(input.issue === undefined ? {} : { issue: input.issue }),
       email: {
         subject: input.subject,
+        ...(input.preheader === undefined ? {} : { preheader: input.preheader }),
         html: input.html,
         text: input.text,
         templateId: input.templateId,
@@ -147,6 +153,49 @@ const parseTemplateData = (
             : Effect.fail(new SamvaCliError({ message: "--template-data must be a JSON object." })),
         ),
       ),
+  });
+
+const issuePathFlag = Flag.String("issue-path").pipe(
+  Flag.withDescription("Saved Markdown issue path in the audience topic repository"),
+  Flag.optional,
+);
+const issueCommitFlag = Flag.String("issue-commit").pipe(
+  Flag.withDescription("Exact saved Git commit from topics issues save"),
+  Flag.optional,
+);
+const preheaderFlag = Flag.String("preheader").pipe(
+  Flag.withDescription("Email preview text; an issue supplies its own preheader"),
+  Flag.optional,
+);
+const resolveIssue = (
+  path: Option.Option<string>,
+  commit: Option.Option<string>,
+  mixed: readonly Option.Option<string>[],
+) =>
+  Effect.gen(function* () {
+    if (Option.isNone(path) && Option.isNone(commit)) return undefined;
+    if (Option.isNone(path) || Option.isNone(commit))
+      return yield* new CliUsageError({
+        code: "issue_pin_required",
+        message:
+          "Pass --issue-path and --issue-commit together, using the commit from samva topics issues save.",
+      });
+    if (mixed.some(Option.isSome))
+      return yield* new CliUsageError({
+        code: "mixed_issue_content",
+        message:
+          "An issue supplies its subject, preheader and body. Omit --subject, --preheader, --html, --text and template reference flags.",
+      });
+    return yield* Schema.decodeEffect(IssuePin)({ path: path.value, commit: commit.value }).pipe(
+      Effect.mapError(
+        () =>
+          new CliUsageError({
+            code: "invalid_issue_pin",
+            message:
+              "Use --issue-path issues/<name>.md and --issue-commit <40-character lowercase Git SHA>.",
+          }),
+      ),
+    );
   });
 
 const nameFlag = Flag.String("name").pipe(Flag.withDescription("Campaign name"));
@@ -236,6 +285,9 @@ const allFlag = Flag.Boolean("all").pipe(
 const create = Command.make("create", {
   name: nameFlag,
   subject: subjectFlag,
+  preheader: preheaderFlag,
+  issuePath: issuePathFlag,
+  issueCommit: issueCommitFlag,
   html: htmlFlag,
   text: textFlag,
   templateId: templateIdFlag,
@@ -270,6 +322,9 @@ const create = Command.make("create", {
     ({
       name,
       subject,
+      preheader,
+      issuePath,
+      issueCommit,
       html,
       text,
       templateId,
@@ -288,6 +343,16 @@ const create = Command.make("create", {
       json,
     }) =>
       Effect.gen(function* () {
+        const issue = yield* resolveIssue(issuePath, issueCommit, [
+          subject,
+          preheader,
+          html,
+          text,
+          templateId,
+          templateSlug,
+          publicationId,
+          inputContractId,
+        ]);
         const htmlValue = Option.getOrUndefined(html);
         const textValue = Option.getOrUndefined(text);
         const templateIdValue = Option.getOrUndefined(templateId);
@@ -306,18 +371,21 @@ const create = Command.make("create", {
         }
         const templateRefValue = templateSlugValue ?? templateIdValue;
 
-        if (templateRefValue && (Option.isSome(subject) || htmlValue || textValue)) {
+        if (
+          templateRefValue &&
+          (Option.isSome(subject) || Option.isSome(preheader) || htmlValue || textValue)
+        ) {
           return yield* new SamvaCliError({
             message:
               "Choose one content source: a template, or inline --subject with --html (and optional --text).",
           });
         }
-        if (!templateRefValue && Option.isNone(subject)) {
+        if (issue === undefined && !templateRefValue && Option.isNone(subject)) {
           return yield* new SamvaCliError({
             message: "Provide --subject with inline --html, or reference a published template.",
           });
         }
-        if (!templateRefValue && !htmlValue) {
+        if (issue === undefined && !templateRefValue && !htmlValue) {
           return yield* new SamvaCliError({
             message: "Provide --html for inline email; --text is an optional fallback.",
           });
@@ -329,6 +397,8 @@ const create = Command.make("create", {
         const payload = assembleCampaignCreatePayload({
           name,
           subject: Option.getOrUndefined(subject),
+          preheader: Option.getOrUndefined(preheader),
+          issue,
           html: htmlValue,
           text: textValue,
           templateId: templateIdValue,
@@ -496,6 +566,9 @@ const update = Command.make("update", {
   id: Argument.String("id"),
   name: Flag.String("name").pipe(Flag.withDescription("New campaign name"), Flag.optional),
   subject: subjectFlag,
+  preheader: preheaderFlag,
+  issuePath: issuePathFlag,
+  issueCommit: issueCommitFlag,
   html: htmlFlag,
   text: textFlag,
   templateId: templateIdFlag,
@@ -526,6 +599,9 @@ const update = Command.make("update", {
       id,
       name,
       subject,
+      preheader,
+      issuePath,
+      issueCommit,
       html,
       text,
       templateId,
@@ -543,6 +619,16 @@ const update = Command.make("update", {
       json,
     }) =>
       Effect.gen(function* () {
+        const issue = yield* resolveIssue(issuePath, issueCommit, [
+          subject,
+          preheader,
+          html,
+          text,
+          templateId,
+          templateSlug,
+          publicationId,
+          inputContractId,
+        ]);
         const htmlValue = Option.getOrUndefined(html);
         const textValue = Option.getOrUndefined(text);
         const templateIdValue = Option.getOrUndefined(templateId);
@@ -560,6 +646,8 @@ const update = Command.make("update", {
         const templateDataValue = yield* parseTemplateData(templateData);
         const templateRefValue = templateSlugValue ?? templateIdValue;
         const hasContentFlags =
+          issue !== undefined ||
+          Option.isSome(preheader) ||
           Option.isSome(subject) ||
           Boolean(htmlValue || textValue || templateRefValue) ||
           Option.isSome(templateData) ||
@@ -567,18 +655,21 @@ const update = Command.make("update", {
           Option.isSome(inputContractId) ||
           Option.isSome(trackOpens) ||
           Option.isSome(trackClicks);
-        if (templateRefValue && (Option.isSome(subject) || htmlValue || textValue)) {
+        if (
+          templateRefValue &&
+          (Option.isSome(subject) || Option.isSome(preheader) || htmlValue || textValue)
+        ) {
           return yield* new SamvaCliError({
             message:
               "Choose one content source: a template, or inline --subject with --html (and optional --text).",
           });
         }
-        if (hasContentFlags && !templateRefValue && Option.isNone(subject)) {
+        if (issue === undefined && hasContentFlags && !templateRefValue && Option.isNone(subject)) {
           return yield* new SamvaCliError({
             message: "Provide --subject with inline --html, or reference a published template.",
           });
         }
-        if (hasContentFlags && !templateRefValue && !htmlValue) {
+        if (issue === undefined && hasContentFlags && !templateRefValue && !htmlValue) {
           return yield* new SamvaCliError({
             message: "Provide --html for inline email; --text is an optional fallback.",
           });
@@ -618,8 +709,10 @@ const update = Command.make("update", {
           content: hasContent
             ? {
                 channel: "email",
+                ...(issue === undefined ? {} : { issue }),
                 email: {
                   subject: Option.getOrUndefined(subject),
+                  preheader: Option.getOrUndefined(preheader),
                   html: htmlValue,
                   text: textValue,
                   templateId: templateIdValue,
@@ -745,6 +838,161 @@ const printRun = (
  */
 const warnCapacity = (run: { readonly id: string; readonly capacityWarning?: string | null }) =>
   run.capacityWarning ? Console.error(`Warning: ${run.capacityWarning}`) : Effect.void;
+
+const compositionFlags = {
+  topicId: Flag.String("topic-id").pipe(
+    Flag.withDescription("Topic owning the issue and the campaign audience"),
+  ),
+  issuePath: issuePathFlag,
+  issueCommit: issueCommitFlag,
+  subject: subjectFlag,
+  preheader: preheaderFlag,
+  html: htmlFlag,
+  text: textFlag,
+  templateId: templateIdFlag,
+  templateSlug: templateSlugFlag,
+  templateData: templateDataFlag,
+  publicationId: publicationIdFlag,
+  inputContractId: inputContractIdFlag,
+  contactId: Flag.String("contact-id").pipe(
+    Flag.withDescription(
+      "Optional contact for personalization; tests still send to your account email",
+    ),
+    Flag.optional,
+  ),
+  dryRun: dryRunFlag,
+  json: jsonFlag,
+};
+const composition = (name: "preview" | "test") =>
+  Command.make(name, compositionFlags).pipe(
+    Command.withDescription(
+      name === "preview"
+        ? "Render draft campaign content without sending"
+        : "Send one draft campaign email to your authenticated account email",
+    ),
+    Command.withExamples([
+      {
+        command: `samva campaigns ${name} --topic-id unsub_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json`,
+      },
+    ]),
+    Command.withHandler(
+      ({
+        topicId,
+        issuePath,
+        issueCommit,
+        subject,
+        preheader,
+        html,
+        text,
+        templateId,
+        templateSlug,
+        templateData,
+        publicationId,
+        inputContractId,
+        contactId,
+        dryRun,
+        json,
+      }) =>
+        Effect.gen(function* () {
+          const issue = yield* resolveIssue(issuePath, issueCommit, [
+            subject,
+            preheader,
+            html,
+            text,
+            templateId,
+            templateSlug,
+            publicationId,
+            inputContractId,
+          ]);
+          if (issue === undefined && Option.isSome(templateId) && Option.isSome(templateSlug))
+            return yield* new CliUsageError({
+              code: "mixed_templates",
+              message: "Use either --template-id or --template-slug, not both.",
+            });
+          const hasTemplate = Option.isSome(templateId) || Option.isSome(templateSlug);
+          if (hasTemplate && [subject, preheader, html, text].some(Option.isSome))
+            return yield* new CliUsageError({
+              code: "mixed_template_content",
+              message: "Choose a template or inline --subject and --html.",
+            });
+          if (
+            issue === undefined &&
+            !hasTemplate &&
+            (Option.isNone(subject) || Option.isNone(html))
+          )
+            return yield* new CliUsageError({
+              code: "content_required",
+              message:
+                "Pass --issue-path with --issue-commit, a template, or inline --subject and --html.",
+            });
+          const reference = yield* resolveTemplateReference({
+            templateId: Option.getOrUndefined(templateId),
+            publicationId: Option.getOrUndefined(publicationId),
+            inputContractId: Option.getOrUndefined(inputContractId),
+          });
+          const data = yield* parseTemplateData(templateData);
+          const request = {
+            audience: { topicId },
+            content: {
+              channel: "email" as const,
+              ...(issue === undefined ? {} : { issue }),
+              email: {
+                subject: Option.getOrUndefined(subject),
+                preheader: Option.getOrUndefined(preheader),
+                html: Option.getOrUndefined(html),
+                text: Option.getOrUndefined(text),
+                templateId: Option.getOrUndefined(templateId),
+                templateSlug: Option.getOrUndefined(templateSlug),
+                ...reference,
+                templateData: data,
+              },
+            },
+            contactId: Option.getOrUndefined(contactId),
+          };
+          if (dryRun) {
+            if (json)
+              return yield* printJson({
+                dryRun,
+                action: name === "preview" ? "campaigns.preview" : "campaigns.sendTest",
+                request,
+              });
+            yield* printFields([
+              ["Action", name === "preview" ? "Preview campaign content" : "Send campaign test"],
+              ["Topic", topicId],
+              ["Issue", issue?.path],
+              ["Saved version", issue?.commit],
+            ]);
+            return yield* Console.log(
+              `\nPayload:\n${truncateForDisplay(JSON.stringify(request, null, 2))}`,
+            );
+          }
+          const client = yield* getClientProvider;
+          if (name === "preview") {
+            const result = yield* Campaigns.preview(request).pipe(
+              client.provide,
+              Effect.mapError((error) =>
+                toCliApiError("Could not preview campaign content", error),
+              ),
+            );
+            if (json) return yield* printJson(result);
+            yield* printFields([
+              ["Subject", result.subject],
+              ["Preheader", result.preheader],
+            ]);
+            return yield* Console.log(`\n${result.text}`);
+          }
+          const result = yield* Campaigns.sendTest(request).pipe(
+            client.provide,
+            Effect.mapError((error) => toCliApiError("Could not send campaign test", error)),
+          );
+          if (json) return yield* printJson(result);
+          yield* printFields([["Message ID", result.id]]);
+          yield* Console.log(`Check delivery: samva messages get ${result.id}`);
+        }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+    ),
+  );
+const preview = composition("preview");
+const sendTest = composition("test");
 
 const runCreate = Command.make("create", {
   campaignId: Argument.String("campaignId"),
@@ -1129,5 +1377,15 @@ export const campaignsCommand = Command.make("campaigns").pipe(
     },
     { command: "samva campaigns runs create camp_abc123", description: "Create a run" },
   ]),
-  Command.withSubcommands([create, list, get, update, archive, report, runsCommand]),
+  Command.withSubcommands([
+    create,
+    list,
+    get,
+    update,
+    archive,
+    preview,
+    sendTest,
+    report,
+    runsCommand,
+  ]),
 );
