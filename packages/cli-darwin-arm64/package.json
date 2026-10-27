@@ -1,0 +1,35 @@
+{
+  "name": "@samva/cli-darwin-arm64",
+  "version": "0.25.0",
+  "description": "Samva CLI native executable for darwin-arm64",
+  "keywords": [
+    "cli",
+    "samva"
+  ],
+  "homepage": "https://samva.dev",
+  "bugs": {
+    "url": "https://github.com/SamvaHQ/samva-cli/issues"
+  },
+  "license": "MIT",
+  "author": "Arya Labs, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SamvaHQ/samva-cli.git",
+    "directory": "packages/cli-darwin-arm64"
+  },
+  "files": [
+    "samva",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

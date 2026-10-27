@@ -1,0 +1,73 @@
+{
+  "name": "@samva/cli",
+  "version": "0.25.0",
+  "description": "Samva CLI — email and platform operations from your terminal",
+  "keywords": [
+    "cli",
+    "cpaas",
+    "email",
+    "messaging",
+    "samva"
+  ],
+  "homepage": "https://samva.dev",
+  "bugs": {
+    "url": "https://github.com/SamvaHQ/samva-cli/issues"
+  },
+  "license": "MIT",
+  "author": "Arya Labs, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SamvaHQ/samva-cli.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "samva": "./bin/samva.cjs"
+  },
+  "files": [
+    "bin/samva.cjs",
+    "dist/bin.mjs",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "samva": "bun src/bin.ts",
+    "build": "bun build src/bin.ts --outfile=dist/bin.mjs --target=bun",
+    "build:release-artifacts": "bun run scripts/build-release-artifacts.ts",
+    "test": "vitest run --root ../.. --project cli --project serial-cli",
+    "test:package": "vitest run --root ../.. --project serial-cli",
+    "typecheck": "tsc-rs --noEmit && tsc-rs --noEmit -p tests/consumer/tsconfig.json && tsc-rs --noEmit -p tests/consumer/tsconfig.default.json"
+  },
+  "devDependencies": {
+    "@effect/platform-bun": "catalog:effect",
+    "@effect/vitest": "catalog:effect",
+    "@samva/contracts": "workspace:*",
+    "@samva/core": "workspace:*",
+    "@samva/mailbox": "workspace:*",
+    "@samva/markup": "catalog:",
+    "@samva/vite": "catalog:",
+    "@types/node": "catalog:",
+    "better-auth": "catalog:",
+    "effect": "catalog:effect",
+    "samva": "workspace:0.27.0",
+    "tsc-rs": "catalog:",
+    "vite": "~8.3.0",
+    "vitest": "catalog:"
+  },
+  "optionalDependencies": {
+    "@samva/cli-darwin-arm64": "workspace:0.25.0",
+    "@samva/cli-darwin-x64": "workspace:0.25.0",
+    "@samva/cli-linux-arm64": "workspace:0.25.0",
+    "@samva/cli-linux-x64": "workspace:0.25.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

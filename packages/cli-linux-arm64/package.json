@@ -1,0 +1,35 @@
+{
+  "name": "@samva/cli-linux-arm64",
+  "version": "0.25.0",
+  "description": "Samva CLI native executable for linux-arm64",
+  "keywords": [
+    "cli",
+    "samva"
+  ],
+  "homepage": "https://samva.dev",
+  "bugs": {
+    "url": "https://github.com/SamvaHQ/samva-cli/issues"
+  },
+  "license": "MIT",
+  "author": "Arya Labs, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SamvaHQ/samva-cli.git",
+    "directory": "packages/cli-linux-arm64"
+  },
+  "files": [
+    "samva",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
