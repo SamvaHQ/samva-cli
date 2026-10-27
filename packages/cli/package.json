@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Samva CLI — email and platform operations from your terminal",
   "keywords": [
     "cli",
@@ -56,16 +56,16 @@
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.27.0",
+    "samva": "workspace:0.28.0",
     "tsc-rs": "catalog:",
     "vite": "~8.3.0",
     "vitest": "catalog:"
   },
   "optionalDependencies": {
-    "@samva/cli-darwin-arm64": "workspace:0.25.0",
-    "@samva/cli-darwin-x64": "workspace:0.25.0",
-    "@samva/cli-linux-arm64": "workspace:0.25.0",
-    "@samva/cli-linux-x64": "workspace:0.25.0"
+    "@samva/cli-darwin-arm64": "workspace:0.26.0",
+    "@samva/cli-darwin-x64": "workspace:0.26.0",
+    "@samva/cli-linux-arm64": "workspace:0.26.0",
+    "@samva/cli-linux-x64": "workspace:0.26.0"
   },
   "engines": {
     "node": ">=18"

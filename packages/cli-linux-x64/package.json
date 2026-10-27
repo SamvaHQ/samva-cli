@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli-linux-x64",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Samva CLI native executable for linux-x64",
   "keywords": [
     "cli",
