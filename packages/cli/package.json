@@ -56,7 +56,7 @@
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.29.0",
+    "samva": "workspace:0.29.1",
     "tsc-rs": "catalog:",
     "vite": "~8.3.0",
     "vitest": "catalog:"
