@@ -133,11 +133,15 @@ what `email.send` accepts. `--check` writes nothing and exits `1` when the file 
 catalog, naming what moved. A schema the generator cannot express as a checking type is refused
 with the template and the JSON pointer rather than generated as `unknown`.
 
-`samva topics issues` edits a topic's shared Markdown workspace. Commands return the complete JSON
+`samva newsletters issues` edits a newsletter's shared Markdown workspace. Commands return the complete JSON
 result, including the revision or saved commit the next fenced operation consumes. Read the latest
 revision with `list` or `open`, name it with `--revision` for edits, and use `save` to obtain the
 commit for a campaign's `--issue-path` and `--issue-commit`. Creating or updating a draft does not
-send email. The API requires the `issueContent` and `email` features for the organization.
+send email. The API requires the `newsletters` and `email` features for the organization.
+
+`samva newsletters domains list <newsletter-id> --limit 20 --cursor <nextCursor>` discovers
+archive domains. It returns `{ items, nextCursor }`; omit `--cursor` for the first page. `domains get`
+rechecks one domain's DNS and certificate status.
 
 `samva templates init --name <name>` creates a starter-backed Artifact project and clones its Git
 repository. `samva templates clone <project-or-template-id>` clones an existing project. Both configure a

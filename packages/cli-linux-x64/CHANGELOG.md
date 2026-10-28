@@ -1,3 +1,26 @@
+## @samva/cli-linux-x64@0.28.0
+
+### One Idempotency Option Across the SDK
+
+**Breaking:** Pass idempotency keys in the second options argument as `{ idempotencyKey }`.
+Raw HTTP callers send `Idempotency-Key`; body and query spellings are removed. Both clients
+supply a fresh key for every idempotent operation and reuse it across automatic retries.
+
+The Promise client retries reads and idempotent mutations, accepts client-level and per-call
+`maxRetries`, and adds lazy `.pages()` and `.items()` async iterators to cursor lists.
+OAuth clients can select an organization with `orgSlug`.
+
+**Breaking:** Import mailbox extension helpers from `samva/mailbox`, `samva/mailbox/test`, and
+`samva/mailbox/webhook`. Handlers receive the normal client and call
+`ctx.samva.mailboxes.reply({ id, messageId, text })`. Event dispatch preserves deterministic
+send keys. The CLI extension scaffold uses these imports and flat calls.
+
+For `samva events send`, pass `--idempotency-key` instead of embedding a key in `--data`.
+
+### Templates build with authoring 0.22.0
+
+`samva templates` commands bundle `@samva/markup` and `@samva/vite` 0.22.0. Issue layouts can place the issue's title and date with `<IssueTitle />` and `<IssueDate />`; `IssueDate` reads an optional `date: YYYY-MM-DD` frontmatter field. Output for existing templates is unchanged.
+
 ## @samva/cli-linux-x64@0.27.0
 
 ### Author newsletter issues and pin saved content to campaigns
@@ -523,7 +546,7 @@ samva mailboxes create --address support@acme.samva.email --name Support
   own.
 - `samva mailboxes update --data` and mailbox JSON output use `name` instead of `displayName`.
 - Add and remove addresses with `samva mailboxes addresses add` and `samva mailboxes addresses
-remove`. Removing asks for confirmation, or `--yes` outside a terminal.
+  remove`. Removing asks for confirmation, or `--yes` outside a terminal.
 - Mail from a mailbox with no sender name now shows the mailbox's `name` instead of a bare address.
 
 ## @samva/cli-linux-x64@0.11.0

@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "Samva CLI: send email, manage domains and templates from your terminal",
   "keywords": [
     "cli",
@@ -43,29 +43,28 @@
     "build:release-artifacts": "bun run scripts/build-release-artifacts.ts",
     "test": "vitest run --root ../.. --project cli --project serial-cli",
     "test:package": "vitest run --root ../.. --project serial-cli",
-    "typecheck": "tsc-rs --noEmit && tsc-rs --noEmit -p tests/consumer/tsconfig.json && tsc-rs --noEmit -p tests/consumer/tsconfig.default.json"
+    "typecheck": "effect-tsgo tsrs --noEmit && effect-tsgo tsrs --noEmit -p tests/consumer/tsconfig.json && effect-tsgo tsrs --noEmit -p tests/consumer/tsconfig.default.json"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:effect",
+    "@effect/tsgo": "catalog:",
     "@effect/vitest": "catalog:effect",
     "@samva/contracts": "workspace:*",
     "@samva/core": "workspace:*",
-    "@samva/mailbox": "workspace:*",
     "@samva/markup": "catalog:",
     "@samva/vite": "catalog:",
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.29.1",
-    "tsc-rs": "catalog:",
-    "vite": "~8.3.0",
+    "samva": "workspace:0.30.0",
+    "vite": "~8.3.5",
     "vitest": "catalog:"
   },
   "optionalDependencies": {
-    "@samva/cli-darwin-arm64": "workspace:0.27.0",
-    "@samva/cli-darwin-x64": "workspace:0.27.0",
-    "@samva/cli-linux-arm64": "workspace:0.27.0",
-    "@samva/cli-linux-x64": "workspace:0.27.0"
+    "@samva/cli-darwin-arm64": "workspace:0.28.0",
+    "@samva/cli-darwin-x64": "workspace:0.28.0",
+    "@samva/cli-linux-arm64": "workspace:0.28.0",
+    "@samva/cli-linux-x64": "workspace:0.28.0"
   },
   "engines": {
     "node": ">=18"

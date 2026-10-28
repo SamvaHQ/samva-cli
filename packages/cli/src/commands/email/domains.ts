@@ -309,7 +309,7 @@ const rotateDkim = Command.make("rotate-dkim", {
             );
       }
       const client = yield* getClientProvider;
-      const data = yield* Email.rotateDomainDkim({ id, idempotencyKey }).pipe(
+      const data = yield* Email.rotateDomainDkim({ id }, { idempotencyKey: idempotencyKey }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not stage DKIM rotation", error)),
       );

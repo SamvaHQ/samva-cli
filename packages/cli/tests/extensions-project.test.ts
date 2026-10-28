@@ -44,7 +44,7 @@ describe("extension authoring", () => {
       expect(source).toContain('    "events": [\n      "mailbox.message.received"\n    ],');
       expect(source).toContain('    "permissions": [\n      "read",\n      "send"\n    ]\n  },');
       const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
-      expect(pkg.dependencies["@samva/mailbox"]).toBeTruthy();
+      expect(pkg.dependencies["samva"]).toBeTruthy();
       expect(pkg.scripts).toEqual({
         dev: "samva extensions dev",
         publish: "samva extensions publish",

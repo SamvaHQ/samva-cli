@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
 import { runCli } from "./support/run-cli";
 
-const ID = "unsub_1234567890abcdef";
+const ID = "nl_1234567890abcdef";
 const PROJECT = "tproj_1234567890abcdef";
 const PATH = "issues/october.md";
 const HEAD = "a".repeat(40);
@@ -62,6 +62,7 @@ const startApi = async (
     path: string;
     body: unknown;
     key: string | string[] | undefined;
+    idempotencyKey: string | string[] | undefined;
   }> = [];
   const server = createServer(async (req, res) => {
     let body = "";
@@ -72,6 +73,7 @@ const startApi = async (
       path: req.url ?? "/",
       body: body ? JSON.parse(body) : null,
       key: req.headers["x-api-key"],
+      idempotencyKey: req.headers["idempotency-key"],
     });
     let response: unknown = draft;
     if (url.pathname.endsWith("/document")) response = document;
@@ -111,7 +113,7 @@ const startApi = async (
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 };
-const base = `/v1/topics/${ID}/issues`;
+const base = `/v1/newsletters/${ID}/issues`;
 
 describe("topic issue CLI subprocess contract", () => {
   it("forwards every curated issue operation and emits one complete result envelope", async () => {
@@ -154,7 +156,7 @@ describe("topic issue CLI subprocess contract", () => {
       ];
       for (const [name, ...flags] of commands) {
         const result = await runCli(
-          ["topics", "issues", name!, ID, ...flags, "--json", "--log-level", "debug"],
+          ["newsletters", "issues", name!, ID, ...flags, "--json", "--log-level", "debug"],
           { configHome, env: api.env, stdin: CONTENT },
         );
         expect(result.code, result.stderr).toBe(0);
@@ -162,9 +164,22 @@ describe("topic issue CLI subprocess contract", () => {
         expect(JSON.parse(result.stdout)).toMatchObject({
           schemaVersion: 1,
           type: "result",
-          command: `topics.issues.${name}`,
+          command: `newsletters.issues.${name}`,
         });
       }
+      expect(
+        api.requests
+          .filter((request) => request.idempotencyKey !== undefined)
+          .map((request) => request.idempotencyKey),
+      ).toEqual([
+        "create-1",
+        "edit-1",
+        "delete-1",
+        "save-1",
+        expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      ]);
       expect(api.requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
         { method: "GET", path: base, body: null },
         { method: "GET", path: `${base}/workspace`, body: null },
@@ -178,17 +193,17 @@ describe("topic issue CLI subprocess contract", () => {
         {
           method: "POST",
           path: base,
-          body: { path: PATH, content: CONTENT, idempotencyKey: "create-1" },
+          body: { path: PATH, content: CONTENT },
         },
         {
           method: "PATCH",
           path: base,
-          body: { path: PATH, content: CONTENT, expectedRevision: "4", idempotencyKey: "edit-1" },
+          body: { path: PATH, content: CONTENT, expectedRevision: "4" },
         },
         {
           method: "POST",
           path: `${base}/remove`,
-          body: { path: PATH, expectedRevision: "4", idempotencyKey: "delete-1" },
+          body: { path: PATH, expectedRevision: "4" },
         },
         {
           method: "POST",
@@ -197,7 +212,6 @@ describe("topic issue CLI subprocess contract", () => {
             expectedRevision: "4",
             expectedHead: HEAD,
             message: "Save issue",
-            idempotencyKey: "save-1",
           },
         },
         { method: "POST", path: `${base}/check`, body: { path: PATH, expectedRevision: "4" } },
@@ -209,7 +223,7 @@ describe("topic issue CLI subprocess contract", () => {
       ]);
       expect(api.requests.every(({ key }) => key === "samva_sk_test_issues")).toBe(true);
       const human = await runCli(
-        ["topics", "issues", "read", ID, "--path", PATH, "--revision", "4"],
+        ["newsletters", "issues", "read", ID, "--path", PATH, "--revision", "4"],
         { configHome, env: api.env },
       );
       expect(human.code, human.stderr).toBe(0);
@@ -242,14 +256,17 @@ describe("topic issue CLI subprocess contract", () => {
     ];
     const api = await startApi(undefined, items);
     try {
-      const human = await runCli(["topics", "issues", "list", ID], { configHome, env: api.env });
+      const human = await runCli(["newsletters", "issues", "list", ID], {
+        configHome,
+        env: api.env,
+      });
       expect(human.code, human.stderr).toBe(0);
       expect(human.stdout.trimEnd().split("\n")).toEqual([
         "Revision 4",
         "issues/august.md   (no title)  [draft]",
         "issues/october.md  October  [scheduled]",
       ]);
-      const json = await runCli(["topics", "issues", "list", ID, "--json"], {
+      const json = await runCli(["newsletters", "issues", "list", ID, "--json"], {
         configHome,
         env: api.env,
       });
@@ -265,7 +282,7 @@ describe("topic issue CLI subprocess contract", () => {
     try {
       const result = await runCli(
         [
-          "topics",
+          "newsletters",
           "issues",
           "update",
           ID,
@@ -285,17 +302,16 @@ describe("topic issue CLI subprocess contract", () => {
       expect(result.code, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout).data).toEqual({
         dryRun: true,
-        action: "topicIssues.update",
+        action: "newsletterIssues.update",
         request: {
           id: ID,
           path: PATH,
           content: CONTENT,
           expectedRevision: "4",
-          idempotencyKey: "edit-1",
         },
       });
       const args = [
-        "topics",
+        "newsletters",
         "issues",
         "delete",
         ID,
@@ -321,12 +337,12 @@ describe("topic issue CLI subprocess contract", () => {
   it.each([
     [409, { _tag: "ConflictError", message: "Workspace moved", resource: "TopicIssue", id: ID }],
     [403, { _tag: "ForbiddenError", message: "Topic belongs to another namespace" }],
-    [403, { _tag: "FlagDisabledError", message: "Issues disabled", flag: "issueContent" }],
+    [403, { _tag: "FlagDisabledError", message: "Issues disabled", flag: "newsletters" }],
   ])("preserves upstream failure %s and exits nonzero", async (status, body) => {
     const api = await startApi({ status, body });
     try {
       const result = await runCli(
-        ["topics", "issues", "read", ID, "--path", PATH, "--revision", "4", "--json"],
+        ["newsletters", "issues", "read", ID, "--path", PATH, "--revision", "4", "--json"],
         { configHome, env: api.env },
       );
       expect(result.code).toBe(status === 403 ? 4 : 1);
@@ -348,7 +364,7 @@ describe("topic issue CLI subprocess contract", () => {
     const api = await startApi();
     try {
       for (const name of ["read", "update", "delete", "save", "check", "render"]) {
-        const result = await runCli(["topics", "issues", name, ID, "--path", PATH, "--json"], {
+        const result = await runCli(["newsletters", "issues", name, ID, "--path", PATH, "--json"], {
           configHome,
           env: api.env,
         });
@@ -368,7 +384,9 @@ describe("topic issue CLI subprocess contract", () => {
         "head",
         "history",
       ]) {
-        const help = await runCli(["topics", "issues", name, "--help", "--json"], { configHome });
+        const help = await runCli(["newsletters", "issues", name, "--help", "--json"], {
+          configHome,
+        });
         expect(help.code, help.stderr).toBe(0);
         expect(JSON.parse(help.stdout).data.examples.length).toBeGreaterThan(0);
       }

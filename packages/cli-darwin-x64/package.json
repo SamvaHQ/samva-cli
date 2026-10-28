@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli-darwin-x64",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "Samva CLI native executable for darwin-x64",
   "keywords": [
     "cli",

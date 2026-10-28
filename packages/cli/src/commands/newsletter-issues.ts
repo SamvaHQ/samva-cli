@@ -4,7 +4,7 @@ import * as Flag from "effect/cli/Flag";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
-import * as Issues from "samva/effect/topic-issues";
+import * as Issues from "samva/effect/newsletter-issues";
 
 import { SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
@@ -12,8 +12,8 @@ import { confirmDestructive } from "../lib/confirm";
 import { jsonFlag, printJsonDocument, printResult } from "../lib/output";
 import { readStdinUtf8 } from "../lib/stdin";
 
-const idArgument = Argument.String("topic-id").pipe(
-  Argument.withDescription("Topic id (unsub_...)"),
+const idArgument = Argument.String("newsletter-id").pipe(
+  Argument.withDescription("Newsletter id (nl_...)"),
 );
 const pathFlag = Flag.String("path").pipe(
   Flag.withDescription("Markdown issue path, e.g. issues/october.md"),
@@ -69,14 +69,14 @@ const list = Command.make("list", { id: idArgument, json: jsonFlag }).pipe(
   Command.withDescription(
     "List issues with each draft's title and its latest send status (draft when never scheduled), plus the current workspace revision",
   ),
-  Command.withExamples([{ command: "samva topics issues list unsub_1234567890abcdef --json" }]),
+  Command.withExamples([{ command: "samva newsletters issues list nl_1234567890abcdef --json" }]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, json }) {
       const request = { id };
       const client = yield* getClientProvider;
       const result = yield* Issues.list(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not list newsletter issues", error)),
       );
       yield* printResult(result, listRows(result));
     }),
@@ -84,15 +84,17 @@ const list = Command.make("list", { id: idArgument, json: jsonFlag }).pipe(
 );
 
 const open = Command.make("open", { id: idArgument, json: jsonFlag }).pipe(
-  Command.withDescription("Open the existing topic issue workspace; does not create a repository"),
-  Command.withExamples([{ command: "samva topics issues open unsub_1234567890abcdef --json" }]),
+  Command.withDescription(
+    "Open the existing newsletter issue workspace; does not create a repository",
+  ),
+  Command.withExamples([{ command: "samva newsletters issues open nl_1234567890abcdef --json" }]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, json }) {
       const request = { id };
       const client = yield* getClientProvider;
       const result = yield* Issues.open(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not open topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not open newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -109,7 +111,7 @@ const read = Command.make("read", {
   Command.withExamples([
     {
       command:
-        "samva topics issues read unsub_1234567890abcdef --path issues/october.md --revision 4 --json",
+        "samva newsletters issues read nl_1234567890abcdef --path issues/october.md --revision 4 --json",
     },
   ]),
   Command.withHandler(
@@ -118,7 +120,7 @@ const read = Command.make("read", {
       const client = yield* getClientProvider;
       const result = yield* Issues.get(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not read newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -140,25 +142,19 @@ const create = Command.make("create", {
   Command.withExamples([
     {
       command:
-        "samva topics issues create unsub_1234567890abcdef --path issues/october.md --file ./october.md --idempotency-key edit-1 --json",
+        "samva newsletters issues create nl_1234567890abcdef --path issues/october.md --file ./october.md --idempotency-key edit-1 --json",
     },
   ]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, path, revision, file, idempotencyKey, dryRun, json }) {
       const content = yield* readContent(file);
-      const request = {
-        id,
-        path,
-        expectedRevision: Option.getOrUndefined(revision),
-        content,
-        idempotencyKey,
-      };
+      const request = { id, path, expectedRevision: Option.getOrUndefined(revision), content };
       if (dryRun)
-        return yield* printJsonDocument({ dryRun, action: "topicIssues.create", request });
+        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.create", request });
       const client = yield* getClientProvider;
-      const result = yield* Issues.create(request).pipe(
+      const result = yield* Issues.create(request, { idempotencyKey }).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not create topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not create newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -178,19 +174,19 @@ const update = Command.make("update", {
   Command.withExamples([
     {
       command:
-        "samva topics issues update unsub_1234567890abcdef --path issues/october.md --revision 4 --file ./october.md --idempotency-key edit-1 --json",
+        "samva newsletters issues update nl_1234567890abcdef --path issues/october.md --revision 4 --file ./october.md --idempotency-key edit-1 --json",
     },
   ]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, path, revision, file, idempotencyKey, dryRun, json }) {
       const content = yield* readContent(file);
-      const request = { id, path, expectedRevision: revision, content, idempotencyKey };
+      const request = { id, path, expectedRevision: revision, content };
       if (dryRun)
-        return yield* printJsonDocument({ dryRun, action: "topicIssues.update", request });
+        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.update", request });
       const client = yield* getClientProvider;
-      const result = yield* Issues.update(request).pipe(
+      const result = yield* Issues.update(request, { idempotencyKey }).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not update topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not update newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -213,14 +209,14 @@ const remove = Command.make("delete", {
   Command.withExamples([
     {
       command:
-        "samva topics issues delete unsub_1234567890abcdef --path issues/october.md --revision 4 --idempotency-key edit-1 --yes --json",
+        "samva newsletters issues delete nl_1234567890abcdef --path issues/october.md --revision 4 --idempotency-key edit-1 --yes --json",
     },
   ]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, path, revision, idempotencyKey, dryRun, yes, json }) {
-      const request = { id, path, expectedRevision: revision, idempotencyKey };
+      const request = { id, path, expectedRevision: revision };
       if (dryRun)
-        return yield* printJsonDocument({ dryRun, action: "topicIssues.remove", request });
+        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.remove", request });
       yield* confirmDestructive({
         yes,
         json,
@@ -229,9 +225,9 @@ const remove = Command.make("delete", {
           "Issue deletion requires --yes outside a terminal. Preview with --dry-run.",
       });
       const client = yield* getClientProvider;
-      const result = yield* Issues.remove(request).pipe(
+      const result = yield* Issues.remove(request, { idempotencyKey }).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not delete topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not delete newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -253,23 +249,18 @@ const save = Command.make("save", {
   Command.withExamples([
     {
       command:
-        'samva topics issues save unsub_1234567890abcdef --revision 4 --idempotency-key edit-1 --head 0000000000000000000000000000000000000000 --message "Save October issue" --json',
+        'samva newsletters issues save nl_1234567890abcdef --revision 4 --idempotency-key edit-1 --head 0000000000000000000000000000000000000000 --message "Save October issue" --json',
     },
   ]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, revision, idempotencyKey, dryRun, head, message, json }) {
-      const request = {
-        id,
-        expectedRevision: revision,
-        idempotencyKey,
-        expectedHead: head,
-        message,
-      };
-      if (dryRun) return yield* printJsonDocument({ dryRun, action: "topicIssues.save", request });
+      const request = { id, expectedRevision: revision, expectedHead: head, message };
+      if (dryRun)
+        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.save", request });
       const client = yield* getClientProvider;
-      const result = yield* Issues.save(request).pipe(
+      const result = yield* Issues.save(request, { idempotencyKey }).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not save topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not save newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -286,7 +277,7 @@ const check = Command.make("check", {
   Command.withExamples([
     {
       command:
-        "samva topics issues check unsub_1234567890abcdef --path issues/october.md --revision 4 --json",
+        "samva newsletters issues check nl_1234567890abcdef --path issues/october.md --revision 4 --json",
     },
   ]),
   Command.withHandler(
@@ -295,7 +286,7 @@ const check = Command.make("check", {
       const client = yield* getClientProvider;
       const result = yield* Issues.check(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not check topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not check newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -316,7 +307,7 @@ const render = Command.make("render", {
   Command.withExamples([
     {
       command:
-        "samva topics issues render unsub_1234567890abcdef --path issues/october.md --revision 4 --fixture default --target email --json",
+        "samva newsletters issues render nl_1234567890abcdef --path issues/october.md --revision 4 --fixture default --target email --json",
     },
   ]),
   Command.withHandler(
@@ -325,7 +316,7 @@ const render = Command.make("render", {
       const client = yield* getClientProvider;
       const result = yield* Issues.render(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not render topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not render newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -334,14 +325,14 @@ const render = Command.make("render", {
 
 const head = Command.make("head", { id: idArgument, json: jsonFlag }).pipe(
   Command.withDescription("Read the current workspace revision and repository branch head"),
-  Command.withExamples([{ command: "samva topics issues head unsub_1234567890abcdef --json" }]),
+  Command.withExamples([{ command: "samva newsletters issues head nl_1234567890abcdef --json" }]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, json }) {
       const request = { id };
       const client = yield* getClientProvider;
       const result = yield* Issues.head(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not head topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not head newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -357,14 +348,16 @@ const history = Command.make("history", {
   ),
 }).pipe(
   Command.withDescription("List a bounded set of saved commits, newest first"),
-  Command.withExamples([{ command: "samva topics issues history unsub_1234567890abcdef --json" }]),
+  Command.withExamples([
+    { command: "samva newsletters issues history nl_1234567890abcdef --json" },
+  ]),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, limit, json }) {
       const request = { id, limit };
       const client = yield* getClientProvider;
       const result = yield* Issues.history(request).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not history topic issues", error)),
+        Effect.mapError((error) => toCliApiError("Could not history newsletter issues", error)),
       );
       yield* printJsonDocument(result);
     }),
@@ -375,7 +368,7 @@ export const issuesCommand = Command.make("issues").pipe(
   Command.withDescription(
     "Author topic-owned Markdown issues; results are JSON receipts for the next call",
   ),
-  Command.withExamples([{ command: "samva topics issues list unsub_1234567890abcdef --json" }]),
+  Command.withExamples([{ command: "samva newsletters issues list nl_1234567890abcdef --json" }]),
   Command.withSubcommands([
     list,
     open,

@@ -167,7 +167,7 @@ const smokeHostBinary = async (executablePath: string) => {
 // its canonical preflight, before starting watched Vite/workerd resources, and
 // passes --prebuilt so packaging cannot mutate dist beneath a live graph.
 if (!prebuilt) {
-  await $`bun run turbo run build --filter=samva --filter=@samva/mailbox`.cwd(REPOSITORY_ROOT);
+  await $`bun run turbo run build --filter=samva`.cwd(REPOSITORY_ROOT);
   await $`bun run build`.cwd(CLI_ROOT);
 } else {
   const required = [

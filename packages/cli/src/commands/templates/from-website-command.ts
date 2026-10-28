@@ -81,12 +81,14 @@ export const fromWebsiteCommand = Command.make("from-website", {
             Effect.mapError((error) => toCliApiError("Could not look up the organization", error)),
           )).organization.slug
         : context.orgSlug;
-      const result = yield* Templates.createFromWebsite({
-        url,
-        ...(Option.isSome(name) ? { name: name.value } : {}),
-        ...namespaceField(namespace),
-        idempotencyKey: key ?? crypto.randomUUID(),
-      }).pipe(
+      const result = yield* Templates.createFromWebsite(
+        {
+          url,
+          ...(Option.isSome(name) ? { name: name.value } : {}),
+          ...namespaceField(namespace),
+        },
+        { idempotencyKey: key ?? crypto.randomUUID() },
+      ).pipe(
         client.provide,
         Effect.mapError((error) =>
           toCliApiError("Could not create a template from the website", error),

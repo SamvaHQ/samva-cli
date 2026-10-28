@@ -67,7 +67,6 @@ export interface ScheduledEmailCreateInput {
   readonly from?: { readonly email: string; readonly name?: string } | undefined;
   readonly scheduledFor: Date;
   readonly timezone: string | undefined;
-  readonly idempotencyKey: string | undefined;
   readonly referenceId: string | undefined;
   readonly tracking: { readonly opens?: boolean; readonly clicks?: boolean } | undefined;
 }
@@ -100,7 +99,6 @@ export const assembleScheduledEmailPayload = (
   },
   scheduledFor: input.scheduledFor,
   timezone: input.timezone,
-  idempotencyKey: input.idempotencyKey,
   referenceId: input.referenceId,
 });
 
@@ -351,7 +349,6 @@ const create = Command.make("create", {
               }),
           scheduledFor: new Date(at),
           timezone: Option.getOrUndefined(timezone),
-          idempotencyKey: Option.getOrUndefined(idempotencyKey),
           referenceId: Option.getOrUndefined(referenceId),
           tracking:
             Option.isSome(trackOpens) || Option.isSome(trackClicks)
@@ -377,7 +374,9 @@ const create = Command.make("create", {
         }
 
         const client = yield* getClientProvider;
-        const data = yield* ScheduledMessages.create(payload).pipe(
+        const data = yield* ScheduledMessages.create(payload, {
+          idempotencyKey: Option.getOrUndefined(idempotencyKey),
+        }).pipe(
           client.provide,
           Effect.mapError((error) => toCliApiError("Failed to schedule message", error)),
         );

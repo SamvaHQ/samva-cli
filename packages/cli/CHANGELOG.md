@@ -1,3 +1,40 @@
+## @samva/cli@0.28.0
+
+### One Idempotency Option Across the SDK
+
+**Breaking:** Pass idempotency keys in the second options argument as `{ idempotencyKey }`.
+Raw HTTP callers send `Idempotency-Key`; body and query spellings are removed. Both clients
+supply a fresh key for every idempotent operation and reuse it across automatic retries.
+
+The Promise client retries reads and idempotent mutations, accepts client-level and per-call
+`maxRetries`, and adds lazy `.pages()` and `.items()` async iterators to cursor lists.
+OAuth clients can select an organization with `orgSlug`.
+
+**Breaking:** Import mailbox extension helpers from `samva/mailbox`, `samva/mailbox/test`, and
+`samva/mailbox/webhook`. Handlers receive the normal client and call
+`ctx.samva.mailboxes.reply({ id, messageId, text })`. Event dispatch preserves deterministic
+send keys. The CLI extension scaffold uses these imports and flat calls.
+
+For `samva events send`, pass `--idempotency-key` instead of embedding a key in `--data`.
+
+### Templates build with authoring 0.22.0
+
+`samva templates` commands bundle `@samva/markup` and `@samva/vite` 0.22.0. Issue layouts can place the issue's title and date with `<IssueTitle />` and `<IssueDate />`; `IssueDate` reads an optional `date: YYYY-MM-DD` frontmatter field. Output for existing templates is unchanged.
+
+### Newsletters own issue publishing
+
+Use `newsletters` for newsletter management, `newsletters.issues` for issue authoring, and
+`newsletters.domains` for custom domains on the Promise client. Effect callers import
+`samva/effect/newsletters`, `samva/effect/newsletter-issues`, and `samva/effect/newsletter-domains`.
+
+The API uses `/v1/newsletters/:id/issues/*` and `/v1/newsletters/:id/domains/*`; CLI commands use
+`samva newsletters`. Topic issue routes, SDK namespaces, MCP `issues_*` tools, and topic archive
+fields are removed. Newsletter mutations accept one optional `Idempotency-Key` header. Consent,
+subscriptions, sending defaults, and campaign audiences continue to use `topicId`.
+
+Discover archive domains with `newsletters.domains.list` or `samva newsletters domains list`.
+The hostname-ordered response includes verification snapshots and an opaque `nextCursor`.
+
 ## @samva/cli@0.27.0
 
 ### Author newsletter issues and pin saved content to campaigns
@@ -537,7 +574,7 @@ samva mailboxes create --address support@acme.samva.email --name Support
   own.
 - `samva mailboxes update --data` and mailbox JSON output use `name` instead of `displayName`.
 - Add and remove addresses with `samva mailboxes addresses add` and `samva mailboxes addresses
-remove`. Removing asks for confirmation, or `--yes` outside a terminal.
+  remove`. Removing asks for confirmation, or `--yes` outside a terminal.
 - Mail from a mailbox with no sender name now shows the mailbox's `name` instead of a bare address.
 
 ## @samva/cli@0.11.0

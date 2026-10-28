@@ -18,7 +18,6 @@ describe("samva scheduled command helpers", () => {
       bcc: undefined,
       scheduledFor: "2026-08-01T09:00:00Z",
       timezone: "America/New_York",
-      idempotencyKey: "key-1",
       referenceId: "ref-1",
       tracking: { opens: false },
     });
@@ -32,7 +31,6 @@ describe("samva scheduled command helpers", () => {
       },
       scheduledFor: "2026-08-01T09:00:00Z",
       timezone: "America/New_York",
-      idempotencyKey: "key-1",
       referenceId: "ref-1",
     });
   });
@@ -52,7 +50,6 @@ describe("samva scheduled command helpers", () => {
       bcc: undefined,
       scheduledFor: new Date("2026-08-01T09:00:00Z"),
       timezone: undefined,
-      idempotencyKey: undefined,
       referenceId: undefined,
       tracking: undefined,
     };
@@ -76,7 +73,6 @@ describe("samva scheduled command helpers", () => {
       bcc: undefined,
       scheduledFor: "2026-08-01T09:00:00Z",
       timezone: undefined,
-      idempotencyKey: undefined,
       referenceId: undefined,
       tracking: undefined,
     });

@@ -55,6 +55,7 @@ const whoami = {
 
 interface Recorded {
   readonly method: string;
+  readonly idempotencyKey: string | undefined;
   readonly path: string;
   readonly body: Record<string, unknown> | undefined;
 }
@@ -65,7 +66,15 @@ let reply: { status: number; body: unknown } = { status: 201, body: created };
 const server = createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
-  requests.push({ method: req.method!, path: req.url!, body: raw ? JSON.parse(raw) : undefined });
+  requests.push({
+    method: req.method!,
+    path: req.url!,
+    body: raw ? JSON.parse(raw) : undefined,
+    idempotencyKey:
+      typeof req.headers["idempotency-key"] === "string"
+        ? req.headers["idempotency-key"]
+        : undefined,
+  });
   const [status, body] = req.url === "/v1/whoami" ? [200, whoami] : [reply.status, reply.body];
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -148,7 +157,7 @@ describe("samva templates from-website", () => {
     await run(["example.com"]);
     await run(["example.com"]);
     await run(["example.com", "--idempotency-key", "brand-1"]);
-    const [first, second, third] = posted().map((request) => request.body?.["idempotencyKey"]);
+    const [first, second, third] = posted().map((request) => request.idempotencyKey);
     expect(typeof first).toBe("string");
     expect(first).not.toBe(second);
     expect(third).toBe("brand-1");

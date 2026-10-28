@@ -1,11 +1,7 @@
 import { basename } from "node:path";
 
-import {
-  ImportInput,
-  ImportPreset,
-  ImportExportScope,
-  StartImport,
-} from "@samva/core/contacts/import-job";
+import { StartImport } from "@samva/contracts/contacts/import-group";
+import { ImportInput, ImportPreset, ImportExportScope } from "@samva/core/contacts/import-job";
 import { ContactImportJobId, TopicId } from "@samva/core/shared/base";
 import { Console, Effect, FileSystem, Option, Schema } from "effect";
 import * as Argument from "effect/cli/Argument";
@@ -178,13 +174,12 @@ export const importContacts = Command.make("import", {
         mode: "new",
         input,
         planHash: reviewedHash,
-        idempotencyKey: key.value,
       }).pipe(
         Effect.mapError(
           (error) => new CliUsageError({ code: "import_input_invalid", message: error.message }),
         ),
       );
-      const job = yield* Contacts.startImport(payload).pipe(
+      const job = yield* Contacts.startImport(payload, { idempotencyKey: key.value }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not start import", error)),
       );

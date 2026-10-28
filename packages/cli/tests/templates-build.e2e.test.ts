@@ -621,7 +621,7 @@ describe("template authoring commands", () => {
         "--json",
       ]);
       expect(result.code, result.stderr).toBe(0);
-      return JSON.parse(result.stdout).data.request.idempotencyKey as string;
+      return JSON.parse(result.stdout).data.idempotencyKey as string;
     };
 
     const [none, a, b, aAgain] = [

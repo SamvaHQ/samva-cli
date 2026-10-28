@@ -6,10 +6,11 @@ import {
   ExtensionRuntime,
 } from "@samva/core/mailboxes/extension";
 import { MailboxId } from "@samva/core/shared/base";
-import { createSamvaClient, dispatchEvent } from "@samva/mailbox";
 import { Console, Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
+import { createClient } from "samva";
 import * as Extensions from "samva/effect/extensions";
+import { dispatchEvent } from "samva/mailbox";
 
 import { CliUsageError, SamvaCliError } from "../errors";
 import { getClientConfig, getClientProvider, requestAuthHeaders } from "../lib/client";
@@ -134,16 +135,12 @@ const dev = Command.make("dev", {
       // A handler still waiting on the API when the stream stops is cancelled, so it cannot keep
       // the process alive.
       const stopped = yield* Effect.abortSignal;
-      const client = createSamvaClient({
-        fetch: (input, requestInit) =>
-          globalThis.fetch(input, {
-            ...requestInit,
-            signal:
-              requestInit?.signal === undefined || requestInit.signal === null
-                ? stopped
-                : AbortSignal.any([requestInit.signal, stopped]),
-          }),
+      const client = createClient({
+        ...(config.apiKey !== undefined
+          ? { apiKey: config.apiKey }
+          : { authToken: config.authToken }),
         baseUrl: config.baseUrl,
+        signal: stopped,
         headers,
       });
       yield* tailEvents({

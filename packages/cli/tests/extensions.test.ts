@@ -761,12 +761,6 @@ describe("extension API command contracts", () => {
     expect(result.stderr).toContain("samva login");
     expect(result.stdout).toBe("");
   });
-  it("maps a gated route failure", async () => {
-    const result = await run(["list", "--json"], undefined, 404);
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("`mailbox` launch flag");
-    expect(result.stdout).toBe("");
-  });
   for (const command of ["list", "installations", "versions", "runs"])
     it(`renders an empty ${command} result`, async () => {
       const result = await run(

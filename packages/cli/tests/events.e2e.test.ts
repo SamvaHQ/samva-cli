@@ -21,12 +21,11 @@ const payload = {
   contact: { email: "ada@example.com" },
   name: event.name,
   properties: event.properties,
-  idempotencyKey: "trial-42",
 };
 let configHome: string;
 let apiUrl: string;
 let close: () => Promise<void>;
-let requests: Array<{ url: URL; body: unknown; key: unknown }>;
+let requests: Array<{ url: URL; body: unknown; key: unknown; idempotencyKey: unknown }>;
 let failSecond: boolean;
 beforeEach(async () => {
   configHome = await mkdtemp(join(tmpdir(), "samva-cli-events-"));
@@ -36,7 +35,12 @@ beforeEach(async () => {
     const url = new URL(req.url ?? "/", "http://localhost");
     let source = "";
     for await (const chunk of req) source += chunk;
-    requests.push({ url, body: source ? JSON.parse(source) : null, key: req.headers["x-api-key"] });
+    requests.push({
+      url,
+      body: source ? JSON.parse(source) : null,
+      key: req.headers["x-api-key"],
+      idempotencyKey: req.headers["idempotency-key"],
+    });
     const reply = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -83,6 +87,8 @@ describe("contact events CLI HTTP boundary", () => {
           "send",
           "--data",
           mode === "inline" ? JSON.stringify(payload) : mode === "file" ? `@${file}` : "-",
+          "--idempotency-key",
+          "trial-42",
           "--json",
         ],
         mode === "stdin" ? JSON.stringify(payload) : undefined,
@@ -91,7 +97,11 @@ describe("contact events CLI HTTP boundary", () => {
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({ command: "events.send", data: event });
       expect(requests).toHaveLength(1);
-      expect(requests[0]).toMatchObject({ body: payload, key: "samva_sk_test_events" });
+      expect(requests[0]).toMatchObject({
+        body: payload,
+        key: "samva_sk_test_events",
+        idempotencyKey: "trial-42",
+      });
     },
   );
   it("validates dry runs without credentials or requests", async () => {

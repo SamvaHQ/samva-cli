@@ -343,10 +343,12 @@ interface ApiRequest {
 const startApi = (): Promise<{
   url: string;
   requests: ApiRequest[];
+  idempotencyKeys: string[];
   close: () => Promise<void>;
 }> =>
   new Promise((resolve) => {
     const requests: ApiRequest[] = [];
+    const idempotencyKeys: string[] = [];
     // Every list row now carries a 14-day send series; an entity that has never
     // sent reports fourteen zeroes.
     const zeroSeries = Array.from({ length: 14 }, () => 0);
@@ -507,6 +509,8 @@ const startApi = (): Promise<{
       req.on("data", (chunk) => (raw += String(chunk)));
       req.on("end", () => {
         const path = req.url ?? "/";
+        const idempotencyKey = req.headers["idempotency-key"];
+        if (typeof idempotencyKey === "string") idempotencyKeys.push(idempotencyKey);
         requests.push({ method: req.method ?? "GET", path, body: raw ? JSON.parse(raw) : null });
         let result: unknown;
         if (path === "/v1/whoami") {
@@ -633,6 +637,7 @@ const startApi = (): Promise<{
       resolve({
         url: `http://127.0.0.1:${port}`,
         requests,
+        idempotencyKeys,
         close: () => new Promise((done) => server.close(() => done())),
       });
     });
@@ -778,6 +783,7 @@ describe("--json stdout purity", () => {
       "campaigns",
       "subscriptions",
       "topics",
+      "newsletters",
       "scheduled-messages",
       "templates",
       "brands",
@@ -1439,6 +1445,7 @@ describe("scheduled and campaign subprocess contracts", () => {
         expect(result.stderr).toBe("");
         expect(() => JSON.parse(result.stdout)).not.toThrow();
       }
+      expect(api.idempotencyKeys).toContain("welcome-ada");
       expect(api.requests).toEqual([
         {
           method: "POST",
@@ -1456,7 +1463,6 @@ describe("scheduled and campaign subprocess contracts", () => {
             // The SDK now encodes `scheduledFor` through the contract schema,
             // which canonicalizes instants to millisecond-precision ISO.
             scheduledFor: "2026-08-01T09:00:00.000Z",
-            idempotencyKey: "welcome-ada",
           },
         },
         { method: "GET", path: "/v1/messages/scheduled", body: null },
@@ -1566,6 +1572,7 @@ describe("scheduled and campaign subprocess contracts", () => {
         expect(result.stderr).toBe("");
         expect(() => JSON.parse(result.stdout)).not.toThrow();
       }
+      expect(api.idempotencyKeys).toContain("launch-august");
       expect(api.requests).toEqual([
         {
           method: "POST",
@@ -1596,7 +1603,7 @@ describe("scheduled and campaign subprocess contracts", () => {
         {
           method: "POST",
           path: "/v1/campaigns/camp_1234567890abcdefgh/runs",
-          body: { scheduledFor: "2026-08-01T09:00:00.000Z", idempotencyKey: "launch-august" },
+          body: { scheduledFor: "2026-08-01T09:00:00.000Z" },
         },
         { method: "GET", path: "/v1/campaigns/camp_1234567890abcdefgh/runs", body: null },
         {
@@ -2385,13 +2392,7 @@ describe("email launch mutation contracts", () => {
   });
 
   it.each([
-    [
-      "create",
-      [
-        "--data",
-        '{"name":"Welcome","projectName":"welcome-email","idempotencyKey":"welcome-email-v1"}',
-      ],
-    ],
+    ["create", ["--data", '{"name":"Welcome","projectName":"welcome-email"}']],
     ["update", ["tmpl_abc123", "--data", '{"name":"Welcome back"}']],
     ["remove", ["tmpl_abc123"]],
   ] as const)("template %s dry-run does not require auth", async (command, args) => {
@@ -2406,7 +2407,7 @@ describe("email launch mutation contracts", () => {
       "templates",
       "create",
       "--data",
-      '{"name":"Welcome","idempotencyKey":"welcome-email-v1"}',
+      '{"name":"Welcome"}',
       "--shared",
       "--dry-run",
       "--json",
@@ -2416,19 +2417,15 @@ describe("email launch mutation contracts", () => {
   });
 
   it.each([
-    [
-      "shared: false in --data",
-      ['{"name":"Welcome","idempotencyKey":"k","shared":false}'],
-      "shared_conflict",
-    ],
+    ["shared: false in --data", ['{"name":"Welcome","shared":false}'], "shared_conflict"],
     [
       "--namespace",
-      ['{"name":"Welcome","idempotencyKey":"k"}', "--namespace", "ns_3xk9mvt4znw8rh7q"],
+      ['{"name":"Welcome"}', "--namespace", "ns_3xk9mvt4znw8rh7q"],
       "shared_namespace_conflict",
     ],
     [
       "namespaceId in --data",
-      ['{"name":"Welcome","idempotencyKey":"k","namespaceId":"ns_3xk9mvt4znw8rh7q"}'],
+      ['{"name":"Welcome","namespaceId":"ns_3xk9mvt4znw8rh7q"}'],
       "shared_namespace_conflict",
     ],
   ] as const)("template create --shared refuses %s", async (_label, [data, ...rest], reason) => {

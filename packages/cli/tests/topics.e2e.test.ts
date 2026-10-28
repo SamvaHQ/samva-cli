@@ -18,8 +18,6 @@ const topic = {
   defaultSenderId: null,
   replyMailboxId: null,
   templateId: null,
-  archiveEnabled: false,
-  publicationSlug: null,
   subscriptions: {
     email: { subscribed: 7, unsubscribed: 2 },
     sms: { subscribed: 0, unsubscribed: 0 },
@@ -120,33 +118,26 @@ describe("topics subprocess contract", () => {
     }
   });
 
-  it("propagates hosted publication settings in create and update requests", async () => {
+  it("rejects the removed topic issue namespace", async () => {
     const api = await startApi();
     try {
-      for (const args of [
-        [
-          "create",
-          "--name",
-          "Newsletter",
-          "--default",
-          "opt_in",
-          "--archive",
-          "enabled",
-          "--publication-slug",
-          "news",
-        ],
-        ["update", ID, "--archive", "disabled", "--publication-slug", "none"],
-      ]) {
-        const result = await runCli(["topics", ...args, "--json"], { configHome, env: api.env });
-        expect(result.code, result.stderr).toBe(0);
-      }
-      expect(api.requests.map((request) => request.body)).toEqual([
-        { name: "Newsletter", default: "opt_in", archiveEnabled: true, publicationSlug: "news" },
-        { archiveEnabled: false, publicationSlug: null },
-      ]);
+      const result = await runCli(["topics", "issues", "list", ID, "--json"], {
+        configHome,
+        env: api.env,
+      });
+      expect(result.code).not.toBe(0);
+      expect(api.requests).toEqual([]);
     } finally {
       await api.close();
     }
+  });
+
+  it("rejects newsletter publishing flags on topics", async () => {
+    const result = await runCli(
+      ["topics", "create", "--name", "News", "--archive", "enabled", "--json"],
+      { configHome },
+    );
+    expect(result.code).not.toBe(0);
   });
 
   it("writes both statuses and reads bounded explicit and effective preferences", async () => {

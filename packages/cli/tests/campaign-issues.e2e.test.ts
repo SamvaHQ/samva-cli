@@ -36,10 +36,13 @@ afterEach(async () => {
 });
 const startApi = async () => {
   const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const idempotencyKeys: string[] = [];
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const path = req.url ?? "/";
+    const idempotencyKey = req.headers["idempotency-key"];
+    if (typeof idempotencyKey === "string") idempotencyKeys.push(idempotencyKey);
     requests.push({ method: req.method ?? "GET", path, body: body ? JSON.parse(body) : null });
     let response: unknown = campaign;
     if (path.endsWith("/preview"))
@@ -94,6 +97,7 @@ const startApi = async () => {
   if (address === null || typeof address === "string") throw new Error("Test API did not bind");
   return {
     requests,
+    idempotencyKeys,
     env: {
       SAMVA_API_KEY: "samva_sk_test_issue_campaign",
       SAMVA_API_URL: `http://127.0.0.1:${address.port}`,
@@ -149,6 +153,7 @@ describe("pinned issue campaign CLI", () => {
         expect(result.stderr).toBe("");
         expect(JSON.parse(result.stdout)).toMatchObject({ schemaVersion: 1, type: "result" });
       }
+      expect(api.idempotencyKeys).toContain("run-1");
       expect(api.requests).toEqual([
         {
           method: "POST",
@@ -169,7 +174,7 @@ describe("pinned issue campaign CLI", () => {
         {
           method: "POST",
           path: `/v1/campaigns/${CAMPAIGN}/runs`,
-          body: { scheduledFor: "2026-10-26T00:00:00.000Z", idempotencyKey: "run-1" },
+          body: { scheduledFor: "2026-10-26T00:00:00.000Z" },
         },
       ]);
     } finally {

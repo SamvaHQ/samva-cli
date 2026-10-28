@@ -387,12 +387,12 @@ afterAll(async () => {
   );
   await rm(home, { recursive: true });
 });
-const run = async (args: string[], body: unknown, status?: number, oauth = false) => {
+const run = async (args: string[], body: unknown, status?: number, oauth = false, attempts = 1) => {
   requests = [];
   peeks = 0;
   repliedMessage = args[0] === "reply" ? message : undefined;
   const responseStatus = status ?? (Predicate.isObject(body) && "actionId" in body ? 202 : 200);
-  responses = [{ body, status: responseStatus }];
+  responses = Array.from({ length: attempts }, () => ({ body, status: responseStatus }));
   return runCli(["--no-env-file", runner, "mailboxes", ...args], {
     executable: "bun",
     configHome: home,
@@ -503,7 +503,24 @@ describe("mailbox command HTTP contracts", () => {
       ["actions", "approve", mailboxId, actionId, "--yes"],
     ]) {
       it(`preserves ${refusal.body._tag} recovery fields for ${args[0]} with ${refusal.next}`, async () => {
-        const result = await run([...args, "--json"], refusal.body, refusal.status, true);
+        const attempts =
+          args[0] === "send" &&
+          (refusal.body._tag === "RateLimitedError" || refusal.body._tag === "SenderNotReadyError")
+            ? 4
+            : 1;
+        const assertAttempts = () => {
+          expect(requests).toHaveLength(attempts);
+          if (attempts > 1) {
+            const key = requests[0]?.headers["idempotency-key"];
+            expect(key).toEqual(expect.any(String));
+            for (const request of requests) {
+              expect(request.headers["idempotency-key"]).toBe(key);
+              expect(request.body).toEqual(requests[0]?.body);
+            }
+          }
+        };
+        const result = await run([...args, "--json"], refusal.body, refusal.status, true, attempts);
+        assertAttempts();
         expect(result.code, result.stderr).toBe(refusal.exit);
         expect(result.stdout).toBe("");
         const { _tag, message: errorMessage, ...details } = refusal.body;
@@ -514,7 +531,8 @@ describe("mailbox command HTTP contracts", () => {
           details,
           next: refusal.next,
         });
-        const human = await run(args, refusal.body, refusal.status, true);
+        const human = await run(args, refusal.body, refusal.status, true, attempts);
+        assertAttempts();
         expect(human.code, human.stderr).toBe(refusal.exit);
         expect(human.stderr).toContain(errorMessage);
         expect(human.stderr).toContain(refusal.next);
@@ -1339,19 +1357,6 @@ describe("mailbox command HTTP contracts", () => {
     );
     expect(result.code, result.stderr).toBe(4);
     expect(envelope(result.stderr)).toMatchObject({ reason: "UnauthorizedError", status: 401 });
-  });
-  it("explains the mailbox launch flag for the gate's empty 404", async () => {
-    const result = await run(["list", "--json"], undefined, 404);
-    expect(result.code).toBe(1);
-    const error = envelope(result.stderr);
-    expect(error).toMatchObject({
-      reason: "FlagDisabledError",
-      status: 404,
-      details: {},
-      message: "Could not list mailboxes: mailboxes are not enabled for this organization.",
-    });
-    expect(error.next).toContain("`mailbox` launch flag");
-    expect(result.stdout).toBe("");
   });
   it("passes a typed 404 through with the API's guidance", async () => {
     const body = {

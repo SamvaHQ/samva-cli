@@ -13,6 +13,7 @@ import { logoutCommand } from "../commands/logout";
 import { mailboxesCommand } from "../commands/mailboxes";
 import { messagesCommand } from "../commands/messages";
 import { namespacesCommand } from "../commands/namespaces";
+import { newslettersCommand } from "../commands/newsletters";
 import { orgCommand } from "../commands/org";
 import { profileCommand } from "../commands/profile";
 import { scheduledMessagesCommand } from "../commands/scheduled";
@@ -34,6 +35,7 @@ export const rootCommands = [
   campaignsCommand,
   subscriptionsCommand,
   topicsCommand,
+  newslettersCommand,
   scheduledMessagesCommand,
   templatesCommand,
   brandsCommand,

@@ -80,7 +80,6 @@ describe("send payloads carry the reference", () => {
       bcc: undefined,
       scheduledFor: "2026-09-08T09:00:00Z",
       timezone: undefined,
-      idempotencyKey: undefined,
       referenceId: undefined,
       tracking: undefined,
     });

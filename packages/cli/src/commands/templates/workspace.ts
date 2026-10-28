@@ -168,12 +168,14 @@ const patch = Command.make("patch", {
       }
       for (const path of remove) written.push({ path, content: null });
       const client = yield* getClientProvider;
-      const view = yield* Templates.patchWorkspace({
-        id,
-        expectedRevision: revision,
-        patches: written,
-        idempotencyKey,
-      }).pipe(client.provide, Effect.mapError(apiFailure("patch the template workspace")));
+      const view = yield* Templates.patchWorkspace(
+        {
+          id,
+          expectedRevision: revision,
+          patches: written,
+        },
+        { idempotencyKey: idempotencyKey },
+      ).pipe(client.provide, Effect.mapError(apiFailure("patch the template workspace")));
       yield* emit(view);
     }),
   ),
@@ -223,14 +225,16 @@ const addAsset = Command.make("add-asset", {
           ),
         );
       const client = yield* getClientProvider;
-      const view = yield* Templates.putWorkspaceAsset({
-        id,
-        expectedRevision: revision,
-        path: Option.getOrElse(path, () => `assets/${basename(source)}`),
-        contentBase64: Buffer.from(bytes).toString("base64"),
-        replace,
-        idempotencyKey,
-      }).pipe(client.provide, Effect.mapError(apiFailure("add the template asset")));
+      const view = yield* Templates.putWorkspaceAsset(
+        {
+          id,
+          expectedRevision: revision,
+          path: Option.getOrElse(path, () => `assets/${basename(source)}`),
+          contentBase64: Buffer.from(bytes).toString("base64"),
+          replace,
+        },
+        { idempotencyKey: idempotencyKey },
+      ).pipe(client.provide, Effect.mapError(apiFailure("add the template asset")));
       yield* emit(view);
     }),
   ),
@@ -310,13 +314,15 @@ const save = Command.make("save", {
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, revision, head, message, idempotencyKey, json }) {
       const client = yield* getClientProvider;
-      const receipt = yield* Templates.saveWorkspace({
-        id,
-        expectedRevision: revision,
-        expectedHead: head,
-        message,
-        idempotencyKey,
-      }).pipe(client.provide, Effect.mapError(apiFailure("save the template workspace")));
+      const receipt = yield* Templates.saveWorkspace(
+        {
+          id,
+          expectedRevision: revision,
+          expectedHead: head,
+          message,
+        },
+        { idempotencyKey: idempotencyKey },
+      ).pipe(client.provide, Effect.mapError(apiFailure("save the template workspace")));
       yield* emit(receipt);
     }),
   ),

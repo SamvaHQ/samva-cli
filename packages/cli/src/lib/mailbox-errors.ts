@@ -1,20 +1,4 @@
-import { HttpClientError } from "effect/http";
-
 import { SamvaCliError, toCliApiError } from "../errors";
-
-/**
- * The status of a response the SDK could not decode into a tagged error. The mailbox launch flag
- * answers a disabled route with an empty 404, which arrives this way.
- */
-const undecodedStatus = (error: unknown) =>
-  HttpClientError.isHttpClientError(error) ? error.response?.status : undefined;
-
-/** A request made outside the SDK reports the gate's empty 404 as an unreadable body. */
-const isUnreadable404 = (error: unknown) =>
-  error instanceof SamvaCliError && error.message.includes("HTTP 404, unreadable body");
-
-const GATED_NEXT =
-  "Mailboxes are not enabled for this organization (the `mailbox` launch flag is off). Mailbox commands work once it is enabled.";
 
 /** What an API key cannot do, as the verb the next step names. */
 export type PersonOnlyAction =
@@ -52,22 +36,14 @@ const personOnlyNext = (action: PersonOnlyAction) => {
 };
 
 /**
- * Mailbox and extension commands report API failures through `toCliApiError`, with two
- * refinements. The `mailbox` launch flag gate answers an empty-body 404, which reaches the client
- * as a status failure rather than a typed `ResourceNotFoundError`. A `personOnly` operation
- * refuses API keys with 403, and its recovery is signing in as a person rather than changing key
- * scopes.
+ * Mailbox and extension commands report API failures through `toCliApiError`. Phone-channel
+ * gates name the unavailable channel; person-only operations direct API-key callers to sign in.
  */
 export const mailboxApiError = (
   prefix: string,
   error: unknown,
   options: { readonly personOnly?: PersonOnlyAction } = {},
 ): SamvaCliError => {
-  if (undecodedStatus(error) === 404 || isUnreadable404(error))
-    return new SamvaCliError({
-      message: `${prefix}: mailboxes are not enabled for this organization.`,
-      api: { reason: "FlagDisabledError", status: 404, details: {}, next: GATED_NEXT },
-    });
   const failure = toCliApiError(prefix, error);
   const flag = failure.api?.details.flag;
   if (failure.api?.reason === "FlagDisabledError" && (flag === "whatsapp" || flag === "sms"))

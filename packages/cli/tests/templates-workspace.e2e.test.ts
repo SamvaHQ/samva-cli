@@ -61,6 +61,7 @@ const answered = new Map<string, unknown>();
 const calls: string[] = [];
 /** Asset request bodies the fake API received, in order. */
 const assetPayloads: Record<string, unknown>[] = [];
+const assetKeys: Array<string | undefined> = [];
 
 const view = () => ({
   workspace: {
@@ -172,8 +173,7 @@ beforeAll(async () => {
     const payload = ["POST", "PATCH", "PUT"].includes(request.method ?? "")
       ? (JSON.parse((await body(request)) || "{}") as Record<string, unknown>)
       : {};
-    // These endpoints carry the key in the payload, not as a header.
-    const key = payload["idempotencyKey"];
+    const key = request.headers["idempotency-key"];
     const replay = typeof key === "string" ? answered.get(key) : undefined;
     if (replay !== undefined) return send(200, replay);
     const stale = (expected: unknown) =>
@@ -215,6 +215,7 @@ beforeAll(async () => {
       if (stale(payload["expectedRevision"]))
         return send(409, conflict("Template workspace moved."));
       assetPayloads.push(payload);
+      assetKeys.push(typeof key === "string" ? key : undefined);
       revision += 1;
       const result = view();
       if (typeof key === "string") answered.set(key, result);
@@ -535,20 +536,19 @@ describe("samva templates workspace", () => {
     ]);
     expect(replaced.code).toBe(0);
 
+    expect(assetKeys.slice(-2)).toEqual(["asset-add-1", "asset-replace-1"]);
     expect(assetPayloads.slice(-2)).toEqual([
       {
         expectedRevision: String(Number(afterAdd.workspace.revision) - 1),
         path: "assets/logo.png",
         contentBase64: image.toString("base64"),
         replace: false,
-        idempotencyKey: "asset-add-1",
       },
       {
         expectedRevision: afterAdd.workspace.revision,
         path: "assets/brand/logo.png",
         contentBase64: image.toString("base64"),
         replace: true,
-        idempotencyKey: "asset-replace-1",
       },
     ]);
   });

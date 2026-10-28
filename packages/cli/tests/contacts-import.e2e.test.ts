@@ -53,7 +53,7 @@ const job = {
 let directory: string;
 let apiUrl: string;
 let close: () => Promise<void>;
-let requests: Array<{ path: string; body: unknown }>;
+let requests: Array<{ path: string; body: unknown; idempotencyKey: unknown }>;
 let refuse: boolean;
 
 beforeEach(async () => {
@@ -66,7 +66,11 @@ beforeEach(async () => {
     let source = "";
     for await (const chunk of req) source += String(chunk);
     const path = req.url ?? "";
-    requests.push({ path, body: source ? JSON.parse(source) : null });
+    requests.push({
+      path,
+      body: source ? JSON.parse(source) : null,
+      idempotencyKey: req.headers["idempotency-key"],
+    });
     res.writeHead(path.endsWith("/plan") ? 200 : path.endsWith("/imports") ? 202 : 200, {
       "content-type": "application/json",
     });
@@ -153,7 +157,8 @@ describe("list migration CLI HTTP boundary", () => {
     expect(requests).toHaveLength(2);
     expect(requests[1]).toMatchObject({
       path: "/v1/contacts/imports",
-      body: { mode: "new", planHash: plan.planHash, idempotencyKey: "migration-1" },
+      body: { mode: "new", planHash: plan.planHash },
+      idempotencyKey: "migration-1",
     });
     expect(JSON.parse(result.stdout)).toMatchObject({ data: { id: jobId, status: "queued" } });
   });
@@ -172,7 +177,8 @@ describe("list migration CLI HTTP boundary", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       path: "/v1/contacts/imports",
-      body: { mode: "new", planHash: plan.planHash, idempotencyKey: "migration-1" },
+      body: { mode: "new", planHash: plan.planHash },
+      idempotencyKey: "migration-1",
     });
     expect(JSON.parse(result.stdout)).toMatchObject({ data: { id: jobId } });
   });

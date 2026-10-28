@@ -792,6 +792,11 @@ const getRemote = Command.make("get", { id: templateIdArgument, json: jsonFlag }
 const createRemote = Command.make("create", {
   data: Flag.String("data").pipe(Flag.withDescription("Complete template JSON payload")),
   namespace: namespaceFlag("create"),
+  idempotencyKey: Flag.String("idempotency-key").pipe(
+    Flag.withSchema(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255))),
+    Flag.withDescription("Stable retry key; generated per call when omitted"),
+    Flag.optional,
+  ),
   shared: Flag.Boolean("shared").pipe(
     Flag.withDescription(
       "Share the new organization-level project with every namespace; namespace-scoped keys read and send it but cannot change it",
@@ -804,10 +809,10 @@ const createRemote = Command.make("create", {
   Command.withDescription("Create a remote template from JSON"),
   Command.withExamples([
     {
-      command: `samva templates create --data '{"name":"Welcome","projectName":"welcome-email","idempotencyKey":"welcome-email-v1"}' --dry-run`,
+      command: `samva templates create --data '{"name":"Welcome","projectName":"welcome-email"}' --dry-run`,
     },
   ]),
-  Command.withHandler(({ data, namespace, shared, dryRun, json }) =>
+  Command.withHandler(({ data, namespace, idempotencyKey, shared, dryRun, json }) =>
     Effect.gen(function* () {
       const decoded = yield* decodePayload(data, "--data", Templates.CreatePayload);
       if (shared && decoded.shared === false)
@@ -842,7 +847,9 @@ const createRemote = Command.make("create", {
               ...objectRows(payload, { explicit: true }),
             ]);
       const client = yield* getClientProvider;
-      const result = yield* Templates.create(payload).pipe(
+      const result = yield* Templates.create(payload, {
+        idempotencyKey: Option.getOrUndefined(idempotencyKey),
+      }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not create template", error)),
       );

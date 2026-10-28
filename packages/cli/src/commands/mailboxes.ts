@@ -882,15 +882,17 @@ const send = Command.make("send", {
           return yield* usage("mailbox_subject_required", "An email needs --subject.");
         const content = yield* body(text, html);
         const client = yield* getClientProvider;
-        const result = yield* Mailboxes.sendMessage({
-          id: mailbox,
-          idempotencyKey: Option.getOrUndefined(idempotencyKey),
-          to: [first, ...rest],
-          subject: subject.value,
-          ...(cc.length ? { cc } : {}),
-          ...(bcc.length ? { bcc } : {}),
-          ...content,
-        }).pipe(
+        const result = yield* Mailboxes.sendMessage(
+          {
+            id: mailbox,
+            to: [first, ...rest],
+            subject: subject.value,
+            ...(cc.length ? { cc } : {}),
+            ...(bcc.length ? { bcc } : {}),
+            ...content,
+          },
+          { idempotencyKey: Option.getOrUndefined(idempotencyKey) },
+        ).pipe(
           client.provide,
           Effect.mapError((e) => mailboxApiError("Could not send message", e)),
         );
@@ -964,12 +966,14 @@ const reply = Command.make("reply", {
         }
         const payload = yield* body(text, html);
         const client = yield* getClientProvider;
-        const result = yield* (all ? Mailboxes.replyAll : Mailboxes.reply)({
-          id: mailbox,
-          messageId,
-          idempotencyKey: Option.getOrUndefined(idempotencyKey),
-          ...payload,
-        }).pipe(
+        const result = yield* (all ? Mailboxes.replyAll : Mailboxes.reply)(
+          {
+            id: mailbox,
+            messageId,
+            ...payload,
+          },
+          { idempotencyKey: Option.getOrUndefined(idempotencyKey) },
+        ).pipe(
           client.provide,
           Effect.mapError((e) => mailboxApiError("Could not reply", e)),
         );

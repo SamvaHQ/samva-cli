@@ -4,8 +4,9 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { EXTENSION_BUNDLE_MAX_BYTES, ExtensionManifest } from "@samva/core/mailboxes/extension";
-import type { ExtensionDefinition } from "@samva/mailbox";
 import { Effect, Predicate, Schema } from "effect";
+import type { ExtensionDefinition } from "samva/mailbox";
+import SamvaPackage from "samva/package.json" with { type: "json" };
 
 import { SamvaCliError } from "../errors";
 
@@ -118,7 +119,7 @@ export const initExtension = (dir: string, manifest: ExtensionManifest) =>
             private: true,
             type: "module",
             scripts: { dev: "samva extensions dev", publish: "samva extensions publish" },
-            dependencies: { "@samva/mailbox": "^0.1.0" },
+            dependencies: { samva: `^${SamvaPackage.version}` },
             devDependencies: { "@types/bun": "^1.3.0", typescript: "^6.0.0" },
           },
           null,
@@ -140,12 +141,12 @@ export const initExtension = (dir: string, manifest: ExtensionManifest) =>
           null,
           2,
         ) + "\n",
-      "src/extension.ts": `import { defineExtension } from "@samva/mailbox";\n\nexport default defineExtension({\n  manifest: ${JSON.stringify(manifest, null, 2).replaceAll("\n", "\n  ")},\n  on: {\n    "mailbox.message.received": async (event, { samva, log }) => {\n      await samva.messages.reply(event.data.mailboxId, event.data.message.id, {\n        text: "Thanks for your message. We received it.",\n      });\n      log("Acknowledged", event.data.message.id);\n    },\n  },\n});\n`,
+      "src/extension.ts": `import { defineExtension } from "samva/mailbox";\n\nexport default defineExtension({\n  manifest: ${JSON.stringify(manifest, null, 2).replaceAll("\n", "\n  ")},\n  on: {\n    "mailbox.message.received": async (event, { samva, log }) => {\n      await samva.mailboxes.reply({\n        id: event.data.mailboxId,\n        messageId: event.data.message.id,\n        text: "Thanks for your message. We received it.",\n      });\n      log("Acknowledged", event.data.message.id);\n    },\n  },\n});\n`,
       ".gitignore": "node_modules/\ndist/\n.env\n",
     };
     if (manifest.runtime === "webhook")
       files["src/server.ts"] =
-        `import { createWebhookHandler } from "@samva/mailbox/webhook";\nimport extension from "./extension";\n\nconst apiKey = Bun.env.SAMVA_API_KEY;\nconst webhookSecret = Bun.env.SAMVA_WEBHOOK_SECRET;\nif (!apiKey || !webhookSecret) throw new Error("SAMVA_API_KEY and SAMVA_WEBHOOK_SECRET are required");\nBun.serve({ fetch: createWebhookHandler(extension, { apiKey, webhookSecret }) });\n`;
+        `import { createWebhookHandler } from "samva/mailbox/webhook";\nimport extension from "./extension";\n\nconst apiKey = Bun.env.SAMVA_API_KEY;\nconst webhookSecret = Bun.env.SAMVA_WEBHOOK_SECRET;\nif (!apiKey || !webhookSecret) throw new Error("SAMVA_API_KEY and SAMVA_WEBHOOK_SECRET are required");\nBun.serve({ fetch: createWebhookHandler(extension, { apiKey, webhookSecret }) });\n`;
     for (const [path, content] of Object.entries(files))
       yield* projectOperation(() => writeFile(resolve(root, path), content));
     return { directory: root, manifest, files: Object.keys(files) };

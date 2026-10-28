@@ -160,7 +160,7 @@ const issuePathFlag = Flag.String("issue-path").pipe(
   Flag.optional,
 );
 const issueCommitFlag = Flag.String("issue-commit").pipe(
-  Flag.withDescription("Exact saved Git commit from topics issues save"),
+  Flag.withDescription("Exact saved Git commit from newsletters issues save"),
   Flag.optional,
 );
 const preheaderFlag = Flag.String("preheader").pipe(
@@ -178,7 +178,7 @@ const resolveIssue = (
       return yield* new CliUsageError({
         code: "issue_pin_required",
         message:
-          "Pass --issue-path and --issue-commit together, using the commit from samva topics issues save.",
+          "Pass --issue-path and --issue-commit together, using the commit from samva newsletters issues save.",
       });
     if (mixed.some(Option.isSome))
       return yield* new CliUsageError({
@@ -1032,11 +1032,13 @@ const runCreate = Command.make("create", {
               `[dry-run] Would create a run for campaign ${campaignId}${atValue ? ` at ${atValue}` : " now"}.`,
             );
       const client = yield* getClientProvider;
-      const data = yield* Campaigns.scheduleRun({
-        id: campaignId,
-        scheduledFor: atValue === undefined ? undefined : new Date(atValue),
-        idempotencyKey: idempotencyKeyValue,
-      }).pipe(
+      const data = yield* Campaigns.scheduleRun(
+        {
+          id: campaignId,
+          scheduledFor: atValue === undefined ? undefined : new Date(atValue),
+        },
+        { idempotencyKey: idempotencyKeyValue },
+      ).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not schedule run", error)),
       );

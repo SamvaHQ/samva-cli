@@ -184,9 +184,9 @@ const withNext = (message: string, error: unknown): SamvaCliError => {
 
 const scheduleRun = (campaignId: string, at: string | undefined, key: string | undefined) =>
   postAuthenticatedJson(`/v1/campaigns/${encodeURIComponent(campaignId)}/runs`, {
+    ...(key === undefined ? {} : { headers: { "idempotency-key": key } }),
     body: {
       ...(at === undefined ? {} : { scheduledFor: at }),
-      ...(key === undefined ? {} : { idempotencyKey: key }),
     },
   }).pipe(
     Effect.mapError((error) => withNext("Could not schedule run", error)),

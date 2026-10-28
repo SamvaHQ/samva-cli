@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, FileSystem, Option, Schema } from "effect";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Events from "samva/effect/events";
@@ -10,6 +10,11 @@ import { readStdinUtf8 } from "../lib/stdin";
 
 const send = Command.make("send", {
   data: Flag.String("data").pipe(Flag.withDescription("Event JSON, @file, or - for piped stdin")),
+  idempotencyKey: Flag.String("idempotency-key").pipe(
+    Flag.withSchema(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255))),
+    Flag.withDescription("Stable retry key; generated per call when omitted"),
+    Flag.optional,
+  ),
   dryRun: Flag.Boolean("dry-run").pipe(
     Flag.withDescription("Validate request shape offline without recording an event"),
     Flag.withDefault(false),
@@ -19,13 +24,13 @@ const send = Command.make("send", {
   Command.withDescription("Record one custom contact event"),
   Command.withExamples([
     {
-      command: `samva events send --data '{"contact":{"email":"ada@example.com"},"name":"trial.started","idempotencyKey":"trial-42"}' --json`,
+      command: `samva events send --data '{"contact":{"email":"ada@example.com"},"name":"trial.started"}' --idempotency-key trial-42 --json`,
     },
     { command: "samva events send --data @event.json --dry-run" },
     { command: "cat event.json | samva events send --data - --json" },
   ]),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ data, dryRun, json }) {
+    Effect.fnUntraced(function* ({ data, idempotencyKey, dryRun, json }) {
       let source = data;
       if (data === "-") source = yield* readStdinUtf8;
       else if (data.startsWith("@")) {
@@ -66,7 +71,9 @@ const send = Command.make("send", {
               ["Event", JSON.stringify(payload)],
             ]);
       const client = yield* getClientProvider;
-      const event = yield* Events.create(payload).pipe(
+      const event = yield* Events.create(payload, {
+        idempotencyKey: Option.getOrUndefined(idempotencyKey),
+      }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not record contact event", error)),
       );

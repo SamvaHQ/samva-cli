@@ -220,6 +220,14 @@ const commandTree = {
     remove: {},
     default: {},
     subscriptions: { list: {}, set: {}, check: {} },
+  },
+  newsletters: {
+    list: {},
+    get: {},
+    create: {},
+    update: {},
+    delete: {},
+    domains: { list: {}, add: {}, get: {}, remove: {} },
     issues: {
       list: {},
       open: {},
