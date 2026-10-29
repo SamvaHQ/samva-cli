@@ -172,7 +172,6 @@ if (!prebuilt) {
 } else {
   const required = [
     join(REPOSITORY_ROOT, "packages", "sdk", "dist", "effect", "index.js"),
-    join(REPOSITORY_ROOT, "packages", "mailbox", "dist", "index.js"),
     join(CLI_ROOT, "dist", "bin.mjs"),
   ];
   for (const path of required) {
