@@ -47,7 +47,7 @@ beforeAll(async () => {
       profiles: { default: { credentialIdentity: "oauth", orgSlug: "acme" } },
     }),
   );
-  server = spawn("bun", ["--no-env-file", serverRunner], { stdio: "pipe" });
+  server = spawn("bun", ["run", "--no-env-file", serverRunner], { stdio: "pipe" });
   origin = await new Promise<string>((resolve, reject) => {
     server.stdout.once("data", (data) => resolve(String(data).trim()));
     server.once("error", reject);

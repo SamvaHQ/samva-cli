@@ -148,7 +148,11 @@ describe("extension authoring", () => {
       if (!address || typeof address === "string") throw new Error("Missing API address");
       const fixture: ChildProcessWithoutNullStreams = spawn(
         "bun",
-        ["--no-env-file", fileURLToPath(new URL("./mailboxes-events-server.ts", import.meta.url))],
+        [
+          "run",
+          "--no-env-file",
+          fileURLToPath(new URL("./mailboxes-events-server.ts", import.meta.url)),
+        ],
         { stdio: "pipe" },
       );
       try {
@@ -251,7 +255,11 @@ describe("extension authoring", () => {
     if (!address || typeof address === "string") throw new Error("Missing API address");
     const fixture: ChildProcessWithoutNullStreams = spawn(
       "bun",
-      ["--no-env-file", fileURLToPath(new URL("./mailboxes-events-server.ts", import.meta.url))],
+      [
+        "run",
+        "--no-env-file",
+        fileURLToPath(new URL("./mailboxes-events-server.ts", import.meta.url)),
+      ],
       { stdio: "pipe" },
     );
     try {

@@ -24,7 +24,7 @@ const environment = (): NodeJS.ProcessEnv => {
 
 const run = (root: string, args: readonly string[], env: NodeJS.ProcessEnv = {}, bin = BIN) =>
   new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
-    const child = spawn("bun", ["--no-env-file", bin, "templates", ...args], {
+    const child = spawn("bun", ["run", "--no-env-file", bin, "templates", ...args], {
       cwd: root,
       env: { ...environment(), ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -265,11 +265,15 @@ describe("template authoring commands", () => {
     );
     await writeFile(join(root, "theme.css"), '@import "samva:brand";\n');
     const api = await startBrandApi();
-    const child = spawn("bun", ["--no-env-file", BIN, "templates", "check", "--watch", "--jsonl"], {
-      cwd: root,
-      env: { ...environment(), SAMVA_API_KEY: "samva_sk_test_x", SAMVA_API_URL: api.url },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      "bun",
+      ["run", "--no-env-file", BIN, "templates", "check", "--watch", "--jsonl"],
+      {
+        cwd: root,
+        env: { ...environment(), SAMVA_API_KEY: "samva_sk_test_x", SAMVA_API_URL: api.url },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stderr.on("data", (chunk) => {
@@ -315,7 +319,7 @@ describe("template authoring commands", () => {
     );
     await writeFile(join(root, "theme.css"), '@import "samva:brand";\n');
     const api = await startBrandApi();
-    const child = spawn("bun", ["--no-env-file", BIN, "templates", "dev", "--port", "0"], {
+    const child = spawn("bun", ["run", "--no-env-file", BIN, "templates", "dev", "--port", "0"], {
       cwd: root,
       env: { ...environment(), SAMVA_API_KEY: "samva_sk_test_x", SAMVA_API_URL: api.url },
       stdio: ["ignore", "pipe", "pipe"],

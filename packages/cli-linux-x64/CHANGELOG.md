@@ -1,3 +1,35 @@
+## @samva/cli-linux-x64@0.29.0
+
+### Validate resource names
+
+Create and update requests through the SDK and CLI reject organization, mailbox, mailbox endpoint display, sender, contact, contact group, campaign, newsletter, topic, and OAuth client names longer than 120 characters. Mailbox label display names are limited to 40 characters. Existing longer names remain readable; shorten a name when changing it.
+
+### Find a conversation's threads across mailboxes
+
+`mailboxes.listOrganizationThreads` accepts `conversation`, a conversation ID, and lists the threads that conversation has in the mailboxes you can read, newest activity first. A conversation holds at most one thread per mailbox, and mailboxes you cannot read never appear. The `mailboxes_threads_list` MCP tool takes the same filter.
+
+```ts
+const page = await samva.mailboxes.listOrganizationThreads({ conversation: "conv_...", limit: 1 });
+```
+
+### List your drafts across mailboxes
+
+Use `mailboxes.listOrganizationDrafts` in the Promise or Effect SDK to list your own drafts across the mailboxes you can write to. Each summary carries its mailbox's `id`, `address`, and `kind`. Repeat `mailboxId`, or filter by `kind` and `threadId`, and page with `nextCursor`. Only the author sees a draft, and a personal mailbox's drafts stay with its owner.
+
+```ts
+const page = await samva.mailboxes.listOrganizationDrafts({ kind: "shared", limit: 20 });
+```
+
+The `mailboxes_drafts_list` MCP tool returns the same bounded page.
+
+### Organize threads and decisions across mailboxes
+
+Use `mailboxes.listOrganizationThreads` in the Promise or Effect SDK to read threads across the mailboxes you can access. Filter by mailbox, personal or shared kind, and active or Done state. Done includes your own Done threads and closed shared conversations, each once. `mailboxes.getNeedsYou` lists held sends you can approve and quarantined messages you can release, with counts across mailboxes.
+
+Thread updates accept `done` for the current reader and `closed` for everyone in a shared mailbox. A new live message clears every reader's Done and reopens Close. Personal mailboxes refuse Close; archive their threads instead. Read the resulting state from the thread; Done and Close emit no webhook or event-stream event.
+
+The CLI adds `samva mailboxes all-threads` and `samva mailboxes needs-you`. Use `samva mailboxes thread-update --data` to update Done or Close.
+
 ## @samva/cli-linux-x64@0.28.0
 
 ### One Idempotency Option Across the SDK

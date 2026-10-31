@@ -100,7 +100,7 @@ const runCli = (args: ReadonlyArray<string>): Promise<CliResult> =>
     env["NO_COLOR"] = "1";
     env["SAMVA_API_KEY"] = "samva_test_key";
     env["SAMVA_API_URL"] = apiUrl;
-    const child = spawn("bun", ["--no-env-file", BIN, ...args], {
+    const child = spawn("bun", ["run", "--no-env-file", BIN, ...args], {
       env,
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],

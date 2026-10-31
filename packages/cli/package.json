@@ -1,6 +1,6 @@
 {
   "name": "@samva/cli",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Samva CLI: send email, manage domains and templates from your terminal",
   "keywords": [
     "cli",
@@ -38,7 +38,7 @@
     "access": "public"
   },
   "scripts": {
-    "samva": "bun src/bin.ts",
+    "samva": "bun run src/bin.ts",
     "build": "bun build src/bin.ts --outfile=dist/bin.mjs --target=bun",
     "build:release-artifacts": "bun run scripts/build-release-artifacts.ts",
     "test": "vitest run --root ../.. --project cli --project serial-cli",
@@ -56,15 +56,15 @@
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.31.0",
+    "samva": "workspace:0.32.0",
     "vite": "~8.3.5",
     "vitest": "catalog:"
   },
   "optionalDependencies": {
-    "@samva/cli-darwin-arm64": "workspace:0.28.0",
-    "@samva/cli-darwin-x64": "workspace:0.28.0",
-    "@samva/cli-linux-arm64": "workspace:0.28.0",
-    "@samva/cli-linux-x64": "workspace:0.28.0"
+    "@samva/cli-darwin-arm64": "workspace:0.29.0",
+    "@samva/cli-darwin-x64": "workspace:0.29.0",
+    "@samva/cli-linux-arm64": "workspace:0.29.0",
+    "@samva/cli-linux-x64": "workspace:0.29.0"
   },
   "engines": {
     "node": ">=18"

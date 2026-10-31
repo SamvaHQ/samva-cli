@@ -24,6 +24,7 @@ const runCredentialHelper = (apiUrl: string, input: string) =>
       const child = spawn(
         "bun",
         [
+          "run",
           "--no-env-file",
           BIN,
           "--api-url",

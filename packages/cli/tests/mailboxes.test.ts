@@ -30,6 +30,8 @@ const endpoint = {
 };
 const summary = {
   id: mailboxId,
+  kind: "shared",
+  owner: null,
   namespaceId: null,
   slug: "support",
   name: "Support",
@@ -100,6 +102,9 @@ const thread = {
   read: false,
   starred: false,
   snoozedUntil: null,
+  doneAt: null,
+  closedAt: null,
+  closedBy: null,
   lastActivityAt: date,
 };
 const receipt = (
@@ -207,6 +212,69 @@ const newScenarios = [
   },
 ];
 const scenarios = [
+  {
+    args: [
+      "all-threads",
+      "--mailbox-id",
+      mailboxId,
+      "--mailbox-id",
+      "mbx_aaaaaaaaaaaaaaaa",
+      "--kind",
+      "shared",
+      "--state",
+      "active",
+    ],
+    response: {
+      items: [
+        { ...thread, mailbox: { id: mailboxId, address: "support@example.com", kind: "shared" } },
+      ],
+      nextCursor: null,
+    },
+    status: 200,
+    method: "GET",
+    path: "/v1/mailboxes/threads?mailboxId=mbx_1234567890123456&mailboxId=mbx_aaaaaaaaaaaaaaaa&kind=shared&state=active",
+    human: "support@example.com",
+  },
+  {
+    args: ["needs-you"],
+    response: {
+      items: [
+        {
+          type: "quarantinedMessage",
+          id: messageId,
+          mailbox: { id: mailboxId, address: "support@example.com", kind: "shared" },
+          reason: "spam",
+          source: "receipt",
+          heldAt: date,
+        },
+      ],
+      nextCursor: null,
+      counts: { heldSends: 0, quarantinedMessages: 1, total: 1 },
+    },
+    status: 200,
+    method: "GET",
+    path: "/v1/mailboxes/needs-you",
+    human: "quarantinedMessage",
+  },
+  {
+    args: ["thread-update", mailboxId, threadId, "--data", '{"done":true,"closed":true}'],
+    response: {
+      id: threadId,
+      folder: "inbox",
+      priority: "normal",
+      labels: [],
+      read: false,
+      starred: false,
+      snoozedUntil: null,
+      doneAt: date,
+      closedAt: date,
+      closedBy: { kind: "user", id: "reviewer" },
+    },
+    status: 200,
+    method: "PATCH",
+    path: `/v1/mailboxes/${mailboxId}/threads/${threadId}`,
+    human: "doneAt",
+  },
   {
     args: ["actions", "get", mailboxId, actionId],
     response: {
@@ -415,6 +483,37 @@ const assertRequest = (method: string, path: string, oauth = false) => {
   }
 };
 describe("mailbox command HTTP contracts", () => {
+  it("validates and previews a Done/Close patch without calling the API", async () => {
+    const preview = await run(
+      [
+        "thread-update",
+        mailboxId,
+        threadId,
+        "--data",
+        '{"done":false,"closed":false}',
+        "--dry-run",
+        "--json",
+      ],
+      {},
+    );
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(requests).toHaveLength(0);
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      dryRun: true,
+      action: "mailboxes.thread-update",
+      id: mailboxId,
+      threadId,
+      request: { done: false, closed: false },
+    });
+    const invalid = await run(
+      ["thread-update", mailboxId, threadId, "--data", '{"done":"yes"}', "--json"],
+      {},
+    );
+    expect(invalid.code).not.toBe(0);
+    expect(requests).toHaveLength(0);
+    expect(invalid.stderr).toContain("mailbox_thread_update_invalid");
+  });
+
   for (const scenario of [
     ...scenarios,
     ...newScenarios.map((item) => ({ ...item, status: 200 })),
@@ -428,6 +527,8 @@ describe("mailbox command HTTP contracts", () => {
       );
       expect(result.code, result.stderr).toBe(0);
       assertRequest(scenario.method, scenario.path, true);
+      if (scenario.args[0] === "thread-update")
+        expect(requests[0]?.body).toEqual({ done: true, closed: true });
       expect(JSON.parse(result.stdout)).toEqual(scenario.response);
     });
     it(`renders human output for ${scenario.args.join(" ")}`, async () => {
@@ -717,6 +818,13 @@ describe("mailbox command HTTP contracts", () => {
       expect(JSON.parse(result.stdout)).toMatchObject({ dryRun: true });
     });
   }
+  it("identifies personal mailbox kind and owner in human output", async () => {
+    const owner = "user_1234567890123456";
+    const result = await run(["get", mailboxId], { ...mailbox, kind: "personal", owner });
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/Kind\s+personal/);
+    expect(result.stdout).toMatch(new RegExp(`Owner\\s+${owner}`));
+  });
   it("shows all mailbox settings in human output", async () => {
     const data = {
       ...mailbox,

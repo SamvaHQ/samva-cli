@@ -47,6 +47,8 @@ export const printMailboxSummary = (data: Summary | WireMailbox) =>
     yield* Console.log(`${data.name} (${data.slug}) — ${data.status}`);
     yield* printFields([
       ["ID", data.id],
+      ["Kind", data.kind],
+      ["Owner", present(data.owner)],
       ["Primary address", present(data.primaryAddress)],
       ["Namespace", present(data.namespaceId)],
       ["Created", data.createdAt],
@@ -98,6 +100,9 @@ export const printThread = (data: Thread) =>
       ["Draft", data.hasDraft],
       ["Labels", data.labels.length ? data.labels.join(", ") : "none"],
       ["Read", data.read],
+      ["Done at", present(data.doneAt)],
+      ["Closed at", present(data.closedAt)],
+      ["Closed by", data.closedBy === null ? "none" : actor(data.closedBy)],
       ["Starred", data.starred],
       ["Snoozed until", present(data.snoozedUntil)],
       ["Last activity", data.lastActivityAt],

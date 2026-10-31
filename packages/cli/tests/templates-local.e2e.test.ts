@@ -28,7 +28,7 @@ const environment = (): NodeJS.ProcessEnv => {
 
 const run = (root: string, args: readonly string[], env: NodeJS.ProcessEnv = {}) =>
   new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
-    const child = spawn("bun", ["--no-env-file", BIN, "templates", ...args], {
+    const child = spawn("bun", ["run", "--no-env-file", BIN, "templates", ...args], {
       cwd: root,
       env: { ...environment(), ...env },
       stdio: ["ignore", "pipe", "pipe"],

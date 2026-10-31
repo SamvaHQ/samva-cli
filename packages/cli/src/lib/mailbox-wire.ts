@@ -1,6 +1,11 @@
+import { MailboxNeedsYou } from "@samva/core/mailboxes/needs-you";
 import { Mailbox } from "@samva/core/mailboxes/resource";
 import { MailboxSendReceipt } from "@samva/core/mailboxes/send";
-import { MailboxMessage, MailboxThreadSummary } from "@samva/core/mailboxes/thread";
+import {
+  MailboxMessage,
+  MailboxThreadSummary,
+  OrganizationMailboxThreadSummary,
+} from "@samva/core/mailboxes/thread";
 import { CursorPage } from "@samva/core/shared/cursor";
 import { Effect, Schema } from "effect";
 
@@ -50,3 +55,10 @@ export const decodeMailbox = decoder(WireMailbox, "mailbox");
 export const decodeReceipt = decoder(WireReceipt, "send receipt");
 export const decodeThreadPage = decoder(WireThreadPage, "thread page");
 export const decodeMessage = decoder(WireMessage, "message");
+
+export const decodeOrganizationThreadPage = decoder(
+  Schema.toEncoded(CursorPage(OrganizationMailboxThreadSummary)),
+  "organization thread page",
+);
+
+export const decodeNeedsYou = decoder(Schema.toEncoded(MailboxNeedsYou), "needs-you page");

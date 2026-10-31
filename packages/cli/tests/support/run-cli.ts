@@ -26,8 +26,8 @@ export interface CliOptions {
 
 const argv = (args: ReadonlyArray<string>, executable: string | undefined) => {
   if (executable === undefined)
-    return ["--preload", EXIT_WITH_PARENT, "--no-env-file", BIN, ...args];
-  if (executable === "bun") return ["--preload", EXIT_WITH_PARENT, ...args];
+    return ["run", "--preload", EXIT_WITH_PARENT, "--no-env-file", BIN, ...args];
+  if (executable === "bun") return ["run", "--preload", EXIT_WITH_PARENT, ...args];
   return [...args];
 };
 

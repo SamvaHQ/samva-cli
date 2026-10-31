@@ -1,11 +1,12 @@
 import { MailboxActionState } from "@samva/core/mailboxes/action-event-policy";
 import { UpdateMailboxPayload } from "@samva/core/mailboxes/resource";
-import { MailboxThreadFolder } from "@samva/core/mailboxes/thread";
+import { MailboxThreadFolder, UpdateMailboxThreadPayload } from "@samva/core/mailboxes/thread";
 import {
   MailboxActionId,
   MailboxEndpointId,
   MailboxId,
   MailboxLabelId,
+  MailboxThreadId,
   MessageId,
   NamespaceId,
   TemplateId,
@@ -37,6 +38,8 @@ import {
   decodeMessage,
   decodeReceipt,
   decodeThreadPage,
+  decodeOrganizationThreadPage,
+  decodeNeedsYou,
   getMailboxJson,
   postMailboxJson,
 } from "../lib/mailbox-wire";
@@ -170,10 +173,16 @@ const checkCursor = (
       );
 
 /** A query string from the defined values, or nothing when there are none. */
-const searchParams = (values: Readonly<Record<string, string | number | boolean | undefined>>) => {
+const searchParams = (
+  values: Readonly<Record<string, string | number | boolean | readonly string[] | undefined>>,
+) => {
   const query = new URLSearchParams(
     Object.entries(values).flatMap(([name, value]) =>
-      value === undefined ? [] : [[name, String(value)]],
+      value === undefined
+        ? []
+        : Array.isArray(value)
+          ? value.map((item) => [name, item])
+          : [[name, String(value)]],
     ),
   ).toString();
   return query === "" ? "" : `?${query}`;
@@ -394,6 +403,100 @@ const update = Command.make("update", {
         Effect.mapError((e) => mailboxApiError("Could not update mailbox", e)),
       );
       yield* json ? printJson(result) : printMailbox(result);
+    }),
+  ),
+);
+const threadUpdate = Command.make("thread-update", {
+  id: mailboxIdArgument,
+  threadId: Argument.String("thread-id").pipe(Argument.withSchema(MailboxThreadId)),
+  data: Flag.String("data").pipe(
+    Flag.withDescription(
+      "JSON patch or @file: done, closed, folder, priority, read, starred, snoozedUntil",
+    ),
+  ),
+  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Update shared thread state or your own Done state"),
+  Command.withExamples([
+    {
+      command: `samva mailboxes thread-update mbx_1234567890123456 thread_1234567890123456 --data '{"done":true}'`,
+    },
+  ]),
+  Command.withHandler(({ id, threadId, data, dryRun, json }) =>
+    Effect.gen(function* () {
+      let source = data;
+      if (data.startsWith("@")) {
+        const path = data.slice(1);
+        if (!path)
+          return yield* new CliUsageError({
+            code: "missing_data_file",
+            message: "--data @ requires a file path.",
+          });
+        const fs = yield* FileSystem.FileSystem;
+        source = yield* fs.readFileString(path).pipe(
+          Effect.mapError(
+            () =>
+              new CliUsageError({
+                code: "data_file_unreadable",
+                message: `Could not read mailbox update data from ${path}.`,
+              }),
+          ),
+        );
+      }
+      const raw = yield* Effect.try({
+        try: (): unknown => JSON.parse(source),
+        catch: () =>
+          new CliUsageError({
+            code: "mailbox_thread_update_invalid",
+            message: "--data must be valid JSON.",
+          }),
+      });
+      const payload = yield* Schema.decodeUnknownEffect(
+        Schema.toEncoded(UpdateMailboxThreadPayload),
+      )(raw, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.mapError(
+          (e) =>
+            new CliUsageError({
+              code: "mailbox_thread_update_invalid",
+              message: `--data must match the mailbox update schema: ${String(e)}`,
+            }),
+        ),
+      );
+      if (!Object.keys(payload).length)
+        return yield* new CliUsageError({
+          code: "mailbox_thread_update_empty",
+          message: "--data must name at least one thread field.",
+        });
+      if (dryRun)
+        return yield* json
+          ? printJson({
+              dryRun: true,
+              action: "mailboxes.thread-update",
+              id,
+              threadId,
+              request: payload,
+            })
+          : printFields([
+              ["Dry run", true],
+              ["Mailbox", id],
+              ["Patch", JSON.stringify(payload)],
+            ]);
+      const client = yield* getClientProvider;
+      const result = yield* Mailboxes.updateThread({ id, threadId, ...payload }).pipe(
+        client.provide,
+        Effect.mapError((e) => mailboxApiError("Could not update thread", e)),
+      );
+      yield* json
+        ? printJson(result)
+        : printFields(
+            Object.entries(result).map(([key, value]) => [
+              key,
+              Predicate.isObject(value) ? JSON.stringify(value) : value,
+            ]),
+          );
     }),
   ),
 );
@@ -737,8 +840,10 @@ const remove = Command.make("remove", {
 );
 const threads = Command.make("threads", {
   mailbox: mailboxIdArgument,
+  state: Flag.Literals("state", ["active", "done"]).pipe(Flag.optional),
   ...pageFlags,
   query: optional("query"),
+  snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
   folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
   label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
   unread: Flag.Boolean("unread").pipe(Flag.withDefault(false)),
@@ -760,7 +865,22 @@ const threads = Command.make("threads", {
     { command: "samva mailboxes threads mbx_1234567890123456 --all --jsonl" },
   ]),
   Command.withHandler(
-    ({ mailbox, limit, cursor, all, query, folder, label, unread, starred, after, before, json }) =>
+    ({
+      mailbox,
+      state,
+      limit,
+      cursor,
+      all,
+      query,
+      snoozed,
+      folder,
+      label,
+      unread,
+      starred,
+      after,
+      before,
+      json,
+    }) =>
       followPages({
         all,
         json,
@@ -769,9 +889,11 @@ const threads = Command.make("threads", {
           getMailboxJson(
             "Could not list threads",
             `/v1/mailboxes/${mailbox}/threads${searchParams({
+              state: Option.getOrUndefined(state),
               cursor: pageCursor,
               limit: Option.getOrUndefined(limit),
               q: Option.getOrUndefined(query),
+              snoozed: Option.getOrUndefined(snoozed),
               folder: Option.getOrUndefined(folder),
               label: Option.getOrUndefined(label),
               unread: unread ? true : undefined,
@@ -783,6 +905,138 @@ const threads = Command.make("threads", {
         empty: "No threads found.",
         human: printThread,
       }),
+  ),
+);
+const allThreads = Command.make("all-threads", {
+  mailboxId: Flag.String("mailbox-id").pipe(Flag.withSchema(MailboxId), Flag.atLeast(0)),
+  kind: Flag.Literals("kind", ["personal", "shared"]).pipe(Flag.optional),
+  state: Flag.Literals("state", ["active", "done"]).pipe(Flag.optional),
+  ...pageFlags,
+  query: optional("query"),
+  snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
+  folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
+  label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
+  unread: Flag.Boolean("unread").pipe(Flag.withDefault(false)),
+  starred: Flag.Boolean("starred").pipe(
+    Flag.withDescription("Only threads you starred"),
+    Flag.withDefault(false),
+  ),
+  after: instantFlag("after", "Only threads with activity after this ISO 8601 instant"),
+  before: instantFlag("before", "Only threads whose last activity is before this ISO 8601 instant"),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Search and list threads across readable mailboxes"),
+  Command.withExamples([
+    { command: "samva mailboxes all-threads --query invoice --json" },
+    {
+      command: "samva mailboxes all-threads --starred --after 2026-10-01T00:00:00Z",
+    },
+    { command: "samva mailboxes all-threads --all --jsonl" },
+  ]),
+  Command.withHandler(
+    ({
+      mailboxId,
+      kind,
+      state,
+      limit,
+      cursor,
+      all,
+      query,
+      snoozed,
+      folder,
+      label,
+      unread,
+      starred,
+      after,
+      before,
+      json,
+    }) =>
+      followPages({
+        all,
+        json,
+        cursor,
+        page: (pageCursor) =>
+          getMailboxJson(
+            "Could not list threads",
+            `/v1/mailboxes/threads${searchParams({
+              mailboxId: mailboxId.length ? mailboxId : undefined,
+              kind: Option.getOrUndefined(kind),
+              state: Option.getOrUndefined(state),
+              cursor: pageCursor,
+              limit: Option.getOrUndefined(limit),
+              q: Option.getOrUndefined(query),
+              snoozed: Option.getOrUndefined(snoozed),
+              folder: Option.getOrUndefined(folder),
+              label: Option.getOrUndefined(label),
+              unread: unread ? true : undefined,
+              starred: starred ? true : undefined,
+              after: Option.getOrUndefined(after),
+              before: Option.getOrUndefined(before),
+            })}`,
+          ).pipe(Effect.flatMap(decodeOrganizationThreadPage)),
+        empty: "No threads found.",
+        human: (item) =>
+          Effect.gen(function* () {
+            yield* printFields([
+              ["Mailbox", item.mailbox.id],
+              ["Address", item.mailbox.address],
+              ["Kind", item.mailbox.kind],
+            ]);
+            yield* printThread(item);
+          }),
+      }),
+  ),
+);
+
+const needsYou = Command.make("needs-you", {
+  limit: pageFlags.limit,
+  cursor: pageFlags.cursor,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("List held sends you may approve and quarantined mail you may release"),
+  Command.withExamples([{ command: "samva mailboxes needs-you --limit 20 --json" }]),
+  Command.withHandler(({ limit, cursor, json }) =>
+    Effect.gen(function* () {
+      const pageCursor = yield* checkCursor(Option.getOrUndefined(cursor));
+      const data = yield* getMailboxJson(
+        "Could not list mail needing your decision",
+        `/v1/mailboxes/needs-you${searchParams({ limit: Option.getOrUndefined(limit), cursor: pageCursor })}`,
+      ).pipe(Effect.flatMap(decodeNeedsYou));
+      if (json) return yield* printJson(data);
+      if (isJsonLinesRequested()) {
+        for (const item of data.items) yield* printJsonLine(item);
+        return;
+      }
+      yield* printFields([
+        ["Held sends", data.counts.heldSends],
+        ["Quarantined messages", data.counts.quarantinedMessages],
+        ["Total", data.counts.total],
+      ]);
+      if (!data.items.length) yield* Console.log("No mail needs your decision.");
+      for (const item of data.items) {
+        yield* printFields([
+          ["Type", item.type],
+          ["ID", item.id],
+          ["Mailbox", item.mailbox.id],
+          ["Address", item.mailbox.address],
+          ["Kind", item.mailbox.kind],
+          ["Source", item.source],
+        ]);
+        if (item.type === "heldSend")
+          yield* printFields([
+            ["Thread", item.threadId],
+            ["Draft", item.draftId],
+            ["Proposed by", JSON.stringify(item.proposedBy)],
+            ["Created", item.createdAt],
+          ]);
+        else
+          yield* printFields([
+            ["Reason", item.reason],
+            ["Held at", item.heldAt],
+          ]);
+      }
+      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+    }),
   ),
 );
 const read = Command.make("read", {
@@ -1182,6 +1436,9 @@ export const mailboxesCommand = Command.make("mailboxes").pipe(
     ),
     remove,
     threads,
+    allThreads,
+    needsYou,
+    threadUpdate,
     read,
     send,
     reply,
