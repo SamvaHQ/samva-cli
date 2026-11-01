@@ -28,9 +28,7 @@ const destinationLabel = (destination: {
       ? []
       : [`${destination.mailboxes} mailbox${destination.mailboxes === 1 ? "" : "es"}`],
   ].flat();
-  return parts.length === 0
-    ? "none (add a webhook endpoint or a forwarding rule)"
-    : parts.join(", ");
+  return parts.length === 0 ? "none (mail to unknown addresses is dropped)" : parts.join(", ");
 };
 
 const mxLabel = (mx: {
@@ -70,15 +68,12 @@ const status = Command.make("status", {
       yield* printFields([
         ["Domain", data.domain],
         ["1. Sending", `${mark(data.sending.satisfied)} (${data.sending.phase})`],
+        ["Destinations", destinationLabel(data.destination)],
         [
-          "2. Destination",
-          `${mark(data.destination.satisfied)} ${destinationLabel(data.destination)}`,
-        ],
-        [
-          "3. Receiving",
+          "2. Receiving",
           `${mark(data.receiving.satisfied)}${data.receiving.catchAll ? " (catch-all)" : ""}`,
         ],
-        [`4. Inbound MX`, `${mark(data.mx.satisfied)} ${data.receivingHost} ${mxLabel(data.mx)}`],
+        [`3. Inbound MX`, `${mark(data.mx.satisfied)} ${data.receivingHost} ${mxLabel(data.mx)}`],
         ["Ready", data.ready ? "yes" : "no"],
       ]);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
@@ -94,7 +89,7 @@ const enable = Command.make("enable", {
   ),
   catchAll: Flag.Boolean("catch-all").pipe(
     Flag.withDescription(
-      "Receive every address on the domain. Needs --endpoint or an active forwarding rule that covers the domain",
+      "Receive every address on the domain; mail without a destination is dropped",
     ),
     Flag.withDefault(false),
   ),
@@ -111,7 +106,7 @@ const enable = Command.make("enable", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Enable inbound receiving for a verified domain. Receiving needs somewhere to deliver: exact addresses are accepted, and a catch-all needs a webhook endpoint or a forwarding rule",
+    "Enable inbound receiving for a verified domain. Catch-all accepts every address; mail without a mailbox, forwarding rule, or webhook is dropped",
   ),
   Command.withExamples([
     {

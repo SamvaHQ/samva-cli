@@ -1287,7 +1287,7 @@ const actionRetry = Command.make("retry", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Resume an eligible ended execution as a permitted person; preserves content and deadline",
+    "Resume an eligible queued send as a permitted person; preserves content, retry delays and deadline",
   ),
   Command.withHandler(({ actionId, mailbox, json }) =>
     Effect.gen(function* () {

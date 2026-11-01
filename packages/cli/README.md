@@ -450,11 +450,11 @@ exits `1` if any check failed and `0` otherwise. The `--json` result's `data` ad
 `ok` boolean, and human output marks checks with `✓`, `!`, and `✗` respectively.
 
 Use `samva email receiving status <domain-id>` to read a domain's receiving prerequisites in
-order: sending verified, a destination, receiving enabled, and the inbound MX, which it looks up
+order: sending verified, receiving enabled, and the inbound MX, which it looks up
 live and names when mail is routed elsewhere.
 `samva email receiving enable <domain-id> --domain <name> --catch-all [--endpoint <webhook-id>]`
-routes every address on a verified domain. A catch-all needs a destination, either `--endpoint` or
-an active forwarding rule that covers the domain; mail that matches neither is rejected. Pass
+accepts every address on a verified domain. Mail without a webhook, forwarding rule, or active
+mailbox goes to the domain's chosen unknown-address mailbox, or is dropped by default. Pass
 `--address` for exact recipients instead. The command acts by default; its `--dry-run` is offline
 and does not require credentials or call the API.
 
