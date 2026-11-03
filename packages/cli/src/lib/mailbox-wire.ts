@@ -18,14 +18,15 @@ import { mailboxApiError } from "./mailbox-errors";
 // or that creates a phone endpoint or sends on a phone channel, therefore calls the API directly
 // with the CLI's credentials and reads the answer with the core schemas, in wire form.
 
-const WireMailbox = Schema.toEncoded(Mailbox);
+// Derive JSON from the encoded schemas so decoding accepts API nulls while dates stay strings.
+const WireMailbox = Schema.toCodecJson(Schema.toEncoded(Mailbox));
 export type WireMailbox = typeof WireMailbox.Type;
 export type WireEndpoint = WireMailbox["endpoints"][number];
-const WireReceipt = Schema.toEncoded(MailboxSendReceipt);
+const WireReceipt = Schema.toCodecJson(Schema.toEncoded(MailboxSendReceipt));
 export type WireReceipt = typeof WireReceipt.Type;
-const WireThreadPage = Schema.toEncoded(CursorPage(MailboxThreadSummary));
+const WireThreadPage = Schema.toCodecJson(Schema.toEncoded(CursorPage(MailboxThreadSummary)));
 export type WireThread = (typeof WireThreadPage.Type)["items"][number];
-const WireMessage = Schema.toEncoded(MailboxMessage);
+const WireMessage = Schema.toCodecJson(Schema.toEncoded(MailboxMessage));
 export type WireMessage = typeof WireMessage.Type;
 
 const unreadable = (what: string) => () =>
@@ -57,8 +58,11 @@ export const decodeThreadPage = decoder(WireThreadPage, "thread page");
 export const decodeMessage = decoder(WireMessage, "message");
 
 export const decodeOrganizationThreadPage = decoder(
-  Schema.toEncoded(CursorPage(OrganizationMailboxThreadSummary)),
+  Schema.toCodecJson(Schema.toEncoded(CursorPage(OrganizationMailboxThreadSummary))),
   "organization thread page",
 );
 
-export const decodeNeedsYou = decoder(Schema.toEncoded(MailboxNeedsYou), "needs-you page");
+export const decodeNeedsYou = decoder(
+  Schema.toCodecJson(Schema.toEncoded(MailboxNeedsYou)),
+  "needs-you page",
+);

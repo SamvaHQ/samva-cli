@@ -1,3 +1,14 @@
+## @samva/cli-linux-x64@0.29.2
+
+### Read mailbox messages with empty optional fields
+
+`samva mailboxes read` accepts messages with null campaign and sender fields, including with
+`--json`. Mailbox responses keep dates as strings and preserve null fields in JSON output.
+
+### Update template authoring dependencies
+
+The CLI bundles SML 0.22.1 and Effect 4.1.2 for local template authoring and rendering.
+
 ## @samva/cli-linux-x64@0.29.1
 
 ### Receive mail on your own domain

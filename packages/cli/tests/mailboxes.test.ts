@@ -1209,6 +1209,43 @@ describe("mailbox command HTTP contracts", () => {
       `/v1/mailboxes/${mailboxId}/threads?cursor=${cursorAt(threadId)}`,
     );
   });
+  for (const json of [false, true]) {
+    it(`reads API null optional message fields in ${json ? "JSON" : "human"} output`, async () => {
+      const data = {
+        ...message,
+        campaign: null,
+        from: { ...message.from, actor: null, displayName: null },
+        recipients: [{ ...message.recipients[0], actor: null, displayName: null }],
+        sentBy: null,
+        html: null,
+      };
+      const result = await run(["read", mailboxId, messageId, ...(json ? ["--json"] : [])], data);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      if (json) expect(JSON.parse(result.stdout)).toEqual(data);
+      else {
+        expect(result.stdout).toContain("sender@example.com");
+        expect(result.stdout).toContain(date);
+        expect(result.stdout).toContain("Full body with quote");
+      }
+    });
+
+    it(`lists API null thread fields in ${json ? "JSON" : "human"} output`, async () => {
+      const data = {
+        items: [{ ...thread, endpointId: null, subject: null, preview: null, from: null }],
+        nextCursor: null,
+      };
+      const result = await run(["threads", mailboxId, ...(json ? ["--json"] : [])], data);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      if (json) expect(JSON.parse(result.stdout)).toEqual(data);
+      else {
+        expect(result.stdout).toContain("No subject");
+        expect(result.stdout).toContain(date);
+      }
+    });
+  }
+
   it("reads the complete message as JSON", async () => {
     const result = await run(["read", mailboxId, messageId, "--json"], message);
     expect(result.code, result.stderr).toBe(0);

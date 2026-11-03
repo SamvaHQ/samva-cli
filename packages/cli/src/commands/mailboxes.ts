@@ -12,6 +12,7 @@ import {
   TemplateId,
 } from "@samva/core/shared/base";
 import { Cursor } from "@samva/core/shared/cursor";
+import { CHANNEL_VALUES, channelSchema, type Channel } from "@samva/core/shared/enums";
 import { Console, Effect, FileSystem, Option, Predicate, Schema } from "effect";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
@@ -86,11 +87,10 @@ const body = (text: Option.Option<string>, html: Option.Option<string>) => {
     ...(Option.isSome(html) ? { html: html.value } : {}),
   });
 };
-const channelFlag = Flag.Literals("channel", ["email", "whatsapp", "sms"]).pipe(
+const channelFlag = Flag.Literals("channel", CHANNEL_VALUES).pipe(
   Flag.withDescription("The channel: email, or a connected whatsapp or sms number"),
   Flag.withDefault("email"),
 );
-type Channel = "email" | "whatsapp" | "sms";
 const chatOnlyFlags = {
   template: Flag.String("template").pipe(
     Flag.withDescription("WhatsApp only: send this approved template (tmpl_…) instead of --text"),
@@ -1159,9 +1159,7 @@ const send = Command.make("send", {
 const messageChannel = (mailbox: MailboxId, messageId: MessageId) =>
   getMailboxJson("Could not read message", `/v1/mailboxes/${mailbox}/messages/${messageId}`).pipe(
     Effect.flatMap((raw) =>
-      Schema.decodeUnknownEffect(
-        Schema.Struct({ channel: Schema.Literals(["email", "whatsapp", "sms"]) }),
-      )(raw).pipe(
+      Schema.decodeUnknownEffect(Schema.Struct({ channel: channelSchema }))(raw).pipe(
         Effect.map(({ channel }): Channel => channel),
         Effect.mapError(
           () => new SamvaCliError({ message: "The API answered with an unreadable message." }),
