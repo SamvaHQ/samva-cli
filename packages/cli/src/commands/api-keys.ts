@@ -46,9 +46,7 @@ const GRANT_LEVELS = ["read", "write"] as const;
 type GrantLevel = (typeof GRANT_LEVELS)[number];
 
 /**
- * The resources a key can be granted: the ones the public request schema accepts. The public
- * OpenAPI document omits resources behind launch flags, so probing the schema the CLI decodes
- * against keeps help, parsing, and the request in agreement.
+ * Probe the generated request schema so help, parsing, and the request agree on grantable resources.
  */
 const GRANTABLE_RESOURCES = API_KEY_LEVEL_RESOURCES.filter((resource) =>
   Option.isSome(
@@ -199,7 +197,7 @@ const parseExpiresAt = (raw: string) =>
 
 /** Decode a payload through the SDK schema so the API's validation has one source. */
 const decodeRequest = <A>(schema: Schema.Codec<A, unknown>, input: unknown) =>
-  Schema.decodeUnknownEffect(schema)(input, { onExcessProperty: "error" }).pipe(
+  Schema.decodeUnknownEffect(schema)(input, { onExcessProperty: "error", errors: "all" }).pipe(
     Effect.mapError(
       (error) => new CliUsageError({ code: "invalid_api_key_request", message: error.message }),
     ),

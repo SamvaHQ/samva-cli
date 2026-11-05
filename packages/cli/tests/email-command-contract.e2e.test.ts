@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { emailDomainFixture } from "./support/fixtures";
 import { type CliOptions, runCli as runCliProcess } from "./support/run-cli";
 
 // Process-level contracts for `samva email`: which stdin body sources the send
@@ -81,10 +82,6 @@ const verificationDetails = {
 };
 
 const emptyPage = { items: [], nextCursor: null };
-
-// Every domain list row carries the same computed blocks the API returns: a
-// 24-hour deliverability reading with its denominator, and the 14-day series.
-const zeroSeries = Array.from({ length: 14 }, () => 0);
 
 const rejectedReview = {
   decision: "rejected",
@@ -262,22 +259,7 @@ const startDoctorApi = (
         const sendableOnly = new URL(path, "http://api.test").searchParams.get("sendable");
         const item =
           options.domainPhase && (sendableOnly !== "true" || options.domainPhase === "ready")
-            ? {
-                id: "dom_1234567890abcdefgh",
-                namespaceId: null,
-                domain: "example.com",
-                phase: options.domainPhase,
-                isDefault: false,
-                deliverability: {
-                  bounceRate: 0,
-                  complaintRate: 0,
-                  windowSends: 0,
-                  sendingStatus: "unknown",
-                },
-                series: zeroSeries,
-                createdAt: "2026-07-01T00:00:00.000Z",
-                updatedAt: "2026-07-01T00:00:00.000Z",
-              }
+            ? emailDomainFixture({ phase: options.domainPhase })
             : undefined;
         res.end(
           JSON.stringify({

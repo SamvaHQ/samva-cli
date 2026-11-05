@@ -6,7 +6,8 @@
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "plugins": [{ "name": "@effect/language-service" }]
   },
   "include": ["./*.ts"]
 }

@@ -375,6 +375,7 @@ const update = Command.make("update", {
       });
       const payload = yield* Schema.decodeUnknownEffect(UpdateMailboxPayload)(raw, {
         onExcessProperty: "error",
+        errors: "all",
       }).pipe(
         Effect.mapError(
           (e) =>
@@ -456,6 +457,7 @@ const threadUpdate = Command.make("thread-update", {
         Schema.toEncoded(UpdateMailboxThreadPayload),
       )(raw, {
         onExcessProperty: "error",
+        errors: "all",
       }).pipe(
         Effect.mapError(
           (e) =>

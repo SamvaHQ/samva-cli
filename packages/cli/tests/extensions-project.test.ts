@@ -62,13 +62,13 @@ describe("extension authoring", () => {
       expect(data.manifest.runtime).toBe(runtime);
       expect(data.sha256).toMatch(/^[a-f0-9]{64}$/);
       expect(data.sizeBytes).toBe(Buffer.byteLength(await readFile(data.output, "utf8")));
-      const imported = await runCli(
-        [
-          "-e",
-          `const m=await import(${JSON.stringify(data.output)});console.log(JSON.stringify(m.default.manifest))`,
-        ],
-        { executable: "bun", configHome: home },
+      // `bun run` takes a file, not `-e`, so the import check is a script beside the build.
+      const importer = join(dir, "import-manifest.ts");
+      await writeFile(
+        importer,
+        `const m = await import(${JSON.stringify(data.output)});\nconsole.log(JSON.stringify(m.default.manifest));\n`,
       );
+      const imported = await runCli([importer], { executable: "bun", configHome: home });
       expect(imported.code, imported.stderr).toBe(0);
       expect(JSON.parse(imported.stdout)).toEqual(data.manifest);
       const human = await run(["build", dir]);

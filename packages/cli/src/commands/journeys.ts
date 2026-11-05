@@ -74,7 +74,10 @@ const readJsonSource = (flag: string, data: string) =>
     });
   });
 
-const decodeDefinition = Schema.decodeUnknownEffect(JourneyDefinition);
+const decodeDefinition = Schema.decodeUnknownEffect(JourneyDefinition, {
+  onExcessProperty: "error",
+  errors: "all",
+});
 
 /**
  * Reads `--definition` and checks it against the journey contract, graph rules included, so a

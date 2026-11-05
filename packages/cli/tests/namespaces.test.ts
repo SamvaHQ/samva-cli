@@ -165,6 +165,8 @@ describe("samva namespaces", () => {
       periodStart: date,
       periodEnd: "2026-10-18T00:00:00.000Z",
       emailCount: 12,
+      smsCount: 0,
+      whatsappCount: 0,
       totalMessages: 12,
     };
     const human = await run(["usage", nsId, "--after", date], { status: 200, body: usage });

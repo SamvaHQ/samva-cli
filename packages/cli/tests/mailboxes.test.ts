@@ -662,7 +662,7 @@ describe("mailbox command HTTP contracts", () => {
   ]) {
     it(`rejects invalid update data before making a request: ${data}`, async () => {
       const result = await run(["update", mailboxId, "--data", data, "--json"], undefined);
-      expect(result.code).toBe(2);
+      expect(result.code, result.stderr).toBe(2);
       expect(requests).toHaveLength(0);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("mailbox_update_");
@@ -678,7 +678,7 @@ describe("mailbox command HTTP contracts", () => {
   for (const data of ["@", "@/missing/mailbox-patch.json"]) {
     it(`rejects unavailable update file ${data}`, async () => {
       const result = await run(["update", mailboxId, "--data", data, "--json"], undefined);
-      expect(result.code).toBe(2);
+      expect(result.code, result.stderr).toBe(2);
       expect(requests).toHaveLength(0);
       expect(result.stderr).toContain(data === "@" ? "missing_data_file" : "data_file_unreadable");
     });

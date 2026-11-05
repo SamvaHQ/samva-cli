@@ -53,7 +53,7 @@ const send = Command.make("send", {
       }
       const payload = yield* Schema.decodeEffect(Schema.fromJsonString(Events.CreateEventPayload))(
         source,
-        { onExcessProperty: "error" },
+        { onExcessProperty: "error", errors: "all" },
       ).pipe(
         Effect.mapError(
           (error) =>

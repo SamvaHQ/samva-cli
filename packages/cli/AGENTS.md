@@ -203,8 +203,7 @@ phone channel the address is a connected number in E.164 form, and `send` takes 
 with `--text` or, on WhatsApp, an approved `--template <templateId>` with `--data`. `reply` answers a
 WhatsApp or SMS message on its thread; a bare `--text` reply reads the message first to learn its
 channel. Free-form WhatsApp text outside the customer's 24-hour window fails with
-`WhatsAppServiceWindowClosedError`; send a template. These commands call the API directly because the
-public SDK describes email only.
+`WhatsAppServiceWindowClosedError`; send a template. These commands call the API directly.
 Quarantine `list` pages the same way, bounded by `--after` and `--before` on when a message was
 held; `release` and `discard` take the held message's `id` and require a person signed in with
 `samva login`. Discard requires confirmation (`--yes` outside a terminal) and supports `--dry-run`.
@@ -252,3 +251,9 @@ An empty organization succeeds with no items; human output points to the dashboa
 `FlagDisabledError` (exit `4`). `samva whatsapp message status <id>` reads a WhatsApp message's
 lifecycle status and waiting reason; `--json` returns `{id, channel, status, waitReason,
 reviewExpectedAt, createdAt, updatedAt}`. An id belonging to another channel exits `1`.
+
+`samva email receiving update <domain-id>` sets or clears catch-all destinations atomically.
+Use `--endpoint <id>` or `--clear-endpoint` and `--unknown-recipient-mailbox <id>` or
+`--clear-unknown-recipient-mailbox`. Omitted destinations remain unchanged. Clearing the webhook
+restores forwarding-rule and mailbox routing; the unknown-address mailbox applies only without a
+webhook. `--dry-run --json` previews the request without credentials or API calls.

@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Email from "samva/effect/email";
 
-import { SamvaCliError, toCliApiError } from "../../errors";
+import { CliUsageError, SamvaCliError, toCliApiError } from "../../errors";
 import { getClientProvider } from "../../lib/client";
 import { jsonFlag, printFields, printJson } from "../../lib/output";
 
@@ -161,8 +161,116 @@ const enable = Command.make("enable", {
   ),
 );
 
+const update = Command.make("update", {
+  domainId: Argument.String("domain-id").pipe(Argument.withDescription("Receiving domain id")),
+  endpoint: Flag.String("endpoint").pipe(
+    Flag.withDescription("Webhook endpoint id for catch-all delivery"),
+    Flag.optional,
+  ),
+  clearEndpoint: Flag.Boolean("clear-endpoint").pipe(
+    Flag.withDescription("Remove the webhook so forwarding rules and mailboxes receive mail"),
+    Flag.withDefault(false),
+  ),
+  unknownRecipientMailbox: Flag.String("unknown-recipient-mailbox").pipe(
+    Flag.withDescription("Active mailbox on this domain for unknown recipient addresses"),
+    Flag.optional,
+  ),
+  clearUnknownRecipientMailbox: Flag.Boolean("clear-unknown-recipient-mailbox").pipe(
+    Flag.withDescription("Drop unknown recipient mail when no webhook is configured"),
+    Flag.withDefault(false),
+  ),
+  dryRun: Flag.Boolean("dry-run").pipe(
+    Flag.withDescription("Print the configuration update without calling the API"),
+    Flag.withDefault(false),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Update catch-all routing atomically. Omitted destinations stay unchanged; mailbox routing applies when no webhook is configured",
+  ),
+  Command.withExamples([
+    { command: "samva email receiving update dom_abc123 --endpoint wep_abc123" },
+    {
+      command:
+        "samva email receiving update dom_abc123 --clear-endpoint --unknown-recipient-mailbox mbx_abc123 --dry-run --json",
+    },
+    {
+      command:
+        "samva email receiving update dom_abc123 --clear-endpoint --clear-unknown-recipient-mailbox",
+    },
+  ]),
+  Command.withHandler(
+    ({
+      domainId,
+      endpoint,
+      clearEndpoint,
+      unknownRecipientMailbox,
+      clearUnknownRecipientMailbox,
+      dryRun,
+      json,
+    }) =>
+      Effect.gen(function* () {
+        if (clearEndpoint && Option.isSome(endpoint)) {
+          return yield* new CliUsageError({
+            code: "receiving_update_endpoint_conflict",
+            message: "Pass either --endpoint or --clear-endpoint, not both.",
+          });
+        }
+        if (clearUnknownRecipientMailbox && Option.isSome(unknownRecipientMailbox)) {
+          return yield* new CliUsageError({
+            code: "receiving_update_mailbox_conflict",
+            message:
+              "Pass either --unknown-recipient-mailbox or --clear-unknown-recipient-mailbox, not both.",
+          });
+        }
+        const request = {
+          domainId,
+          ...(clearEndpoint
+            ? { endpointId: null }
+            : Option.isSome(endpoint)
+              ? { endpointId: endpoint.value }
+              : {}),
+          ...(clearUnknownRecipientMailbox
+            ? { unknownRecipientMailboxId: null }
+            : Option.isSome(unknownRecipientMailbox)
+              ? { unknownRecipientMailboxId: unknownRecipientMailbox.value }
+              : {}),
+        };
+        if (
+          !clearEndpoint &&
+          Option.isNone(endpoint) &&
+          !clearUnknownRecipientMailbox &&
+          Option.isNone(unknownRecipientMailbox)
+        ) {
+          return yield* new CliUsageError({
+            code: "receiving_update_empty",
+            message:
+              "Pass --endpoint, --clear-endpoint, --unknown-recipient-mailbox, or --clear-unknown-recipient-mailbox.",
+          });
+        }
+        if (dryRun)
+          return yield* json
+            ? printJson({ dryRun: true, action: "email.receiving.update", request })
+            : printFields([
+                ["Dry run", "Would update catch-all receiving"],
+                ...Object.entries(request).map(([key, value]): [string, string] => [
+                  key,
+                  value ?? "clear",
+                ]),
+              ]);
+        const client = yield* getClientProvider;
+        const data = yield* Email.updateCatchAllConfig(request).pipe(
+          client.provide,
+          Effect.mapError((error) => toCliApiError("Could not update receiving", error)),
+        );
+        if (json) return yield* printJson(data);
+        yield* Console.log("Updated catch-all receiving.");
+      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 export const receivingCommand = Command.make("receiving").pipe(
   Command.withDescription("Move a domain's inbound email to Samva and check what is left to do"),
   Command.withExamples([{ command: "samva email receiving status dom_abc123" }]),
-  Command.withSubcommands([status, enable]),
+  Command.withSubcommands([status, enable, update]),
 );

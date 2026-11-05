@@ -8,12 +8,14 @@
  */
 export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   agentsList: "api",
+  agentsListModels: "api",
   agentsCreate: "api",
   agentsGet: "api",
   agentsUpdate: "api",
   agentsRemove: "api",
   agentsReplaceDraft: "api",
   agentsPublish: "api",
+  agentsContinueOnStandard: "api",
   agentsListVersions: "api",
   agentsGetVersion: "api",
 
@@ -162,7 +164,7 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   emailEnableCatchAll: "api",
   emailDisableCatchAll: "api",
   emailGetCatchAllConfig: "api",
-  emailUpdateCatchAllConfig: "api",
+  emailUpdateCatchAllConfig: "email receiving update",
   emailGetCatchAllStats: "api",
   emailListSuppressions: "api",
   emailCountSuppressions: "api",

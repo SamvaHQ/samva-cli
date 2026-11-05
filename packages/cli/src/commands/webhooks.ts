@@ -32,7 +32,9 @@ const parseObject = (raw: string, flag: string) =>
   );
 const decodePayload = <A>(raw: string, flag: string, schema: Schema.Codec<A, unknown>) =>
   parseObject(raw, flag).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(schema)),
+    Effect.flatMap((input) =>
+      Schema.decodeEffect(schema)(input, { onExcessProperty: "error", errors: "all" }),
+    ),
     Effect.mapError((error) =>
       error instanceof SamvaCliError
         ? error

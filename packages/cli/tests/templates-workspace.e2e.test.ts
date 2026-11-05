@@ -232,6 +232,7 @@ beforeAll(async () => {
       return send(200, {
         ...checkResult(),
         fixture: payload["fixture"],
+        whatsapp: null,
         rendered: buildsCleanly()
           ? {
               subject: "Welcome",

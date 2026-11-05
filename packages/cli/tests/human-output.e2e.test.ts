@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 
 import { printJson, printJsonDocument } from "../src/lib/output";
+import { emailDomainFixture } from "./support/fixtures";
 import { runCli } from "./support/run-cli";
 
 // Human mode is formatted text. A command that prints a bare JSON document there fails the
@@ -35,6 +36,7 @@ const attempt = {
   id: "whatt_1234567890abcdef",
   deliveryId: "whdel_1234567890abcdef",
   kind: "automatic",
+  queueMessageId: null,
   attemptNumber: 1,
   classification: "http-error",
   attemptedAt: now,
@@ -90,7 +92,14 @@ const template = {
   updatedAt: now,
 };
 const usage = {
-  usage: { periodStart: now, periodEnd: now, emailCount: 7, totalMessages: 9 },
+  usage: {
+    periodStart: now,
+    periodEnd: now,
+    emailCount: 7,
+    smsCount: 0,
+    whatsappCount: 2,
+    totalMessages: 9,
+  },
   billing: {
     currency: "USD",
     planName: "Growth",
@@ -122,17 +131,12 @@ const apiKey = {
 };
 const day = (date: string) => ({ date, pending: 1, delivered: 2, exhausted: 3, cancelled: 4 });
 
-const domain = {
+const domain = emailDomainFixture({
   id: "dom_1234567890abcdef",
-  namespaceId: null,
-  domain: "example.com",
-  phase: "ready",
   isDefault: true,
-  deliverability: { bounceRate: 0, complaintRate: 0, windowSends: 0, sendingStatus: "unknown" },
-  series: Array.from({ length: 14 }, () => 0),
   createdAt: now,
   updatedAt: now,
-};
+});
 const routes: Record<string, unknown> = {
   "GET /v1/webhooks/wep_1234567890abcdef/logs": { items: [delivery], nextCursor: "next_page" },
   "GET /v1/webhooks/wep_1234567890abcdef/stats": {

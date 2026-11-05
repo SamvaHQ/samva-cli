@@ -1,6 +1,6 @@
 # @samva/cli
 
-Samva is the email API for your app: transactional and campaign sending, inbound mail, and webhooks behind one API.
+Samva is the email and WhatsApp API for your app: transactional and campaign sending, inbound replies threaded into conversations, programmable mailboxes, and signed webhooks. Small businesses use the same platform to answer their customers in Samva Mail.
 
 The `samva` CLI sends and operates email from a terminal. The npm package includes
 the JavaScript implementation and selects a self-contained native executable when
@@ -457,6 +457,13 @@ accepts every address on a verified domain. Mail without a webhook, forwarding r
 mailbox goes to the domain's chosen unknown-address mailbox, or is dropped by default. Pass
 `--address` for exact recipients instead. The command acts by default; its `--dry-run` is offline
 and does not require credentials or call the API.
+
+`samva email receiving update <domain-id>` changes catch-all destinations in one request.
+Use `--endpoint <webhook-id>` or `--clear-endpoint` for the webhook, and
+`--unknown-recipient-mailbox <mailbox-id>` or `--clear-unknown-recipient-mailbox` for unknown
+addresses. Omitted destinations stay unchanged. Clearing the webhook restores forwarding-rule and
+mailbox routing; the unknown-address mailbox applies only without a webhook. Combine flags to
+switch both destinations atomically. `--dry-run --json` previews the request offline.
 
 A command that needs a subcommand, such as a bare `samva` or a group like `samva email`, prints its
 help to stdout and exits `2`, so a script never mistakes a missing subcommand for success.

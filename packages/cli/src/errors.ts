@@ -102,6 +102,7 @@ export const processErrorNext = (error: unknown): string | undefined =>
 
 const apiStatuses: Readonly<Record<string, number>> = {
   ValidationError: 422,
+  MalformedRequestError: 400,
   TemplateSourceError: 422,
   AnalyticsQueryError: 400,
   BrandAddressRequiredError: 422,
@@ -177,6 +178,10 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
     case "ValidationError":
     case "AnalyticsQueryError":
       next = "Fix the listed fields before retrying.";
+      break;
+    case "MalformedRequestError":
+      next =
+        "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.";
       break;
     case "TemplateSourceError":
       next =

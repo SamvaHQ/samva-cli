@@ -218,7 +218,8 @@ describe("samva api-keys create grants", () => {
     const offered = /Resources: ([^\n]+)/.exec(help.stdout)?.[1]?.trim().split(", ");
     expect(offered).toBeDefined();
     expect(offered).toContain("email");
-    expect(offered).not.toContain("sms");
+    for (const channel of ["sms", "whatsapp", "whatsappAccounts"])
+      expect(offered).toContain(channel);
 
     for (const resource of offered ?? []) {
       const result = await cli([
@@ -232,13 +233,17 @@ describe("samva api-keys create grants", () => {
       expect(result.code, `${resource}: ${result.stderr}`).toBe(0);
     }
 
-    for (const gated of ["sms", "whatsapp", "whatsappAccounts"]) {
-      const result = await cli(["create", "--name", "ci", "--grant", `${gated}=read`, "--dry-run"]);
-      expect(result.code).toBe(2);
-      expect(result.stderr).toContain("Resources:");
-      expect(result.stderr).toContain("email");
-      expect(result.stderr).not.toMatch(new RegExp(`Resources:.*\\b${gated}\\b`));
-    }
+    const invalid = await cli([
+      "create",
+      "--name",
+      "ci",
+      "--grant",
+      "unknownResource=read",
+      "--dry-run",
+    ]);
+    expect(invalid.code).toBe(2);
+    expect(invalid.stderr).toContain("Resources:");
+    expect(invalid.stderr).toContain("email");
     expect(requests).toEqual([]);
   });
 });

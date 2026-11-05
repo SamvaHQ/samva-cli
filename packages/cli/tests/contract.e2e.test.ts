@@ -8,6 +8,7 @@ import { WEBHOOK_EVENT_TYPE_VALUES } from "@samva/core/shared/enums";
 
 import { rootCommands } from "../src/lib/root-commands";
 import { commandNameFromArgv } from "../src/lib/runtime";
+import { emailDomainFixture } from "./support/fixtures";
 import {
   type CliOptions,
   type CliResult,
@@ -428,17 +429,7 @@ const startApi = (): Promise<{
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
     };
-    const domain = {
-      id: "dom_1234567890abcdefgh",
-      namespaceId: null,
-      domain: "example.com",
-      phase: "ready",
-      isDefault: false,
-      deliverability: { bounceRate: 0, complaintRate: 0, windowSends: 0, sendingStatus: "unknown" },
-      series: zeroSeries,
-      createdAt: "2026-07-01T00:00:00.000Z",
-      updatedAt: "2026-07-01T00:00:00.000Z",
-    };
+    const domain = emailDomainFixture();
     const sender = {
       id: "sender_1234567890abcdef",
       namespaceId: null,
@@ -2186,6 +2177,131 @@ describe("email launch mutation contracts", () => {
     expect(stdout).toBe("");
     expect(JSON.parse(stderr)).toMatchObject({ type: "error" });
     expect(stderr).toContain("--yes");
+  });
+
+  it.each([
+    [["--endpoint", "wep_1234567890abcdef"], { endpointId: "wep_1234567890abcdef" }],
+    [["--clear-endpoint"], { endpointId: null }],
+    [
+      ["--unknown-recipient-mailbox", "mbx_1234567890abcdef"],
+      { unknownRecipientMailboxId: "mbx_1234567890abcdef" },
+    ],
+    [["--clear-unknown-recipient-mailbox"], { unknownRecipientMailboxId: null }],
+    [
+      ["--clear-endpoint", "--unknown-recipient-mailbox", "mbx_1234567890abcdef"],
+      { endpointId: null, unknownRecipientMailboxId: "mbx_1234567890abcdef" },
+    ],
+  ] as const)(
+    "receiving update previews %j offline without changing omitted fields",
+    async (flags, fields) => {
+      const result = await runCli([
+        "email",
+        "receiving",
+        "update",
+        "dom_1234567890abcdefgh",
+        ...flags,
+        "--dry-run",
+        "--json",
+      ]);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(parseResult(result.stdout)).toEqual({
+        dryRun: true,
+        action: "email.receiving.update",
+        request: { domainId: "dom_1234567890abcdefgh", ...fields },
+      });
+      expect(JSON.parse(result.stdout).command).toBe("email.receiving.update");
+    },
+  );
+
+  it.each([
+    [],
+    ["--endpoint", "wep_x", "--clear-endpoint"],
+    ["--unknown-recipient-mailbox", "mbx_x", "--clear-unknown-recipient-mailbox"],
+  ])("receiving update rejects missing or conflicting changes %j", async (...flags) => {
+    const result = await runCli([
+      "email",
+      "receiving",
+      "update",
+      "dom_1234567890abcdefgh",
+      ...flags,
+      "--dry-run",
+      "--json",
+    ]);
+    expect(result.code).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      type: "error",
+      command: "email.receiving.update",
+    });
+  });
+
+  it("receiving update help exposes the set and clear flags with atomic routing examples", async () => {
+    const result = await runCli(["email", "receiving", "update", "--help", "--json"]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    const help = parseResult<{ flags: Array<{ name: string }>; examples: unknown }>(result.stdout);
+    expect(help.flags.map((flag) => flag.name)).toEqual(
+      expect.arrayContaining([
+        "endpoint",
+        "clear-endpoint",
+        "unknown-recipient-mailbox",
+        "clear-unknown-recipient-mailbox",
+        "dry-run",
+      ]),
+    );
+    expect(JSON.stringify(help.examples)).toContain("--clear-endpoint --unknown-recipient-mailbox");
+  });
+
+  it("receiving update sends one atomic nullable destination patch", async () => {
+    const requests: unknown[] = [];
+    const server = createServer(async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      requests.push({ method: req.method, url: req.url, body: JSON.parse(body) });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    try {
+      const result = await runCli(
+        [
+          "email",
+          "receiving",
+          "update",
+          "dom_1234567890abcdefgh",
+          "--clear-endpoint",
+          "--unknown-recipient-mailbox",
+          "mbx_1234567890abcdef",
+          "--json",
+        ],
+        {
+          env: {
+            SAMVA_API_KEY: "samva_sk_test_x",
+            SAMVA_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      );
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(parseResult(result.stdout)).toEqual({ success: true });
+      expect(requests).toEqual([
+        {
+          method: "PATCH",
+          url: "/v1/email/catch-all/config",
+          body: {
+            domainId: "dom_1234567890abcdefgh",
+            endpointId: null,
+            unknownRecipientMailboxId: "mbx_1234567890abcdef",
+          },
+        },
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 
   it("receiving enable dry-run is offline and deterministic", async () => {

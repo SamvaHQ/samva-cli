@@ -285,6 +285,19 @@ describe("API recovery metadata", () => {
     });
     expect(apiErrorGuidance(error)?.details).not.toHaveProperty("cause");
   });
+  it("names the unexpected field and the one the operation declares", () => {
+    const error = toCliApiError("Could not update the webhook", {
+      _tag: "MalformedRequestError",
+      message: "Invalid request body",
+      fields: { events: ["Unexpected property. Did you mean eventTypes?"] },
+    });
+    expect(processErrorReason(error)).toBe("MalformedRequestError");
+    expect(apiErrorGuidance(error)).toMatchObject({
+      status: 400,
+      details: { fields: { events: ["Unexpected property. Did you mean eventTypes?"] } },
+      next: "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.",
+    });
+  });
   it("names the verified domains for FromAddressRequiredError", () => {
     const error = toCliApiError("Could not send", {
       _tag: "FromAddressRequiredError",

@@ -1,6 +1,6 @@
 # Samva CLI
 
-The source of `samva`, the command-line interface for the Samva email API, as published to npm:
+The source of `samva`, the command-line interface for the Samva email and WhatsApp API, as published to npm:
 
 | Package                                                                            | Directory                   | What it is                                                         |
 | ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------ |

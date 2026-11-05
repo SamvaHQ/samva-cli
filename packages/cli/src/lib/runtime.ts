@@ -69,7 +69,7 @@ const commandTree = {
   email: {
     send: {},
     doctor: {},
-    receiving: { status: {}, enable: {} },
+    receiving: { status: {}, enable: {}, update: {} },
     review: { status: {}, reapply: {} },
     tracking: {
       defaults: { get: {}, set: {} },

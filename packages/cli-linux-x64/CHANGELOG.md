@@ -1,3 +1,35 @@
+## @samva/cli-linux-x64@0.30.0
+
+### Clear a catch-all webhook without interrupting receiving
+
+Pass `endpointId: null` to `email.updateCatchAllConfig` to remove a catch-all's webhook endpoint
+while keeping catch-all enabled. Set `unknownRecipientMailboxId` in the same update to send
+unknown-address mail to that mailbox; without a mailbox, unknown addresses are dropped without a
+bounce. Omitted settings stay unchanged.
+
+`samva email receiving update <domainId>` sets or clears the webhook endpoint and unknown-recipient
+mailbox in one request.
+
+### List and read templates on every channel
+
+`samva templates list` and `samva templates get` read email, WhatsApp, and SMS templates through
+the SDK, including its automatic read retries. An organization holding templates on more than one
+channel no longer fails while decoding the response.
+
+### Reject undeclared JSON input fields
+
+**Breaking:** remove undeclared fields from JSON command input, including nested objects. For
+`samva webhooks update <id> --data`, replace `events` with `eventTypes`. Template and journey JSON
+must also match the fields their operations declare. Arbitrary template data, metadata, and webhook
+test data remain supported.
+
+Invalid input fails before sending a request and names each rejected field. API errors preserve
+`MalformedRequestError` and its field guidance so scripts can correct the request before retrying.
+
+### Describe Samva as the email and WhatsApp API
+
+The package README and npm description now call Samva the email and WhatsApp API.
+
 ## @samva/cli-linux-x64@0.29.2
 
 ### Read mailbox messages with empty optional fields
