@@ -3,7 +3,7 @@ import {
   ExtensionUpgradeGrant,
   ExtensionVersionString,
 } from "@samva/core/mailboxes/extension";
-import { mailboxSendModes } from "@samva/core/mailboxes/mailbox";
+import * as Policy from "@samva/core/policy/model";
 import {
   ExtensionInstallationId,
   ExtensionVersionId,
@@ -185,7 +185,11 @@ const install = Command.make("install", {
   mailbox: Flag.String("mailbox").pipe(Flag.withSchema(MailboxId), Flag.atLeast(0)),
   namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
   permission: Flag.Literals("permission", ExtensionPermission.literals).pipe(Flag.atLeast(0)),
-  sendMode: Flag.Literals("send-mode", mailboxSendModes).pipe(Flag.optional),
+  policy: Flag.String("policy").pipe(
+    Flag.withSchema(Schema.fromJsonString(Policy.Configuration)),
+    Flag.withDescription("Decision policy as JSON: presets, rules, and optional instructions"),
+    Flag.optional,
+  ),
   webhookUrl: Flag.String("webhook-url").pipe(Flag.optional),
   json: jsonFlag,
 }).pipe(
@@ -195,7 +199,7 @@ const install = Command.make("install", {
   Command.withExamples([
     {
       command:
-        "samva extensions install auto-reply --mailbox mbx_1234567890123456 --permission read --permission send --send-mode approval",
+        "samva extensions install auto-reply --mailbox mbx_1234567890123456 --permission read --permission send",
     },
   ]),
   Command.withHandler(
@@ -205,7 +209,7 @@ const install = Command.make("install", {
       mailbox,
       namespace,
       permission,
-      sendMode,
+      policy,
       webhookUrl,
       json,
     }) =>
@@ -217,7 +221,7 @@ const install = Command.make("install", {
           ...(mailbox.length ? { mailboxIds: mailbox } : {}),
           ...(Option.isSome(namespace) ? { namespaceId: namespace.value } : {}),
           ...(permission.length ? { permissions: permission } : {}),
-          ...(Option.isSome(sendMode) ? { sendMode: sendMode.value } : {}),
+          ...(Option.isSome(policy) ? { policy: policy.value } : {}),
           ...(Option.isSome(webhookUrl) ? { webhookUrl: webhookUrl.value } : {}),
         }).pipe(
           client.provide,
@@ -268,7 +272,9 @@ const installation = Command.make("installation", {
   id: installationArgument,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Show an installation's permissions, scope, send mode, and webhook"),
+  Command.withDescription(
+    "Show an installation's permissions, scope, decision policy, and webhook",
+  ),
   Command.withExamples([{ command: "samva extensions installation exti_1234567890123456 --json" }]),
   Command.withHandler(({ id, json }) =>
     Effect.gen(function* () {

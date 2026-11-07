@@ -1,6 +1,7 @@
 import { MailboxActionState } from "@samva/core/mailboxes/action-event-policy";
 import { UpdateMailboxPayload } from "@samva/core/mailboxes/resource";
 import { MailboxThreadFolder, UpdateMailboxThreadPayload } from "@samva/core/mailboxes/thread";
+import { ReviewRound } from "@samva/core/policy";
 import {
   MailboxActionId,
   MailboxEndpointId,
@@ -235,6 +236,7 @@ const followPages = <Item, E, R>(options: {
   });
 
 const list = Command.make("list", {
+  namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
   ...pageFlags,
   after: instantFlag("after", "Only mailboxes created after this ISO 8601 instant"),
   before: instantFlag("before", "Only mailboxes created before this ISO 8601 instant"),
@@ -245,7 +247,7 @@ const list = Command.make("list", {
     { command: "samva mailboxes list --json" },
     { command: "samva mailboxes list --all --jsonl", description: "Stream every page as JSONL" },
   ]),
-  Command.withHandler(({ limit, cursor, all, after, before, json }) =>
+  Command.withHandler(({ limit, cursor, all, after, before, namespace, json }) =>
     Effect.gen(function* () {
       const client = yield* getClientProvider;
       yield* followPages({
@@ -254,6 +256,7 @@ const list = Command.make("list", {
         cursor,
         page: (pageCursor) =>
           Mailboxes.list({
+            namespaceId: Option.getOrUndefined(namespace),
             cursor: pageCursor,
             limit: Option.getOrUndefined(limit),
             after: Option.getOrUndefined(after),
@@ -276,6 +279,7 @@ const create = Command.make("create", {
     ),
   ),
   name: Flag.String("name"),
+  idempotencyKey: optional("idempotency-key"),
   slug: Flag.String("slug").pipe(
     Flag.withDescription("Defaults to the address's local part, or a phone number's digits"),
     Flag.optional,
@@ -293,25 +297,33 @@ const create = Command.make("create", {
       description: "A mailbox on a connected WhatsApp number",
     },
   ]),
-  Command.withHandler(({ channel, address, name, slug, namespace, json }) =>
+  Command.withHandler(({ channel, address, name, slug, namespace, idempotencyKey, json }) =>
     Effect.gen(function* () {
       if (channel !== "email") {
-        const raw = yield* postMailboxJson("Could not create mailbox", "/v1/mailboxes", {
-          endpoint: { channel, address },
-          name,
-          ...(Option.isSome(slug) ? { slug: slug.value } : {}),
-          ...(Option.isSome(namespace) ? { namespaceId: namespace.value } : {}),
-        });
+        const raw = yield* postMailboxJson(
+          "Could not create mailbox",
+          "/v1/mailboxes",
+          {
+            endpoint: { channel, address },
+            name,
+            ...(Option.isSome(slug) ? { slug: slug.value } : {}),
+            ...(Option.isSome(namespace) ? { namespaceId: namespace.value } : {}),
+          },
+          keyHeader(idempotencyKey),
+        );
         if (json) return yield* printJson(raw);
         return yield* printMailbox(yield* decodeMailbox(raw));
       }
       const client = yield* getClientProvider;
-      const data = yield* Mailboxes.create({
-        endpoint: { channel: "email", address },
-        name,
-        slug: Option.getOrUndefined(slug),
-        namespaceId: Option.getOrUndefined(namespace),
-      }).pipe(
+      const data = yield* Mailboxes.create(
+        {
+          endpoint: { channel: "email", address },
+          name,
+          slug: Option.getOrUndefined(slug),
+          namespaceId: Option.getOrUndefined(namespace),
+        },
+        { idempotencyKey: Option.getOrUndefined(idempotencyKey) },
+      ).pipe(
         client.provide,
         Effect.mapError((e) => mailboxApiError("Could not create mailbox", e)),
       );
@@ -745,24 +757,62 @@ const actionDecision = (verb: "approve" | "deny") =>
   Command.make(verb, {
     mailbox: mailboxIdArgument,
     actionId: Argument.String("action-id").pipe(Argument.withSchema(MailboxActionId)),
+    reviewRound: Flag.Int("review-round").pipe(
+      Flag.withSchema(ReviewRound),
+      Flag.withDescription(
+        "The reviewRound on the held action's decision; required for that exact hold",
+      ),
+    ),
     ...(verb === "deny"
       ? {
           reason: optional("reason").pipe(
             Flag.withDescription("Denial reason; defaults to Denied by reviewer."),
           ),
         }
-      : {}),
+      : {
+          always: Flag.Boolean("always").pipe(
+            Flag.withDefault(false),
+            Flag.withDescription(
+              "Allow matching future actions from this actor, subject to policy floors and guards",
+            ),
+          ),
+          editText: optional("edit-text").pipe(
+            Flag.withDescription("Replace the held message text before approving"),
+          ),
+        }),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
     yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
     json: jsonFlag,
   }).pipe(
     Command.withDescription(
-      `${verb === "approve" ? "Approve and execute" : "Deny"} an action as a signed-in person other than its proposer`,
+      `${verb === "approve" ? "Approve and execute" : "Deny"} the observed review round as a signed-in person other than its proposer`,
     ),
-    Command.withHandler(({ actionId, mailbox, reason, dryRun, yes, json }) =>
+    Command.withExamples([
+      {
+        command: `samva mailboxes actions ${verb} mbx_1234567890123456 mbxact_1234567890123456 --review-round 2${verb === "deny" ? ' --reason "Wrong recipient"' : ""} --yes`,
+        description: "Use the reviewRound from the decision you reviewed",
+      },
+      ...(verb === "approve"
+        ? [
+            {
+              command:
+                'samva mailboxes actions approve mbx_1234567890123456 mbxact_1234567890123456 --review-round 2 --edit-text "Reviewed reply" --yes',
+            },
+          ]
+        : []),
+    ]),
+    Command.withHandler((flags) =>
       Effect.gen(function* () {
+        const { actionId, mailbox, reviewRound, dryRun, yes, json } = flags;
         const denialReason =
-          reason === undefined ? undefined : Option.getOrElse(reason, () => "Denied by reviewer.");
+          "reason" in flags
+            ? Option.getOrElse(flags.reason, () => "Denied by reviewer.")
+            : undefined;
+        const always = "always" in flags && flags.always;
+        const edits =
+          "editText" in flags && Option.isSome(flags.editText)
+            ? { text: flags.editText.value }
+            : undefined;
         if (dryRun)
           return yield* json
             ? printJson({
@@ -770,26 +820,40 @@ const actionDecision = (verb: "approve" | "deny") =>
                 action: `mailboxes.actions.${verb}`,
                 id: mailbox,
                 actionId,
-                ...(verb === "deny" ? { reason: denialReason } : {}),
+                reviewRound,
+                ...(verb === "deny"
+                  ? { reason: denialReason }
+                  : { always, ...(edits === undefined ? {} : { edits }) }),
               })
             : Console.log(
-                `[dry-run] Would ${verb} mailbox action ${actionId} in mailbox ${mailbox}${
-                  verb === "deny" ? ` with reason: ${denialReason}` : ""
-                }.`,
+                `[dry-run] Would ${verb} review round ${reviewRound} of mailbox action ${actionId} in mailbox ${mailbox}${
+                  verb === "deny"
+                    ? ` with reason: ${denialReason}`
+                    : edits === undefined
+                      ? ""
+                      : ` with replacement text: ${JSON.stringify(edits.text)}`
+                }${always ? "; allow matching future actions from this actor" : ""}.`,
               );
         yield* confirmDestructive({
           yes,
           json,
-          message: `${verb === "approve" ? "Approve and execute" : "Deny"} mailbox action ${actionId}?`,
+          message: `${verb === "approve" ? "Approve and execute" : "Deny"} review round ${reviewRound} of mailbox action ${actionId}${always ? " and allow matching future actions from this actor" : ""}?`,
           nonInteractiveMessage: `Action ${verb} requires --yes in non-interactive mode. Preview with --dry-run.`,
         });
         const client = yield* getClientProvider;
         const result = yield* (
           verb === "approve"
-            ? Mailboxes.approveAction({ id: mailbox, actionId })
+            ? Mailboxes.approveAction({
+                id: mailbox,
+                actionId,
+                reviewRound,
+                ...(always ? { always: true } : {}),
+                ...(edits === undefined ? {} : { edits }),
+              })
             : Mailboxes.denyAction({
                 id: mailbox,
                 actionId,
+                reviewRound,
                 reason: denialReason ?? "Denied by reviewer.",
               })
         ).pipe(
@@ -844,7 +908,12 @@ const threads = Command.make("threads", {
   mailbox: mailboxIdArgument,
   state: Flag.Literals("state", ["active", "done"]).pipe(Flag.optional),
   ...pageFlags,
-  query: optional("query"),
+  query: Flag.String("query").pipe(
+    Flag.withDescription(
+      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit for recent activity.",
+    ),
+    Flag.optional,
+  ),
   snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
   folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
   label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
@@ -914,7 +983,12 @@ const allThreads = Command.make("all-threads", {
   kind: Flag.Literals("kind", ["personal", "shared"]).pipe(Flag.optional),
   state: Flag.Literals("state", ["active", "done"]).pipe(Flag.optional),
   ...pageFlags,
-  query: optional("query"),
+  query: Flag.String("query").pipe(
+    Flag.withDescription(
+      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit for recent activity.",
+    ),
+    Flag.optional,
+  ),
   snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
   folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
   label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
@@ -995,7 +1069,7 @@ const needsYou = Command.make("needs-you", {
   cursor: pageFlags.cursor,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("List held sends you may approve and quarantined mail you may release"),
+  Command.withDescription("List held actions you may approve and quarantined mail you may release"),
   Command.withExamples([{ command: "samva mailboxes needs-you --limit 20 --json" }]),
   Command.withHandler(({ limit, cursor, json }) =>
     Effect.gen(function* () {
@@ -1010,7 +1084,7 @@ const needsYou = Command.make("needs-you", {
         return;
       }
       yield* printFields([
-        ["Held sends", data.counts.heldSends],
+        ["Held actions", data.counts.heldActions],
         ["Quarantined messages", data.counts.quarantinedMessages],
         ["Total", data.counts.total],
       ]);
@@ -1024,8 +1098,19 @@ const needsYou = Command.make("needs-you", {
           ["Kind", item.mailbox.kind],
           ["Source", item.source],
         ]);
-        if (item.type === "heldSend")
+        if (item.type === "heldAction")
           yield* printFields([
+            ["Action type", item.actionType],
+            ["Decision", item.decision.outcome],
+            ["Review round", item.decision.reviewRound],
+            ["Decider", item.decision.decider],
+            ["Reason", item.decision.reason],
+            ["Scopes", JSON.stringify(item.decision.scopes)],
+            ["Tool", item.tool?.name],
+            [
+              "Tool arguments",
+              item.tool === null ? undefined : JSON.stringify(item.tool.arguments),
+            ],
             ["Thread", item.threadId],
             ["Draft", item.draftId],
             ["Proposed by", JSON.stringify(item.proposedBy)],

@@ -2,7 +2,13 @@ import { Console, Effect } from "effect";
 import type * as Mailboxes from "samva/effect/mailboxes";
 
 import { skippedRecipientsLine } from "../commands/messages";
-import type { WireEndpoint, WireMailbox, WireMessage, WireThread } from "./mailbox-wire";
+import type {
+  WireEndpoint,
+  WireMailbox,
+  WireMessage,
+  WireReceipt,
+  WireThread,
+} from "./mailbox-wire";
 import { printFields } from "./output";
 
 // Mailboxes, threads, messages, and receipts print from their wire form, which carries the phone
@@ -20,6 +26,7 @@ type Actor = {
   readonly displayName?: string | null | undefined;
 };
 interface ReceiptView {
+  readonly decision: WireReceipt["decision"] | Action["decision"];
   readonly actionId: string;
   readonly state: string;
   readonly messageId: string | null;
@@ -50,6 +57,7 @@ export const printMailboxSummary = (data: Summary | WireMailbox) =>
       ["Kind", data.kind],
       ["Owner", present(data.owner)],
       ["Primary address", present(data.primaryAddress)],
+      ["Sending", present(data.sendingStatus)],
       ["Namespace", present(data.namespaceId)],
       ["Created", data.createdAt],
     ]);
@@ -57,7 +65,7 @@ export const printMailboxSummary = (data: Summary | WireMailbox) =>
 const endpointLine = (endpoint: WireEndpoint) => {
   const where =
     endpoint.channel === "email"
-      ? `${endpoint.source}${endpoint.default ? "; default" : ""}; ID ${endpoint.id}; domain ${present(endpoint.domainId)}`
+      ? `${endpoint.source}; sending ${endpoint.sendingStatus}${endpoint.default ? "; default" : ""}; ID ${endpoint.id}; domain ${present(endpoint.domainId)}`
       : `${endpoint.default ? "default; " : ""}ID ${endpoint.id}; ${
           endpoint.channel === "whatsapp"
             ? `business account ${endpoint.businessAccountId}`
@@ -202,6 +210,7 @@ export const printReceipt = (data: ReceiptView) =>
       ["Message", present(data.messageId)],
       ["Thread", data.threadId],
       ["Action", data.actionId],
+      ["Review round", data.decision?.reviewRound],
       ["Accepted at", present(data.acceptedAt)],
       ["Execute until", present(data.executeUntil)],
       ["Retry at", present(data.retryAt)],
@@ -229,10 +238,13 @@ export const printAction = (data: Action) =>
     yield* Console.log(
       data.decision === null
         ? "Decision: none"
-        : `Decision: ${data.decision.outcome}; reason ${present(data.decision.reason)}; policy ${present(data.decision.policyId)}; decided ${data.decision.decidedAt}`,
+        : `Decision: ${data.decision.outcome}; decider ${data.decision.decider}; reason ${data.decision.reason}; ID ${data.decision.id}`,
     );
     if (data.decision !== null)
-      yield* printFields([["Decision source", present(data.decision.source)]]);
+      yield* printFields([
+        ["Review round", data.decision.reviewRound],
+        ["Decision scopes", JSON.stringify(data.decision.scopes)],
+      ]);
     if (data.resolution !== null)
       yield* Console.log(
         `Resolution: ${data.resolution.outcome} by ${actor(data.resolution.actor)} (${data.resolution.actor.source}) at ${data.resolution.resolvedAt}${

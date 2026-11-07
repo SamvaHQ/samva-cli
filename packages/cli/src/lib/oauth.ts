@@ -110,8 +110,22 @@ class DeviceAuthorizationPending extends Schema.TaggedError<DeviceAuthorizationP
 ) {}
 
 /**
+ * Internal retry signal for a poll that never reached a decision: the request
+ * failed in transit (a laptop waking from sleep, a dropped connection) or the
+ * server answered 429 or 5xx. The device code stays valid until `expires_in`,
+ * so one failed poll must not end a login the person is still completing.
+ */
+class DevicePollUnavailable extends Schema.TaggedError<DevicePollUnavailable>()(
+  "DevicePollUnavailable",
+  {},
+) {}
+
+const retryableStatus = (status: number) => status === 429 || status >= 500;
+
+/**
  * RFC 8628 §3.4 — poll the token endpoint until the user approves, denies, or
- * the code expires. Honors `authorization_pending` / `slow_down` backoff.
+ * the code expires. Honors `authorization_pending` / `slow_down` backoff, and
+ * keeps polling on the interval through transport failures and 429/5xx.
  *
  * Clock/Schedule-driven: waits come from a retry schedule whose delay reads a
  * `Ref` holding the current interval (§3.5 `slow_down` grows it by 5s), and
@@ -137,12 +151,16 @@ export const pollForToken = (
             device_code: deviceCode,
             client_id: SAMVA_CLI_CLIENT_ID,
           }),
-        catch: requestFailure("device/token"),
+        catch: () => new DevicePollUnavailable(),
       });
 
       if (!result.error) return result.data;
 
-      const { error, error_description } = result.error;
+      const { error, error_description, status } = result.error;
+
+      if (retryableStatus(status)) {
+        return yield* new DevicePollUnavailable();
+      }
 
       if (error === "authorization_pending") {
         return yield* new DeviceAuthorizationPending();
@@ -170,9 +188,16 @@ export const pollForToken = (
 
     const pendingRetry = Schedule.forever.pipe(
       Schedule.setInputType<
-        DeviceAuthorizationPending | CliAuthError | CliTimeoutError | SamvaCliError
+        | DeviceAuthorizationPending
+        | DevicePollUnavailable
+        | CliAuthError
+        | CliTimeoutError
+        | SamvaCliError
       >(),
-      Schedule.while(({ input }) => input instanceof DeviceAuthorizationPending),
+      Schedule.while(
+        ({ input }) =>
+          input instanceof DeviceAuthorizationPending || input instanceof DevicePollUnavailable,
+      ),
       Schedule.modifyDelay(() => Ref.get(interval)),
     );
 
@@ -195,9 +220,9 @@ export const pollForToken = (
             }),
           ),
       }),
-      // Unreachable: `pendingRetry` always recurs on pending signals, so only
+      // Unreachable: `pendingRetry` always recurs on retry signals, so only
       // the deadline ends the loop. Keeps the public error channel clean.
-      Effect.catchTag("DeviceAuthorizationPending", () =>
+      Effect.catchTag(["DeviceAuthorizationPending", "DevicePollUnavailable"], () =>
         Effect.fail(
           new CliTimeoutError({
             code: "login_timeout",

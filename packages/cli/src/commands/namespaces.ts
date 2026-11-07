@@ -23,17 +23,29 @@ const dryRunFlag = Flag.Boolean("dry-run").pipe(
 );
 
 /** The resource kinds a namespace holds on the public surface, one flag each. */
-const RESOURCE_FLAGS = ["domain", "sender", "contact", "template"] as const;
+const RESOURCE_FLAGS = [
+  "domain",
+  "sender",
+  "contact",
+  "template",
+  "whatsappNumber",
+  "smsNumber",
+] as const;
 type ResourceKind = (typeof RESOURCE_FLAGS)[number];
 
 const resourceFlags = {
   domain: optionalString("domain", "Domain id (dom_...)"),
   sender: optionalString("sender", "Sender id"),
   contact: optionalString("contact", "Contact id"),
+  whatsappNumber: optionalString(
+    "whatsapp-number",
+    "WhatsApp number id (requires WhatsApp access)",
+  ),
+  smsNumber: optionalString("sms-number", "SMS number id (requires SMS access)"),
   template: optionalString("template", "Template id; its whole project moves with it"),
 };
 
-/** Exactly one of `--domain|--sender|--contact|--template`, as `{ type, id }`. */
+/** Exactly one resource flag, as `{ type, id }`. */
 const chosenResource = (flags: Record<ResourceKind, Option.Option<string>>) => {
   const chosen = RESOURCE_FLAGS.flatMap((type) => {
     const id = flags[type];
@@ -42,7 +54,7 @@ const chosenResource = (flags: Record<ResourceKind, Option.Option<string>>) => {
   if (chosen.length !== 1) {
     return new CliUsageError({
       code: "resource_flag_required",
-      message: `Pass exactly one resource: ${RESOURCE_FLAGS.map((type) => `--${type} <id>`).join(", ")}.`,
+      message: `Pass exactly one resource: ${RESOURCE_FLAGS.map((type) => `--${type === "whatsappNumber" ? "whatsapp-number" : type === "smsNumber" ? "sms-number" : type} <id>`).join(", ")}.`,
     });
   }
   return chosen[0]!;
@@ -308,7 +320,7 @@ const assign = Command.make("assign", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Move a domain, sender, contact, or template into a namespace; pass exactly one resource flag",
+    "Move a domain, sender, contact, template, or channel number into a namespace; pass exactly one resource flag",
   ),
   Command.withExamples([
     { command: "samva namespaces assign ns_7q2xk9mvt4znw8rh --domain dom_xyz789" },
@@ -317,30 +329,38 @@ const assign = Command.make("assign", {
         "samva namespaces assign ns_7q2xk9mvt4znw8rh --contact contact_7q2xk9mvt4znw8rh --dry-run",
     },
   ]),
-  Command.withHandler(({ id, domain, sender, contact, template, dryRun, json }) =>
-    Effect.gen(function* () {
-      const resource = chosenResource({ domain, sender, contact, template });
-      if (resource instanceof CliUsageError) return yield* resource;
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "namespaces.assign", id, request: resource })
-          : Console.log(`[dry-run] Would move ${resource.type} ${resource.id} into ${id}.`);
-      const client = yield* getClientProvider;
-      const moved = yield* Namespaces.assignResource({
-        id,
-        type: resource.type,
-        resourceId: resource.id,
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not assign resource", error)),
-      );
-      if (json) return yield* printJson(moved);
-      yield* printFields([
-        ["Type", moved.type],
-        ["ID", moved.id],
-        ["Namespace", moved.namespaceId],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  Command.withHandler(
+    ({ id, domain, sender, contact, template, whatsappNumber, smsNumber, dryRun, json }) =>
+      Effect.gen(function* () {
+        const resource = chosenResource({
+          domain,
+          sender,
+          contact,
+          template,
+          whatsappNumber,
+          smsNumber,
+        });
+        if (resource instanceof CliUsageError) return yield* resource;
+        if (dryRun)
+          return yield* json
+            ? printJson({ dryRun: true, action: "namespaces.assign", id, request: resource })
+            : Console.log(`[dry-run] Would move ${resource.type} ${resource.id} into ${id}.`);
+        const client = yield* getClientProvider;
+        const moved = yield* Namespaces.assignResource({
+          id,
+          type: resource.type,
+          resourceId: resource.id,
+        }).pipe(
+          client.provide,
+          Effect.mapError((error) => toCliApiError("Could not assign resource", error)),
+        );
+        if (json) return yield* printJson(moved);
+        yield* printFields([
+          ["Type", moved.type],
+          ["ID", moved.id],
+          ["Namespace", moved.namespaceId],
+        ]);
+      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
 
@@ -351,37 +371,45 @@ const unassign = Command.make("unassign", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Return a domain, sender, contact, or template to organization level; pass exactly one resource flag",
+    "Return a domain, sender, contact, template, or channel number to organization level; pass exactly one resource flag",
   ),
   Command.withExamples([
     { command: "samva namespaces unassign ns_7q2xk9mvt4znw8rh --domain dom_xyz789" },
   ]),
-  Command.withHandler(({ id, domain, sender, contact, template, dryRun, json }) =>
-    Effect.gen(function* () {
-      const resource = chosenResource({ domain, sender, contact, template });
-      if (resource instanceof CliUsageError) return yield* resource;
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "namespaces.unassign", id, request: resource })
-          : Console.log(
-              `[dry-run] Would return ${resource.type} ${resource.id} from ${id} to organization level.`,
-            );
-      const client = yield* getClientProvider;
-      const moved = yield* Namespaces.removeResource({
-        id,
-        type: resource.type,
-        resourceId: resource.id,
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not unassign resource", error)),
-      );
-      if (json) return yield* printJson(moved);
-      yield* printFields([
-        ["Type", moved.type],
-        ["ID", moved.id],
-        ["Namespace", moved.namespaceId ?? "organization"],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  Command.withHandler(
+    ({ id, domain, sender, contact, template, whatsappNumber, smsNumber, dryRun, json }) =>
+      Effect.gen(function* () {
+        const resource = chosenResource({
+          domain,
+          sender,
+          contact,
+          template,
+          whatsappNumber,
+          smsNumber,
+        });
+        if (resource instanceof CliUsageError) return yield* resource;
+        if (dryRun)
+          return yield* json
+            ? printJson({ dryRun: true, action: "namespaces.unassign", id, request: resource })
+            : Console.log(
+                `[dry-run] Would return ${resource.type} ${resource.id} from ${id} to organization level.`,
+              );
+        const client = yield* getClientProvider;
+        const moved = yield* Namespaces.removeResource({
+          id,
+          type: resource.type,
+          resourceId: resource.id,
+        }).pipe(
+          client.provide,
+          Effect.mapError((error) => toCliApiError("Could not unassign resource", error)),
+        );
+        if (json) return yield* printJson(moved);
+        yield* printFields([
+          ["Type", moved.type],
+          ["ID", moved.id],
+          ["Namespace", moved.namespaceId ?? "organization"],
+        ]);
+      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
 

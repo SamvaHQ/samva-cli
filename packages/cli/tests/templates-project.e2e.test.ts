@@ -327,7 +327,7 @@ describe("samva templates publish --all", () => {
     const result = await cli(["templates", "publish"]);
 
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain("has 2 active templates. Pass an entry path or --all.");
+    expect(result.stderr).toContain("has 2 templates. Pass an entry path or --all.");
     expect(calls.some(({ route }) => route.endsWith("/publications"))).toBe(false);
   });
 

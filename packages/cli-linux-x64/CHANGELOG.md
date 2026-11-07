@@ -1,3 +1,46 @@
+## @samva/cli-linux-x64@0.31.0
+
+### Template Editor Shortcuts
+
+The CLI bundles authoring 0.23.0. In the template editor, ⌘S / Ctrl+S saves a version, ⌘ / Ctrl
+with +, − or 0 zooms the canvas (including while focus is inside the email), and Escape closes an
+open panel. Keys match the physical key, and on macOS only ⌘ triggers save and zoom.
+
+### Permanently delete templates and projects
+
+**Breaking:** Replace `templates remove` with `templates delete <id>`. Use `templates projects delete <id>` to delete a project and every template in it. Preview either command with `--dry-run`, then pass `--yes` to confirm permanent deletion. Sent-message history keeps its snapshots. Template publication and type generation include every registered entry.
+
+### Device Sign-In Link
+
+`samva login` leads with the complete sign-in link, which carries the code, and asks you to confirm
+the page shows the same code. From another device, open the verification page and type the code;
+the page now accepts it. A dropped connection or a temporary server error while waiting for
+approval no longer ends the login; it keeps waiting until the code expires.
+
+### Use one namespace flag across CLI commands
+
+**Breaking:** Replace `--namespace-id` with `--namespace` on topics and newsletters commands. List mailboxes, webhooks, hosted agents, and API keys with `--namespace`. Move WhatsApp and SMS numbers with `namespaces assign` and `unassign` using `--whatsapp-number` or `--sms-number`; each requires its channel to be enabled.
+
+### Mailbox Relevance Search
+
+Mailbox thread queries search by meaning and keywords, ranked across the best 100
+threads. Filters narrow that result set, and pagination retains its original
+order. The SDK descriptions and CLI help explain this behavior and the short
+indexing delay for new messages. Filter-only lists keep their recent-activity order.
+
+### Mailbox sending readiness
+
+Mailbox email endpoints expose pending, ready, or failed sending readiness. Mailbox creation returns
+while hosted sending setup runs in the background. Pass an idempotency key when creating a mailbox
+to retry safely, including with `samva mailboxes create --idempotency-key`. If sending setup fails,
+contact support to recover the address.
+
+### Use namespace scope across scheduled sends and reports
+
+**Breaking:** An agent's knowledge sources must belong to its namespace. Attach organization-level sources only to organization-level agents.
+
+Use `--namespace` with scheduled messages, analytics, conversations and knowledge sources. Namespace keys keep every operation in their own namespace, including a scheduled send when it fires.
+
 ## @samva/cli-linux-x64@0.30.0
 
 ### Clear a catch-all webhook without interrupting receiving

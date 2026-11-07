@@ -111,6 +111,50 @@ describe("pollForToken", () => {
     }),
   );
 
+  it.effect("keeps polling through a failed request and a 5xx until approval", () =>
+    Effect.gen(function* () {
+      const responses: Array<() => Promise<Response>> = [
+        () => Promise.reject(new TypeError("fetch failed")),
+        () => Promise.resolve(jsonResponse(503, { message: "unavailable" })),
+        () => Promise.resolve(jsonResponse(429, { message: "slow" })),
+        () =>
+          Promise.resolve(
+            jsonResponse(200, { access_token: "tok_2", token_type: "bearer", expires_in: 3600 }),
+          ),
+      ];
+      const fetchMock = vi.fn(() => responses.shift()!());
+      vi.stubGlobal("fetch", fetchMock);
+
+      const fiber = yield* Effect.forkChild(pollForToken("https://api.test", "dev-code", 5, 1800));
+
+      for (let poll = 0; poll < 4; poll += 1) {
+        yield* TestClock.adjust("5 seconds");
+        yield* drain;
+      }
+
+      const token = yield* Fiber.join(fiber);
+      expect(token.access_token).toBe("tok_2");
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    }),
+  );
+
+  it.effect("an unrecognized 4xx error stays terminal", () =>
+    Effect.gen(function* () {
+      const fetchMock = stubTokenResponses([jsonResponse(400, { error: "invalid_grant" })]);
+
+      const fiber = yield* Effect.forkChild(
+        pollForToken("https://api.test", "dev-code", 5, 1800).pipe(Effect.flip),
+      );
+
+      yield* TestClock.adjust("5 seconds");
+      yield* drain;
+
+      const error = yield* Fiber.join(fiber);
+      expect(error.message).toContain("invalid_grant");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }),
+  );
+
   it.effect("expired_token maps to the timeout contract", () =>
     Effect.gen(function* () {
       stubTokenResponses([jsonResponse(400, { error: "expired_token" })]);

@@ -19,11 +19,13 @@ const messageId = "msg_1234567890123456";
 const threadId = "thread_1234567890123456";
 const actionId = "mbxact_1234567890123456";
 const date = "2026-10-06T00:00:00.000Z";
+const reviewRound = 2;
 const endpoint = {
   id: "mbxep_1234567890123456",
   channel: "email",
   address: "support@acme.samva.email",
   source: "samvaHosted",
+  sendingStatus: "pending",
   domainId: null,
   displayName: null,
   default: true,
@@ -37,6 +39,7 @@ const summary = {
   name: "Support",
   status: "active",
   primaryAddress: "support@acme.samva.email",
+  sendingStatus: "pending",
   createdAt: date,
 };
 const mailbox = {
@@ -138,11 +141,13 @@ const action = {
   threadId,
   draftId: null,
   decision: {
-    outcome: "requireApproval",
+    id: "pdec_1234567890123456",
+    reviewRound,
+    requirement: "person",
+    decider: "person",
+    outcome: "hold",
     reason: "Review first",
-    policyId: null,
-    source: null,
-    decidedAt: date,
+    scopes: [{ kind: "mailbox", id: mailboxId }],
   },
   send: receipt("approvalRequired"),
   intent: null,
@@ -187,14 +192,32 @@ const newScenarios = [
     human: "Review first",
   },
   {
-    args: ["actions", "approve", mailboxId, actionId, "--yes"],
+    args: [
+      "actions",
+      "approve",
+      mailboxId,
+      actionId,
+      "--review-round",
+      String(reviewRound),
+      "--yes",
+    ],
     response: { ...action, state: "accepted", send: receipt("accepted") },
     method: "POST",
     path: `/v1/mailboxes/${mailboxId}/actions/${actionId}/approve`,
     human: "accepted",
   },
   {
-    args: ["actions", "deny", mailboxId, actionId, "--reason", "Wrong recipient", "--yes"],
+    args: [
+      "actions",
+      "deny",
+      mailboxId,
+      actionId,
+      "--review-round",
+      String(reviewRound),
+      "--reason",
+      "Wrong recipient",
+      "--yes",
+    ],
     response: {
       ...action,
       state: "notSent",
@@ -249,7 +272,7 @@ const scenarios = [
         },
       ],
       nextCursor: null,
-      counts: { heldSends: 0, quarantinedMessages: 1, total: 1 },
+      counts: { heldActions: 0, quarantinedMessages: 1, total: 1 },
     },
     status: 200,
     method: "GET",
@@ -483,6 +506,143 @@ const assertRequest = (method: string, path: string, oauth = false) => {
   }
 };
 describe("mailbox command HTTP contracts", () => {
+  for (const verb of ["approve", "deny"]) {
+    for (const invalid of [
+      [],
+      ["--review-round", "0"],
+      ["--review-round", "-1"],
+      ["--review-round", "1.5"],
+    ]) {
+      it(`rejects ${verb} without a positive integer review round: ${invalid.join(" ") || "missing"}`, async () => {
+        const result = await run(
+          ["actions", verb, mailboxId, actionId, ...invalid, "--yes", "--json"],
+          undefined,
+        );
+        expect(result.code).toBe(2);
+        expect(requests).toEqual([]);
+        expect(result.stderr).toContain("review-round");
+      });
+    }
+    it(`forwards the observed ${verb} round once when the API refuses a changed hold`, async () => {
+      const result = await run(
+        [
+          "actions",
+          verb,
+          mailboxId,
+          actionId,
+          "--review-round",
+          String(reviewRound),
+          "--yes",
+          "--json",
+        ],
+        {
+          _tag: "ConflictError",
+          resource: "MailboxAction",
+          id: actionId,
+          message: "This review changed. Read the current action before deciding it.",
+        },
+        409,
+      );
+      expect(result.code).toBe(1);
+      assertRequest("POST", `/v1/mailboxes/${mailboxId}/actions/${actionId}/${verb}`);
+      expect(requests[0]?.body).toMatchObject({ reviewRound });
+      expect(result.stderr).toContain("This review changed");
+    });
+  }
+  it("prints the observed round on a held send receipt", async () => {
+    const result = await run(
+      ["send", mailboxId, "--to", "a@example.com", "--subject", "Hello", "--text", "Hi"],
+      { ...receipt("approvalRequired"), decision: action.decision },
+    );
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(new RegExp(`Review round\\s+${reviewRound}`));
+  });
+  it("approves reviewed text and previews the same edit without a request", async () => {
+    const args = [
+      "actions",
+      "approve",
+      mailboxId,
+      actionId,
+      "--review-round",
+      String(reviewRound),
+      "--edit-text",
+      "Reviewed reply",
+      "--yes",
+    ];
+    const result = await run(args, { ...action, state: "accepted", send: receipt("accepted") });
+    expect(result.code, result.stderr).toBe(0);
+    expect(requests[0]?.body).toEqual({ reviewRound, edits: { text: "Reviewed reply" } });
+    const preview = await run([...args, "--dry-run", "--json"], undefined);
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      reviewRound,
+      edits: { text: "Reviewed reply" },
+    });
+    expect(requests).toEqual([]);
+  });
+  it("approves and always allows with a matching dry-run payload", async () => {
+    const args = [
+      "actions",
+      "approve",
+      mailboxId,
+      actionId,
+      "--review-round",
+      String(reviewRound),
+      "--always",
+      "--yes",
+    ];
+    const result = await run(args, { ...action, state: "accepted", send: receipt("accepted") });
+    expect(result.code, result.stderr).toBe(0);
+    expect(requests[0]?.body).toEqual({ reviewRound, always: true });
+    const preview = await run([...args, "--dry-run", "--json"], undefined);
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(JSON.parse(preview.stdout)).toMatchObject({ reviewRound, always: true });
+    expect(requests).toEqual([]);
+  });
+  it("includes held tool calls and their decision in human and JSON needs-you output", async () => {
+    const tool = {
+      name: "google_calendar.create_event",
+      argumentsHash: "a".repeat(64),
+      arguments: { title: "Reviewed booking" },
+    };
+    const item = {
+      type: "heldAction",
+      actionType: "toolCall",
+      id: actionId,
+      mailbox: { id: mailboxId, address: "support@example.com", kind: "shared" },
+      threadId,
+      draftId: null,
+      proposedBy: action.proposedBy,
+      source: action.source,
+      createdAt: date,
+      tool,
+      intent: null,
+      decision: {
+        ...action.decision,
+        subject: { kind: "apiKey", id: "key_1234567890123456" },
+        action: {
+          kind: "toolCall",
+          effect: "write",
+          resource: { mailboxId, tool: tool.name },
+          args: tool.arguments,
+          facts: {},
+        },
+      },
+    };
+    const page = {
+      items: [item],
+      nextCursor: null,
+      counts: { heldActions: 1, quarantinedMessages: 0, total: 1 },
+    };
+    const human = await run(["needs-you"], page);
+    expect(human.code, human.stderr).toBe(0);
+    for (const value of ["toolCall", "person", "Review first", tool.name, "Reviewed booking"])
+      expect(human.stdout).toContain(value);
+    expect(human.stdout).toMatch(new RegExp(`Review round\\s+${reviewRound}`));
+    const machine = await run(["needs-you", "--json"], page);
+    expect(machine.code, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout)).toEqual(page);
+  });
   it("validates and previews a Done/Close patch without calling the API", async () => {
     const preview = await run(
       [
@@ -601,7 +761,7 @@ describe("mailbox command HTTP contracts", () => {
   ]) {
     for (const args of [
       ["send", mailboxId, "--to", "a@example.com", "--subject", "Hello", "--text", "Hi"],
-      ["actions", "approve", mailboxId, actionId, "--yes"],
+      ["actions", "approve", mailboxId, actionId, "--review-round", String(reviewRound), "--yes"],
     ]) {
       it(`preserves ${refusal.body._tag} recovery fields for ${args[0]} with ${refusal.next}`, async () => {
         const attempts =
@@ -722,7 +882,7 @@ describe("mailbox command HTTP contracts", () => {
   for (const verb of ["approve", "deny"]) {
     it(`prints person and different-proposer guidance in human mode for ${verb}`, async () => {
       const result = await run(
-        ["actions", verb, mailboxId, actionId, "--yes"],
+        ["actions", verb, mailboxId, actionId, "--review-round", String(reviewRound), "--yes"],
         { _tag: "ForbiddenError", message: "A different person must review this action" },
         403,
       );
@@ -785,24 +945,47 @@ describe("mailbox command HTTP contracts", () => {
   });
   it("sends the denial reason to the API", async () => {
     const result = await run(
-      ["actions", "deny", mailboxId, actionId, "--reason", "Wrong recipient", "--yes", "--json"],
+      [
+        "actions",
+        "deny",
+        mailboxId,
+        actionId,
+        "--review-round",
+        String(reviewRound),
+        "--reason",
+        "Wrong recipient",
+        "--yes",
+        "--json",
+      ],
       { ...action, state: "notSent", send: receipt("notSent") },
     );
     expect(result.code, result.stderr).toBe(0);
-    expect(requests[0]?.body).toEqual({ reason: "Wrong recipient" });
+    expect(requests[0]?.body).toEqual({ reviewRound, reason: "Wrong recipient" });
   });
   it("supplies a clear default denial reason when omitted", async () => {
-    const result = await run(["actions", "deny", mailboxId, actionId, "--yes", "--json"], {
-      ...action,
-      state: "notSent",
-      send: receipt("notSent"),
-    });
+    const result = await run(
+      [
+        "actions",
+        "deny",
+        mailboxId,
+        actionId,
+        "--review-round",
+        String(reviewRound),
+        "--yes",
+        "--json",
+      ],
+      {
+        ...action,
+        state: "notSent",
+        send: receipt("notSent"),
+      },
+    );
     expect(result.code, result.stderr).toBe(0);
-    expect(requests[0]?.body).toEqual({ reason: "Denied by reviewer." });
+    expect(requests[0]?.body).toEqual({ reviewRound, reason: "Denied by reviewer." });
   });
   for (const args of [
-    ["actions", "approve", mailboxId, actionId],
-    ["actions", "deny", mailboxId, actionId],
+    ["actions", "approve", mailboxId, actionId, "--review-round", String(reviewRound)],
+    ["actions", "deny", mailboxId, actionId, "--review-round", String(reviewRound)],
     ["quarantine", "discard", mailboxId, messageId],
   ]) {
     it(`requires confirmation for ${args.slice(0, 2).join(" ")}`, async () => {
@@ -981,6 +1164,8 @@ describe("mailbox command HTTP contracts", () => {
         "support-team",
         "--namespace",
         "ns_1234567890123456",
+        "--idempotency-key",
+        "create-once",
         "--json",
       ],
       response,
@@ -988,6 +1173,7 @@ describe("mailbox command HTTP contracts", () => {
     );
     expect(result.code, result.stderr).toBe(0);
     assertRequest("POST", "/v1/mailboxes");
+    expect(requests[0]?.headers["idempotency-key"]).toBe("create-once");
     expect(requests[0]?.body).toEqual({
       endpoint: { channel: "email", address: "support@example.com" },
       name: "Support",

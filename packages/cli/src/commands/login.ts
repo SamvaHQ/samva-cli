@@ -7,9 +7,31 @@ import * as Effect from "effect/Effect";
 import { resolveApiUrl, writeCredentials } from "../config/store";
 import { CliUsageError } from "../errors";
 import { AGENT_AUTH_HINT } from "../lib/examples";
-import { openBrowser, pollForToken, requestDeviceCode } from "../lib/oauth";
+import {
+  type DeviceCodeResponse,
+  openBrowser,
+  pollForToken,
+  requestDeviceCode,
+} from "../lib/oauth";
 import { printResult } from "../lib/output";
 import { Json, JsonLines, NoInput } from "../lib/runtime";
+
+/**
+ * Lead with the complete link: it carries the code, so the page only asks the
+ * person to confirm it. The bare verification URI also accepts the code typed
+ * by hand (RFC 8628 §3.3), for a person reading it on another device.
+ */
+export const deviceLoginInstructions = (device: DeviceCodeResponse): string => {
+  const code = `\n  ${device.user_code}\n`;
+  if (device.verification_uri_complete === undefined) {
+    return `\nTo authorize the Samva CLI, open:\n\n  ${device.verification_uri}\n\nand enter the code:\n${code}`;
+  }
+  return [
+    `\nTo authorize the Samva CLI, open:\n\n  ${device.verification_uri_complete}\n`,
+    `and confirm it shows the code:\n${code}`,
+    `On another device, go to ${device.verification_uri} and enter the code.\n`,
+  ].join("\n");
+};
 
 const noBrowserFlag = Flag.Boolean("no-browser").pipe(
   Flag.withDefault(false),
@@ -50,16 +72,10 @@ export const loginCommand = Command.make("login", { noBrowser: noBrowserFlag }).
       const apiUrl = yield* resolveApiUrl;
       const device = yield* requestDeviceCode(apiUrl);
 
-      const verifyUrl = device.verification_uri_complete ?? device.verification_uri;
-      yield* Console.error(
-        `\nTo authorize the Samva CLI, visit:\n\n  ${device.verification_uri}\n`,
-      );
-      yield* Console.error(`and enter the code:\n\n  ${device.user_code}\n`);
+      yield* Console.error(deviceLoginInstructions(device));
 
-      if (noBrowser) {
-        yield* Console.error(`Or open this URL directly:\n\n  ${verifyUrl}\n`);
-      } else {
-        yield* openBrowser(verifyUrl);
+      if (!noBrowser) {
+        yield* openBrowser(device.verification_uri_complete ?? device.verification_uri);
         yield* Effect.logInfo("Opened your browser to finish login. Waiting for approval…");
       }
 

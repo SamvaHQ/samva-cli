@@ -655,11 +655,11 @@ const publishTargets = Effect.fn("Templates.publishTargets")(function* (input: {
   readonly project: string;
   readonly templates: ReadonlyArray<TemplateRecord>;
 }) {
-  const active = input.templates.filter(({ isActive }) => isActive);
+  const entries = input.templates;
   if (input.all) {
-    if (active.length > 0) return active;
+    if (entries.length > 0) return entries;
     return yield* new SamvaCliError({
-      message: `Project ${input.project} has no active templates.`,
+      message: `Project ${input.project} has no templates.`,
     });
   }
   if (input.reference !== undefined) {
@@ -669,9 +669,9 @@ const publishTargets = Effect.fn("Templates.publishTargets")(function* (input: {
       message: `${input.reference} is not a template in project ${input.project}. Register it with \`samva templates add ${input.reference}\`.`,
     });
   }
-  if (active.length === 1) return active;
+  if (entries.length === 1) return entries;
   return yield* new SamvaCliError({
-    message: `Project ${input.project} has ${active.length} active templates. Pass an entry path or --all.`,
+    message: `Project ${input.project} has ${entries.length} templates. Pass an entry path or --all.`,
   });
 });
 
@@ -681,7 +681,7 @@ export const publish = Command.make("publish", {
     Argument.optional,
   ),
   all: Flag.Boolean("all").pipe(
-    Flag.withDescription("Publish every active template in the project at one commit"),
+    Flag.withDescription("Publish every template in the project at one commit"),
     Flag.withDefault(false),
   ),
   commit: Flag.String("commit").pipe(

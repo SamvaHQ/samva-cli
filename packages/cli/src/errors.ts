@@ -112,6 +112,7 @@ const apiStatuses: Readonly<Record<string, number>> = {
   ForbiddenError: 403,
   ResourceNotFoundError: 404,
   ConflictError: 409,
+  TemplateInUseError: 409,
   MailboxSendConflictError: 409,
   MailboxSendRefusedError: 403,
   CursorExpiredError: 410,
@@ -182,6 +183,9 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
     case "MalformedRequestError":
       next =
         "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.";
+      break;
+    case "TemplateInUseError":
+      next = "Remove the listed references before deleting the template or project.";
       break;
     case "TemplateSourceError":
       next =
@@ -286,6 +290,12 @@ export const formatErrorDetails = (error: unknown): string => {
         )
         .join("")
     : "";
+  if (api?.reason === "TemplateInUseError") {
+    const references = Schema.decodeUnknownSync(
+      Schema.Array(Schema.Struct({ kind: Schema.String, id: Schema.String })),
+    )(api.details.references);
+    return fieldDetails + references.map(({ kind, id }) => `\n  ${kind}: ${id}`).join("");
+  }
   if (api?.reason !== "TemplateSourceError") return fieldDetails;
   const diagnostics = Schema.decodeUnknownSync(TemplateSourceError.fields.diagnostics)(
     api.details.diagnostics,

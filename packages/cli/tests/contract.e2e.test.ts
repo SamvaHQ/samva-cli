@@ -363,6 +363,7 @@ const startApi = (): Promise<{
     };
     const scheduled = {
       id: "sched_1234567890abcdefgh",
+      namespaceId: null,
       status: "pending",
       scheduledFor: "2026-08-01T09:00:00.000Z",
       timezone: "America/New_York",
@@ -779,11 +780,16 @@ describe("--json stdout purity", () => {
       "templates",
       "brands",
       "mailboxes",
+      "agents",
+      "analytics",
+      "conversations",
+      "knowledge",
       "namespaces",
       "extensions",
       "webhooks",
       "api",
       "api-keys",
+      "policies",
       "profile",
       "feedback",
       "help",
@@ -2510,7 +2516,6 @@ describe("email launch mutation contracts", () => {
   it.each([
     ["create", ["--data", '{"name":"Welcome","projectName":"welcome-email"}']],
     ["update", ["tmpl_abc123", "--data", '{"name":"Welcome back"}']],
-    ["remove", ["tmpl_abc123"]],
   ] as const)("template %s dry-run does not require auth", async (command, args) => {
     const result = await runCli(["templates", command, ...args, "--dry-run", "--json"]);
     expect(result.code).toBe(0);

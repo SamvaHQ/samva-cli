@@ -146,7 +146,8 @@ const commandTree = {
     create: {},
     "from-website": {},
     update: {},
-    remove: {},
+    delete: {},
+    projects: { delete: {} },
   },
   brands: { list: {}, get: {}, pull: {}, push: {}, default: {}, remove: {} },
   mailboxes: {
@@ -169,6 +170,11 @@ const commandTree = {
     actions: { list: {}, get: {}, approve: {}, deny: {}, cancel: {}, retry: {} },
     quarantine: { list: {}, release: {}, discard: {} },
   },
+  agents: { list: {}, tests: { rerun: {} } },
+  policies: { get: {}, set: {}, clear: {} },
+  analytics: { stats: {}, "delivery-metrics": {} },
+  conversations: { list: {}, get: {}, create: {} },
+  knowledge: { list: {}, get: {}, "add-website": {}, "add-file": {}, sync: {} },
   namespaces: {
     list: {},
     create: {},

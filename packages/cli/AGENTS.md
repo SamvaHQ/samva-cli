@@ -26,12 +26,11 @@ is no built-in filter.
 `revoke`. `create` takes `--name` and either `--full-access` or restricted access built from repeatable
 `--grant <resource>=read|write` and mailbox access: repeatable `--mailbox-permission
 read|update|send|quarantine.read`, optionally narrowed to repeatable `--mailbox <id>` (default:
-every mailbox the owner reaches) with `--send-mode approval` (each send waits for a person other
-than the key). `--namespace <id>` confines a restricted key to one namespace. Passing no access, or both
-`--full-access` and restricted access, exits `2`, as does `--mailbox` or `--send-mode` without a
-`--mailbox-permission`. `--description` and `--expires-at` are optional. `update` renames a key,
-sets its description, or changes a mailbox key's `--send-mode` (a person signed in with `samva
-login`); every other part of a key's access is fixed at creation. The API refuses a key with more access than the
+every mailbox the owner reaches). `--namespace <id>` confines a restricted key to one namespace.
+Passing no access, or both
+`--full-access` and restricted access, exits `2`, as does `--mailbox` without a
+`--mailbox-permission`. `--description` and `--expires-at` are optional. `update` renames a key
+or sets its description; a key's access is fixed at creation. The API refuses a key with more access than the
 caller holds. `create` and `rotate` return the secret once: `--json` carries `{apiKey, key,
 displayOnce, warning}`, so `samva api-keys create ... --json | jq -r .data.key` yields the key, and
 human mode prints it to stdout with the warning on stderr. `rotate` and `revoke` require
@@ -155,7 +154,7 @@ publish a clean, pushed commit with `samva templates publish`. Publish checks th
 commit is an ancestor of the fetched `origin/<default-branch>` and creates an immutable receipt; it
 does not push or rewrite history. A project holds several emails: `samva templates add
 <templates/x.tsx>` registers another entry under its `defineTemplate` id, `samva templates publish --all`
-publishes every active entry at one commit and exits non-zero if any failed, and `samva templates
+publishes every entry at one commit and exits non-zero if any failed, and `samva templates
 move <old> <new>` follows a `git mv`. The CLI loads the project's installed authoring toolchain so its
 compiler and editor versions stay pinned by the project lockfile.
 Template authoring commands run that toolchain under Node.js and name the Node.js version they need
@@ -208,9 +207,13 @@ Quarantine `list` pages the same way, bounded by `--after` and `--before` on whe
 held; `release` and `discard` take the held message's `id` and require a person signed in with
 `samva login`. Discard requires confirmation (`--yes` outside a terminal) and supports `--dry-run`.
 `actions list <mailbox-id>` filters by `--state` and pages with `--limit`, `--cursor`, and
-`--all --jsonl`. `actions approve <mailbox-id> <action-id>` and `actions deny <mailbox-id>
-<action-id> [--reason <text>]` require a person different from the proposer, confirmation
-(`--yes` outside a terminal), and offer `--dry-run`.
+`--all --jsonl`. Read the action with `actions get` or `needs-you` and review its decision before
+approving or denying. `actions approve <mailbox-id> <action-id> --review-round <observed-round>`
+and `actions deny <mailbox-id> <action-id> --review-round <observed-round> [--reason <text>]`
+require the observed decision's positive `reviewRound`, a person different from the proposer, and
+confirmation (`--yes` outside a terminal); both offer `--dry-run`. A stale round returns `409`.
+Refresh the action and review the new decision before deciding again; never default the round or
+silently substitute the latest value.
 Human mailbox and extension results retain the same facts as JSON: mailbox endpoints (channel, address,
 sender name, default), thread state and activity, message bodies, attachments, authentication and actor,
 receipt waits and skipped recipients, held-mail results, and installation/run details.
@@ -257,3 +260,26 @@ Use `--endpoint <id>` or `--clear-endpoint` and `--unknown-recipient-mailbox <id
 `--clear-unknown-recipient-mailbox`. Omitted destinations remain unchanged. Clearing the webhook
 restores forwarding-rule and mailbox routing; the unknown-address mailbox applies only without a
 webhook. `--dry-run --json` previews the request without credentials or API calls.
+
+`samva policies get <kind> <id>` reads a policy for `organization`, `mailbox`, or `apiKey`.
+`samva policies set <kind> <id> --data '<json>'` replaces its complete `presets`, `rules`, and
+optional `instructions`. With `--if-version`, `set --dry-run` and `clear --dry-run` preview the
+complete request without credentials or API calls. Without an explicit version, a preview needs
+an authenticated read of the current policy. Rules supply exactly
+one of `decide` (a default) or `atLeast` (a binding floor). `get` returns a flat snapshot with
+`version` (`0` when unset). `set` and `clear` read the current version before writing unless
+`--if-version <observed-version>` pins a snapshot you already read. Every replacement and clear
+returns the next snapshot; clearing keeps the counter. On `409`, reload and review before editing
+again, never automatically retry stale full configuration with a newer version. The API checks
+authority for each scope.
+`mailboxes needs-you` includes every held action, its decision, and counts under `heldActions`.
+`mailboxes actions approve ... --review-round <observed-round> --edit-text '<text>'` approves
+replacement message text with the same required review identity.
+Extension installation accepts unversioned configuration as `--policy '<json>'`; omit snapshot
+`version` and replacement `ifVersion` there.
+
+`samva templates delete <id> --dry-run` previews permanent template deletion; `--yes` deletes it.
+`samva templates projects delete <id> --dry-run` lists every visible template the project deletion
+removes; `--yes` deletes the project and its entries, repository and workspace. References block
+deletion with `TemplateInUseError` (409) and reference kinds and ids; remove those references first.
+Sent-message history retains its snapshots. External object cleanup retries durably.

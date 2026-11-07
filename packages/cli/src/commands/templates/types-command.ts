@@ -40,8 +40,8 @@ const catalogError = (error: unknown) =>
   toCliApiError("Could not read the template catalog", error);
 
 /**
- * The active templates and what each one validates input against. A list row names the template;
- * its publication and input schema are on the template itself, so each active one is read.
+ * The templates and what each one validates input against. A list row names the template;
+ * its publication and input schema are on the template itself, so each one is read.
  */
 const readCatalog = Effect.fn("templates.types.readCatalog")(function* () {
   const client = yield* getClientProvider;
@@ -52,7 +52,7 @@ const readCatalog = Effect.fn("templates.types.readCatalog")(function* () {
       cursor,
       limit: CATALOG_PAGE_SIZE,
     }).pipe(client.provide, Effect.mapError(catalogError));
-    for (const item of data.items) if (item.isActive) ids.push(item.id);
+    for (const item of data.items) ids.push(item.id);
     if (data.nextCursor === null) break;
     cursor = data.nextCursor;
   }

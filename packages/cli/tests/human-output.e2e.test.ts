@@ -146,6 +146,7 @@ const routes: Record<string, unknown> = {
     exhausted: 3,
     cancelled: 4,
     daily: [day("2026-10-12"), day("2026-10-13")],
+    latestAttempt: { errorCode: attempt.errorCode, completedAt: now },
   },
   "POST /v1/webhooks/wep_1234567890abcdef/deliveries/whdel_1234567890abcdef/redeliver": {
     accepted: true,
@@ -361,7 +362,7 @@ describe("human output is formatted, not a bare JSON document", () => {
       ],
       ["templates.update", "Data tracking default", "null"],
     ],
-    ["templates remove", ["templates", "remove", template.id, "--yes"], ["Removed", "true"]],
+    ["templates delete", ["templates", "delete", template.id, "--yes"], ["Deleted", "true"]],
     [
       "templates update --dry-run shows cleared fields",
       [
@@ -408,9 +409,11 @@ describe("human output is formatted, not a bare JSON document", () => {
         "approve",
         "mbx_1234567890123456",
         "mbxact_1234567890abcdef",
+        "--review-round",
+        "2",
         "--dry-run",
       ],
-      ["Would approve", "mbxact_1234567890abcdef"],
+      ["Would approve", "review round 2", "mbxact_1234567890abcdef"],
     ],
     [
       "mailboxes actions deny --dry-run",
@@ -420,9 +423,11 @@ describe("human output is formatted, not a bare JSON document", () => {
         "deny",
         "mbx_1234567890123456",
         "mbxact_1234567890abcdef",
+        "--review-round",
+        "2",
         "--dry-run",
       ],
-      ["Would deny", "Denied by reviewer."],
+      ["Would deny", "review round 2", "Denied by reviewer."],
     ],
   ] as const)("%s", async (_name, args, facts) => {
     const result = await runCli([...args], { configHome: home, env });

@@ -1,3 +1,4 @@
+import { NamespaceId } from "@samva/core/shared/base";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -63,6 +64,7 @@ const readData = (raw: string) => {
   );
 };
 const list = Command.make("list", {
+  namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
   cursor: Flag.String("cursor").pipe(
     Flag.withDescription("Resume after this nextCursor from a previous page"),
     Flag.optional,
@@ -76,7 +78,7 @@ const list = Command.make("list", {
 }).pipe(
   Command.withDescription("List customer webhooks"),
   Command.withExamples([{ command: "samva webhooks list --json" }]),
-  Command.withHandler(({ cursor, limit, all, json }) =>
+  Command.withHandler(({ cursor, limit, all, namespace, json }) =>
     Effect.gen(function* () {
       if (all && !isJsonLinesRequested())
         return yield* new CliUsageError({
@@ -86,7 +88,11 @@ const list = Command.make("list", {
       const client = yield* getClientProvider;
       const cursorValue = Option.getOrUndefined(cursor);
       const limitValue = Option.getOrUndefined(limit);
-      const query = { cursor: cursorValue, limit: limitValue };
+      const query = {
+        cursor: cursorValue,
+        limit: limitValue,
+        namespaceId: Option.getOrUndefined(namespace),
+      };
       if (all) {
         let nextCursor = cursorValue;
         for (;;) {

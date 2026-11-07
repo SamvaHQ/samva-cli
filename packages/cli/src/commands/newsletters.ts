@@ -39,7 +39,7 @@ const settingsInput = (
   }),
 });
 const list = Command.make("list", {
-  namespaceId: optional("namespace-id", "Limit to a namespace"),
+  namespaceId: optional("namespace", "Limit to a namespace"),
   json: jsonFlag,
 }).pipe(
   Command.withDescription("List newsletters"),
@@ -72,7 +72,7 @@ const get = Command.make("get", { id: idArgument, json: jsonFlag }).pipe(
 const create = Command.make("create", {
   name: optional("name", "Name when creating a topic"),
   topicId: optional("topic-id", "Adopt an existing consent topic"),
-  namespaceId: optional("namespace-id", "Namespace for the new topic"),
+  namespaceId: optional("namespace", "Namespace for the new topic"),
   description: optional("description", "Description of the new topic"),
   ...settings,
   idempotencyKey: key,

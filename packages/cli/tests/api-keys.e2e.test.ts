@@ -253,7 +253,7 @@ describe("samva api-keys create mailbox access", () => {
   const otherMailboxId = "mbx_6543210987654321";
   const namespaceId = "ns_1234567890123456";
 
-  it("sends mailbox permissions, mailboxes, send mode, and namespace as the access", async () => {
+  it("sends mailbox permissions, mailboxes, and namespace as the access", async () => {
     const result = await cli([
       "create",
       "--name",
@@ -266,8 +266,6 @@ describe("samva api-keys create mailbox access", () => {
       mailboxId,
       "--mailbox",
       otherMailboxId,
-      "--send-mode",
-      "approval",
       "--dry-run",
       "--json",
     ]);
@@ -283,7 +281,6 @@ describe("samva api-keys create mailbox access", () => {
           mailboxes: {
             permissions: ["read", "send"],
             mailboxIds: [mailboxId, otherMailboxId],
-            sendMode: "approval",
           },
         },
       },
@@ -332,16 +329,11 @@ describe("samva api-keys create mailbox access", () => {
       "send",
       "--mailbox",
       mailboxId,
-      "--send-mode",
-      "approval",
       "--dry-run",
     ]);
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout).toMatch(
-      new RegExp(
-        `^Access\\s+restricted \\(mailboxes:send \\[${mailboxId}; approval sends\\]\\)$`,
-        "m",
-      ),
+      new RegExp(`^Access\\s+restricted \\(mailboxes:send \\[${mailboxId}\\]\\)$`, "m"),
     );
   });
 
@@ -349,11 +341,6 @@ describe("samva api-keys create mailbox access", () => {
     [
       "--mailbox without a permission",
       ["--grant", "email=read", "--mailbox", mailboxId],
-      "--mailbox-permission",
-    ],
-    [
-      "--send-mode without a permission",
-      ["--grant", "email=read", "--send-mode", "approval"],
       "--mailbox-permission",
     ],
     [
@@ -490,29 +477,16 @@ describe("samva api-keys list, get, and update", () => {
     expect(result.stdout).toMatch(/^Name\s+ci-prod$/m);
   });
 
-  it("changes a mailbox key's send mode", async () => {
-    reply = () => key;
-    const dryRun = await cli(["update", keyId, "--send-mode", "approval", "--dry-run", "--json"]);
-    expect(dryRun.code, dryRun.stderr).toBe(0);
-    expect(data(dryRun.stdout)).toEqual({
-      dryRun: true,
-      action: "api-keys.update",
-      id: keyId,
-      request: { mailboxes: { sendMode: "approval" } },
-    });
+  it("rejects the removed send mode flag", async () => {
+    const result = await cli(["update", keyId, "--send-mode", "approval"]);
+    expect(result.code).toBe(2);
     expect(requests).toEqual([]);
-
-    const result = await cli(["update", keyId, "--send-mode", "send"]);
-    expect(result.code, result.stderr).toBe(0);
-    expect(requests).toEqual([
-      { method: "PATCH", url: `/v1/api-keys/${keyId}`, body: { mailboxes: { sendMode: "send" } } },
-    ]);
   });
 
   it("says what update can change", async () => {
     const help = await cli(["update", "--help"]);
     expect(help.code, help.stderr).toBe(0);
-    expect(help.stdout).toContain("--send-mode");
+    expect(help.stdout).not.toContain("--send-mode");
     expect(help.stdout).not.toContain("Access is fixed at creation");
   });
 });

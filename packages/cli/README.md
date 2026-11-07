@@ -78,6 +78,30 @@ The profile resolves as `--profile`, then `SAMVA_PROFILE`, then the active profi
 The API URL resolves as `--api-url`, then `SAMVA_API_URL`, then `https://api.samva.dev`. Profiles
 do not select an API; a config whose profile sets `target` fails to load and names these overrides.
 
+## Namespaces
+
+Use `--namespace <id>` to filter `mailboxes list`, `webhooks list`, `agents list`,
+`api-keys list`, `topics list`, `newsletters list`, `scheduled-messages list`,
+`conversations list`, and `knowledge list`. `analytics stats` and `analytics delivery-metrics`
+take the same filter. A filter narrows what the credential can already read.
+Topics, newsletters, scheduled messages, and conversations also take `--namespace` when
+creating a resource; topic subscription checks use it when resolving an address.
+
+`samva namespaces assign <namespace-id>` moves exactly one resource into a
+namespace, and `unassign` returns it to organization level. Select it with
+`--domain`, `--sender`, `--contact`, or `--template`. WhatsApp and SMS numbers use
+`--whatsapp-number` and `--sms-number` when their channel is enabled. Both commands
+support `--dry-run`.
+
+A scheduled message keeps its namespace when it sends later, including retries and resumes.
+Analytics and conversations remain confined to a namespace key's own namespace.
+
+Use `knowledge add-website --url <https-url>` or `knowledge add-file --media-id <ready-upload-id>`
+with `--namespace` to add a source for agents in that namespace. Sources can be attached to several
+agents in the same namespace and cannot be shared across namespaces. `knowledge get <id>` reads
+one source and `knowledge sync <id>` refreshes it. Organization brands remain readable by namespace
+keys for rendering; those keys cannot change them.
+
 ## Common operations
 
 ```sh
@@ -425,7 +449,7 @@ samva email send --help
 ```
 
 Released top-level commands are `login`, `logout`, `org`, `email`, `messages`, `campaigns`,
-`contacts`, `scheduled-messages`, `templates`, `brands`, `webhooks`, `profile`, and `help`. Use `samva <command> --help`
+`contacts`, `conversations`, `analytics`, `knowledge`, `scheduled-messages`, `templates`, `brands`, `webhooks`, `profile`, and `help`. Use `samva <command> --help`
 for flags and runnable examples.
 
 Test a configured webhook against its real endpoint with an optional JSON payload. `--data` accepts

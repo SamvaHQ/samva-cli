@@ -1,3 +1,96 @@
+## @samva/cli@0.31.0
+
+### Template Editor Shortcuts
+
+The CLI bundles authoring 0.23.0. In the template editor, ⌘S / Ctrl+S saves a version, ⌘ / Ctrl
+with +, − or 0 zooms the canvas (including while focus is inside the email), and Escape closes an
+open panel. Keys match the physical key, and on macOS only ⌘ triggers save and zoom.
+
+### Permanently delete templates and projects
+
+**Breaking:** Replace `templates remove` with `templates delete <id>`. Use `templates projects delete <id>` to delete a project and every template in it. Preview either command with `--dry-run`, then pass `--yes` to confirm permanent deletion. Sent-message history keeps its snapshots. Template publication and type generation include every registered entry.
+
+### Decision rules for mailbox actions and agents
+
+#### Decision rules and held actions
+
+Mailbox actions carry a decision with `allow`, `hold`, or `refuse`, its decider, reason, and scopes.
+Configure organization, mailbox, and API key rules with the policies API, or use an agent's
+`definition.policy`. Each rule supplies either a `decide` default or an `atLeast` floor.
+Policy reads return `version`; replacement and clear requests require the observed `ifVersion`.
+Stale writes return `409`. Clearing rules advances the version, so an earlier write cannot restore
+removed permissions.
+
+This is a breaking change: agent `mode`, integration grant `requireApproval`, mailbox grant and API
+key `sendMode`, and mailbox policy CRUD are removed. Extension installations use `policy` instead
+of `sendMode`. Model decisions hold with `judgeUnavailable` when judging is unavailable.
+
+Needs you returns `heldAction` items, including tool calls, and counts them as `heldActions`.
+Pending-approval webhook events carry the same decision as the action. Approval and denial requests
+require the observed `decision.reviewRound`; a stale round returns `409`. Approve with `edits.text`
+or `edits.html` to review changed message content before sending. Supplying only one email body
+clears the other body.
+
+The CLI adds `policies get`, `policies set`, and `policies clear`, with `--if-version` for explicit
+version checks. Extension installation accepts `--policy`, and mailbox approval supports
+`mailboxes actions approve --edit-text`. Approve and deny require `--review-round` from
+the held action. The `--send-mode` flag is removed.
+
+### Device Sign-In Link
+
+`samva login` leads with the complete sign-in link, which carries the code, and asks you to confirm
+the page shows the same code. From another device, open the verification page and type the code;
+the page now accepts it. A dropped connection or a temporary server error while waiting for
+approval no longer ends the login; it keeps waiting until the code expires.
+
+### Use one namespace flag across CLI commands
+
+**Breaking:** Replace `--namespace-id` with `--namespace` on topics and newsletters commands. List mailboxes, webhooks, hosted agents, and API keys with `--namespace`. Move WhatsApp and SMS numbers with `namespaces assign` and `unassign` using `--whatsapp-number` or `--sms-number`; each requires its channel to be enabled.
+
+### Judge agent actions and test their decisions
+
+#### Judge actions and hand conversations to staff
+
+Model decision rules use a cautious judge, charged to the organization's AI usage. It allows or
+holds an action; failures hold for a person. Decisions include judge latency and instruction version.
+New agents use Auto, and presets copy rules and guidance into their policy.
+
+Agents can call `hand_to_team` with a reason and optional draft. The conversation moves to staff
+and records a held `handoff` decision with the agent as its decider.
+
+Approve with `always: true` (CLI `--always`) to add an actor rule while preserving safety floors.
+Saved tests use expected decisions per action in place of `approvedReply`; simulations identify
+wrongly allowed and wrongly held actions.
+
+### Mailbox Relevance Search
+
+Mailbox thread queries search by meaning and keywords, ranked across the best 100
+threads. Filters narrow that result set, and pagination retains its original
+order. The SDK descriptions and CLI help explain this behavior and the short
+indexing delay for new messages. Filter-only lists keep their recent-activity order.
+
+### Read and clear an agent's always-allowed rules
+
+#### Agent policy scope
+
+`policies.getPolicy`, `setPolicy` and `deletePolicy` accept the `agent` scope kind
+(`samva policies get agent <agent-id>`). An agent scope holds the rules added by approving its
+actions with `always: true`; they apply on top of the agent's published rules. Clear the scope to
+make those actions wait again.
+
+### Mailbox sending readiness
+
+Mailbox email endpoints expose pending, ready, or failed sending readiness. Mailbox creation returns
+while hosted sending setup runs in the background. Pass an idempotency key when creating a mailbox
+to retry safely, including with `samva mailboxes create --idempotency-key`. If sending setup fails,
+contact support to recover the address.
+
+### Use namespace scope across scheduled sends and reports
+
+**Breaking:** An agent's knowledge sources must belong to its namespace. Attach organization-level sources only to organization-level agents.
+
+Use `--namespace` with scheduled messages, analytics, conversations and knowledge sources. Namespace keys keep every operation in their own namespace, including a scheduled send when it fires.
+
 ## @samva/cli@0.30.0
 
 ### Clear a catch-all webhook without interrupting receiving

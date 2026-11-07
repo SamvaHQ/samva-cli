@@ -70,7 +70,7 @@ const topicFields = (topic: {
   ]);
 
 const list = Command.make("list", {
-  namespaceId: optionalString("namespace-id", "Limit to one namespace"),
+  namespaceId: optionalString("namespace", "Limit to one namespace"),
   json: jsonFlag,
 }).pipe(
   Command.withDescription("List topics, default first (bounded by the organization's topic limit)"),
@@ -105,7 +105,7 @@ const get = Command.make("get", { id: idArgument, json: jsonFlag }).pipe(
 );
 const create = Command.make("create", {
   name: Flag.String("name").pipe(Flag.withDescription("Topic name")),
-  namespaceId: optionalString("namespace-id", "Namespace for the topic and its contacts"),
+  namespaceId: optionalString("namespace", "Namespace for the topic and its contacts"),
   default: defaultFlag,
   ...publishingFlags,
   dryRun: dryRunFlag,
@@ -394,7 +394,7 @@ const check = Command.make("check", {
   contactId: optionalString("contact-id", "Contact id; choose exactly one identifier"),
   email: optionalString("email", "Email address"),
   phone: optionalString("phone", "Phone address"),
-  namespaceId: optionalString("namespace-id", "Namespace in which to resolve the address"),
+  namespaceId: optionalString("namespace", "Namespace in which to resolve the address"),
   channel: channelFlag,
   topicIds: Flag.String("topic-id").pipe(
     Flag.withDescription("Topic to check (repeatable); omit for all visible topics"),

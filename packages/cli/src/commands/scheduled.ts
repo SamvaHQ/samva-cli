@@ -1,3 +1,4 @@
+import type { NamespaceId } from "@samva/core/shared/base";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -13,6 +14,7 @@ import * as ScheduledMessages from "samva/effect/scheduled-messages";
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
 import { confirmDestructive } from "../lib/confirm";
+import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields, printJson, printJsonLine, truncateForDisplay } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
 import {
@@ -52,6 +54,7 @@ const isAbsoluteInstant = (value: string): boolean => {
 
 /** Clean inputs for a scheduled email send, already resolved from flags. */
 export interface ScheduledEmailCreateInput {
+  readonly namespaceId?: NamespaceId | undefined;
   readonly to: ReadonlyArray<string>;
   readonly subject: string | undefined;
   readonly html: string | undefined;
@@ -78,6 +81,7 @@ export interface ScheduledEmailCreateInput {
 export const assembleScheduledEmailPayload = (
   input: ScheduledEmailCreateInput,
 ): ScheduledMessagesCreateRequestJson => ({
+  ...(input.namespaceId === undefined ? {} : { namespaceId: input.namespaceId }),
   send: {
     channel: "email",
     to: input.to.map((email) => ({ email })),
@@ -203,6 +207,7 @@ const allFlag = Flag.Boolean("all").pipe(
 );
 
 const create = Command.make("create", {
+  namespace: namespaceFlag("create"),
   to: toFlag,
   cc: ccFlag,
   bcc: bccFlag,
@@ -254,6 +259,7 @@ const create = Command.make("create", {
   ]),
   Command.withHandler(
     ({
+      namespace,
       to,
       cc,
       bcc,
@@ -327,6 +333,7 @@ const create = Command.make("create", {
         }
 
         const payload = assembleScheduledEmailPayload({
+          ...namespaceField(namespace),
           to: [...to],
           subject: Option.getOrUndefined(subject),
           html: htmlValue,
@@ -385,6 +392,7 @@ const create = Command.make("create", {
         yield* printFields([
           ["ID", data.id],
           ["Status", data.status],
+          ["Namespace", data.namespaceId ?? "organization"],
           ["Send at", data.scheduledFor],
           ["Timezone", data.timezone],
         ]);
@@ -394,6 +402,7 @@ const create = Command.make("create", {
 );
 
 const list = Command.make("list", {
+  namespace: namespaceFlag("list"),
   status: statusFlag,
   cursor: cursorFlag,
   limit: limitFlag,
@@ -413,7 +422,7 @@ const list = Command.make("list", {
       description: "Stream every page as JSONL",
     },
   ]),
-  Command.withHandler(({ status, cursor, limit, all, json }) =>
+  Command.withHandler(({ namespace, status, cursor, limit, all, json }) =>
     Effect.gen(function* () {
       if (all && !isJsonLinesRequested()) {
         return yield* new CliUsageError({
@@ -425,6 +434,7 @@ const list = Command.make("list", {
       const limitValue = Option.getOrUndefined(limit);
       const client = yield* getClientProvider;
       const query = {
+        ...namespaceField(namespace),
         status: Option.getOrUndefined(status),
         cursor: cursorValue,
         limit: limitValue,
@@ -459,6 +469,7 @@ const list = Command.make("list", {
         yield* printFields([
           ["ID", item.id],
           ["Status", item.status],
+          ["Namespace", item.namespaceId ?? "organization"],
           ["Channel", item.send.channel],
           ["Send at", item.scheduledFor],
           ["Timezone", item.timezone],
@@ -484,6 +495,7 @@ const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).p
       yield* printFields([
         ["ID", data.id],
         ["Status", data.status],
+        ["Namespace", data.namespaceId ?? "organization"],
         ["Channel", data.send.channel],
         ["Send at", data.scheduledFor],
         ["Timezone", data.timezone],
@@ -581,6 +593,7 @@ const resume = Command.make("resume", {
       yield* printFields([
         ["ID", data.id],
         ["Status", data.status],
+        ["Namespace", data.namespaceId ?? "organization"],
         ["Send at", data.scheduledFor],
       ]);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),

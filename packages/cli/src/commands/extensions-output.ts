@@ -1,6 +1,5 @@
 import type {
   Extension,
-  ExtensionInstallation,
   ExtensionInstallationSummary,
   ExtensionManifest,
   ExtensionRunSummary,
@@ -67,14 +66,16 @@ export const printInstallationSummary = (item: typeof ExtensionInstallationSumma
     ]);
   });
 
-export const printInstallation = (item: typeof ExtensionInstallation.Encoded) =>
+export const printInstallation = (
+  item: Effect.Success<ReturnType<typeof ExtensionInstallations.get>>,
+) =>
   Effect.gen(function* () {
     yield* printInstallationSummary(item);
     yield* Console.log("Access and delivery");
     yield* printFields([
       ["Events", item.events.join(", ") || "None"],
       ["Permissions", item.permissions.join(", ") || "None"],
-      ["Send mode", item.sendMode],
+      ["Policy", JSON.stringify(item.policy)],
       [
         "Mailboxes",
         item.scope.mailboxIds === null

@@ -218,3 +218,59 @@ describe("--namespace on resource commands", () => {
     expect(result.code).toBe(2);
   });
 });
+
+describe("namespace channel resources", () => {
+  it.each([
+    ["whatsapp-number", "whatsappNumber"],
+    ["sms-number", "smsNumber"],
+  ])("moves --%s in and out", async (flag, type) => {
+    const moved = await run(["assign", nsId, `--${flag}`, "number", "--json"], {
+      status: 200,
+      body: { type, id: "number", namespaceId: nsId },
+    });
+    expect(moved.code, moved.stderr).toBe(0);
+    expect(requests[0]).toMatchObject({ method: "POST", body: { type, resourceId: "number" } });
+    const returned = await run(["unassign", nsId, `--${flag}`, "number", "--json"], {
+      status: 200,
+      body: { type, id: "number", namespaceId: null },
+    });
+    expect(returned.code, returned.stderr).toBe(0);
+    expect(requests[1]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/namespaces/${nsId}/resources/${type}/number`,
+    });
+  });
+});
+
+describe("namespace resource list filters", () => {
+  it.each(["mailboxes", "webhooks", "agents", "api-keys"])(
+    "filters %s by --namespace",
+    async (command) => {
+      reply = { status: 200, body: { items: [], nextCursor: null } };
+      const result = await runCli([command, "list", "--namespace", nsId, "--json"], {
+        configHome: home,
+        env: { SAMVA_API_URL: apiUrl, SAMVA_API_KEY: "sk_test_namespaces" },
+      });
+      expect(result.code, result.stderr).toBe(0);
+      const path = new URL(requests[0]!.path, apiUrl);
+      expect(path.pathname).toBe(`/v1/${command}`);
+      expect(path.searchParams.get("namespaceId")).toBe(nsId);
+    },
+  );
+});
+
+describe("namespace flag spelling", () => {
+  it.each(["topics", "newsletters"])("uses --namespace for %s", async (command) => {
+    reply = { status: 200, body: { items: [], nextCursor: null } };
+    const options = {
+      configHome: home,
+      env: { SAMVA_API_URL: apiUrl, SAMVA_API_KEY: "sk_test_namespaces" },
+    };
+    const accepted = await runCli([command, "list", "--namespace", nsId, "--json"], options);
+    expect(accepted.code, accepted.stderr).toBe(0);
+    expect(new URL(requests[0]!.path, apiUrl).searchParams.get("namespaceId")).toBe(nsId);
+    const rejected = await runCli([command, "list", "--namespace-id", nsId, "--json"], options);
+    expect(rejected.code).toBe(2);
+    expect(requests).toHaveLength(1);
+  });
+});

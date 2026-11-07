@@ -25,7 +25,6 @@ import * as Templates from "samva/effect/templates";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, objectRows, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested, outputModeFromArgv } from "../lib/runtime";
@@ -54,7 +53,7 @@ import { workspaceCommand } from "./templates/workspace";
  * a canonical Git-backed project; `check` and `build` validate local TSX without
  * writing to the platform; `publish` publishes one exact, clean Git commit.
  *
- * Project metadata remains available through list/get/create/update/remove for
+ * Project metadata remains available through list/get/create/update/delete for
  * automation that needs it. Source history and publication are Git operations.
  */
 
@@ -64,7 +63,7 @@ const tsconfigFlag = Flag.String("tsconfig").pipe(
 );
 
 const dryRunFlag = Flag.Boolean("dry-run").pipe(
-  Flag.withDescription("Show the request without calling the API"),
+  Flag.withDescription("Preview without changing remote state"),
   Flag.withDefault(false),
 );
 
@@ -919,42 +918,129 @@ const updateRemote = Command.make("update", {
   ),
 );
 
-const removeRemote = Command.make("remove", {
+const deleteRemote = Command.make("delete", {
   id: templateIdArgument,
   dryRun: dryRunFlag,
   yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm destructive state change"),
+    Flag.withDescription("Confirm permanent deletion"),
     Flag.withDefault(false),
   ),
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Deactivate a remote template; its project file and publications remain"),
-  Command.withExamples([{ command: "samva templates remove tmpl_abc123 --dry-run" }]),
+  Command.withDescription(
+    "Permanently delete a remote template and its publications; retain sent-message history and the project file",
+  ),
+  Command.withExamples([
+    { command: "samva templates delete tmpl_abc123 --dry-run" },
+    { command: "samva templates delete tmpl_abc123 --yes" },
+  ]),
   Command.withHandler(({ id, dryRun, yes, json }) =>
     Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "templates.remove", id })
-          : Console.log(`[dry-run] Would remove template ${id}.`);
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Deactivate template ${id}?`,
-        nonInteractiveMessage:
-          "remove requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
+      if (!dryRun && !yes)
+        return yield* new CliUsageError({
+          code: "confirmation_required",
+          message: "delete requires --yes. Preview with samva templates delete <id> --dry-run.",
+        });
       const client = yield* getClientProvider;
-      const result = yield* Templates.remove({ id }).pipe(
+      if (dryRun) {
+        const template = yield* Templates.getById({ id }).pipe(
+          client.provide,
+          Effect.mapError((error) => toCliApiError("Could not read template", error)),
+        );
+        const summary = {
+          id: template.id,
+          name: template.name,
+          slug: template.slug,
+          projectId: template.projectId,
+        };
+        return yield* json
+          ? printJson({ dryRun: true, action: "templates.delete", template: summary })
+          : Console.log(
+              `[dry-run] Would permanently delete template ${summary.name} (${summary.id}, ${summary.slug}) and its publications. Sent-message history and the project file remain.`,
+            );
+      }
+      const result = yield* Templates.delete({ id }).pipe(
         client.provide,
-        Effect.mapError((error) => toCliApiError("Could not remove template", error)),
+        Effect.mapError((error) => toCliApiError("Could not delete template", error)),
       );
       if (json) return yield* printJson(result);
       yield* printFields([
         ["Template", id],
-        ["Removed", result.success],
+        ["Deleted", result.success],
       ]);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
+);
+
+const deleteProject = Command.make("delete", {
+  id: Argument.String("id").pipe(Argument.withDescription("Remote template project id")),
+  dryRun: dryRunFlag,
+  yes: Flag.Boolean("yes").pipe(
+    Flag.withDescription("Confirm permanent deletion of the project and every template in it"),
+    Flag.withDefault(false),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Permanently delete a project, every template in it, its repository and workspace",
+  ),
+  Command.withExamples([
+    { command: "samva templates projects delete tproj_abc123 --dry-run" },
+    { command: "samva templates projects delete tproj_abc123 --yes" },
+  ]),
+  Command.withHandler(({ id, dryRun, yes, json }) =>
+    Effect.gen(function* () {
+      if (!dryRun && !yes)
+        return yield* new CliUsageError({
+          code: "confirmation_required",
+          message:
+            "projects delete requires --yes. Preview with samva templates projects delete <id> --dry-run.",
+        });
+      const client = yield* getClientProvider;
+      if (dryRun) {
+        const entries: { id: string; name: string; slug: string }[] = [];
+        let cursor: string | undefined;
+        for (;;) {
+          const page = yield* Templates.list({ projectId: id, cursor, limit: 100 }).pipe(
+            client.provide,
+            Effect.mapError((error) => toCliApiError("Could not list project templates", error)),
+          );
+          entries.push(
+            ...page.items.map((entry) => ({ id: entry.id, name: entry.name, slug: entry.slug })),
+          );
+          if (page.nextCursor === null) break;
+          cursor = page.nextCursor;
+        }
+        if (json)
+          return yield* printJson({
+            dryRun: true,
+            action: "templates.projects.delete",
+            projectId: id,
+            templates: entries,
+          });
+        yield* Console.log(
+          `[dry-run] Would permanently delete project ${id}, its repository, workspace and these templates. Sent-message history remains.`,
+        );
+        for (const entry of entries)
+          yield* Console.log(`  ${entry.name} (${entry.id}, ${entry.slug})`);
+        if (entries.length === 0) yield* Console.log("  No visible template entries.");
+        return;
+      }
+      const result = yield* Templates.deleteProject({ id }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not delete project", error)),
+      );
+      if (json) return yield* printJson(result);
+      yield* printFields([
+        ["Project", id],
+        ["Deleted", result.success],
+      ]);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+const projects = Command.make("projects").pipe(
+  Command.withDescription("Manage remote template projects"),
+  Command.withSubcommands([deleteProject]),
 );
 
 const exportCommand = Command.make("export", {
@@ -1088,7 +1174,8 @@ export const templatesCommand = Command.make("templates").pipe(
     getRemote,
     createRemote,
     updateRemote,
-    removeRemote,
+    deleteRemote,
+    projects,
     fromWebsiteCommand,
     devCommand,
     check,

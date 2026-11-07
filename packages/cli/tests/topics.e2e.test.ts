@@ -74,7 +74,7 @@ describe("topics subprocess contract", () => {
     const api = await startApi();
     try {
       const commands = [
-        ["list", "--namespace-id", "ns_1234567890abcdef"],
+        ["list", "--namespace", "ns_1234567890abcdef"],
         ["get", ID],
         ["create", "--name", "Newsletter", "--default", "opt_in"],
         ["update", ID, "--reply-mailbox-id", "none"],

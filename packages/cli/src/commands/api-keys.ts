@@ -1,4 +1,3 @@
-import { mailboxSendModes, type MailboxSendMode } from "@samva/core/mailboxes/mailbox";
 import {
   API_KEY_LEVEL_RESOURCES,
   API_KEY_MAILBOX_ACTIONS,
@@ -27,7 +26,7 @@ import { isJsonLinesRequested } from "../lib/runtime";
  * `samva api-keys` manages the organization's API keys. The API decides what a key may be given: a
  * caller cannot issue a key with more access than it holds, so the CLI adds no gate of its own
  * beyond refusing flag combinations the request cannot express. Mailbox access is
- * `--mailbox-permission` (with `--mailbox` and `--send-mode` narrowing it) and namespace scope is
+ * `--mailbox-permission` (with `--mailbox` narrowing it) and namespace scope is
  * `--namespace`; neither is a `--grant` resource.
  */
 
@@ -71,7 +70,7 @@ const parseGrant = (raw: string) => {
     return new CliUsageError({
       code: "invalid_grant",
       message:
-        "--grant does not cover mailboxes; use --mailbox-permission <action> (with optional --mailbox and --send-mode) instead.",
+        "--grant does not cover mailboxes; use --mailbox-permission <action> (with optional --mailbox) instead.",
     });
   }
   if (!isLevelResource(resource) || !isGrantLevel(level)) {
@@ -92,20 +91,19 @@ const parseGrant = (raw: string) => {
 interface MailboxFlags {
   readonly permissions: ReadonlyArray<(typeof API_KEY_MAILBOX_ACTIONS)[number]>;
   readonly mailboxIds: ReadonlyArray<MailboxId>;
-  readonly sendMode: Option.Option<MailboxSendMode>;
 }
 
 const repeated = (values: ReadonlyArray<string>) =>
   values.find((value, index) => values.indexOf(value) !== index);
 
-/** The key's mailbox access, or none; `--mailbox` and `--send-mode` narrow `--mailbox-permission`. */
+/** The key's mailbox access, or none; `--mailbox` narrows `--mailbox-permission`. */
 const mailboxAccessFromFlags = (flags: MailboxFlags) =>
   Effect.gen(function* () {
     if (flags.permissions.length === 0) {
-      if (flags.mailboxIds.length > 0 || Option.isSome(flags.sendMode)) {
+      if (flags.mailboxIds.length > 0) {
         return yield* new CliUsageError({
           code: "mailbox_permission_required",
-          message: `--mailbox and --send-mode narrow mailbox access; also pass --mailbox-permission ${API_KEY_MAILBOX_ACTIONS.join("|")}.`,
+          message: `--mailbox narrows mailbox access; also pass --mailbox-permission ${API_KEY_MAILBOX_ACTIONS.join("|")}.`,
         });
       }
       return undefined;
@@ -127,7 +125,6 @@ const mailboxAccessFromFlags = (flags: MailboxFlags) =>
     return {
       permissions: flags.permissions,
       ...(flags.mailboxIds.length > 0 ? { mailboxIds: flags.mailboxIds } : {}),
-      ...(Option.isSome(flags.sendMode) ? { sendMode: flags.sendMode.value } : {}),
     };
   });
 
@@ -147,7 +144,6 @@ const accessFromFlags = (
       grants.length > 0 ||
       mailbox.permissions.length > 0 ||
       mailbox.mailboxIds.length > 0 ||
-      Option.isSome(mailbox.sendMode) ||
       Option.isSome(namespace);
     if (fullAccess && restrictedFlags) {
       return yield* new CliUsageError({
@@ -213,10 +209,9 @@ const describeAccess = (access: KeyAccess | undefined): string => {
     .filter(([, level]) => level !== undefined)
     .map(([resource, level]) => `${resource}:${level}`);
   if (access.mailboxes !== undefined && access.mailboxes !== null) {
-    const { permissions, mailboxIds, sendMode } = access.mailboxes;
+    const { permissions, mailboxIds } = access.mailboxes;
     const scope = [
       ...(mailboxIds === undefined || mailboxIds === null ? [] : [mailboxIds.join("+")]),
-      ...(sendMode === undefined || sendMode === "send" ? [] : [`${sendMode} sends`]),
     ];
     grants.push(
       `mailboxes:${permissions.join("+")}${scope.length === 0 ? "" : ` [${scope.join("; ")}]`}`,
@@ -257,6 +252,7 @@ const withJsonQuiet = <A, E, R>(json: boolean, effect: Effect.Effect<A, E, R>) =
   json ? effect.pipe(Effect.provideService(References.MinimumLogLevel, "None")) : effect;
 
 const list = Command.make("list", {
+  namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
   status: Flag.Literals("status", ["active", "revoked"]).pipe(
     Flag.withDescription("Only keys in this state"),
     Flag.optional,
@@ -282,7 +278,7 @@ const list = Command.make("list", {
     { command: "samva api-keys list --status active --search ci --json" },
     { command: "samva api-keys list --all --jsonl" },
   ]),
-  Command.withHandler(({ status, search, limit, cursor, all, json }) =>
+  Command.withHandler(({ status, search, limit, cursor, all, namespace, json }) =>
     withJsonQuiet(
       json,
       Effect.gen(function* () {
@@ -294,6 +290,7 @@ const list = Command.make("list", {
         }
         const client = yield* getClientProvider;
         const query = {
+          namespaceId: Option.getOrUndefined(namespace),
           status: Option.getOrUndefined(status),
           search: Option.getOrUndefined(search),
           limit: Option.getOrUndefined(limit),
@@ -375,12 +372,6 @@ const create = Command.make("create", {
     ),
     Flag.atLeast(0),
   ),
-  sendMode: Flag.Literals("send-mode", mailboxSendModes).pipe(
-    Flag.withDescription(
-      "With approval, each send waits until a person other than the key approves it (default send)",
-    ),
-    Flag.optional,
-  ),
   namespace: Flag.String("namespace").pipe(
     Flag.withSchema(NamespaceId),
     Flag.withDescription("Confine a restricted key to one namespace (ns_...)"),
@@ -400,8 +391,8 @@ const create = Command.make("create", {
     { command: "samva api-keys create --name ci --grant email=write --dry-run" },
     {
       command:
-        "samva api-keys create --name agent --mailbox-permission read --mailbox-permission send --mailbox mbx_1234567890123456 --send-mode approval",
-      description: "A key that works in one mailbox and needs a person to approve each send",
+        "samva api-keys create --name agent --mailbox-permission read --mailbox-permission send --mailbox mbx_1234567890123456",
+      description: "A key that works in one mailbox",
     },
     {
       command: "samva api-keys create --name ci --grant email=write --json | jq -r .data.key",
@@ -420,7 +411,6 @@ const create = Command.make("create", {
       grant,
       mailboxPermission,
       mailbox,
-      sendMode,
       namespace,
       fullAccess,
       dryRun,
@@ -432,7 +422,7 @@ const create = Command.make("create", {
           const access = yield* accessFromFlags(
             grant,
             fullAccess,
-            { permissions: mailboxPermission, mailboxIds: mailbox, sendMode },
+            { permissions: mailboxPermission, mailboxIds: mailbox },
             namespace,
           );
           const expires = yield* Option.match(expiresAt, {
@@ -489,30 +479,21 @@ const update = Command.make("update", {
     Flag.withDescription("New description"),
     Flag.optional,
   ),
-  sendMode: Flag.Literals("send-mode", mailboxSendModes).pipe(
-    Flag.withDescription(
-      "Change a mailbox key's send mode: approval holds each send for a person other than the key, send releases them. Takes a person signed in with samva login",
-    ),
-    Flag.optional,
-  ),
   dryRun: dryRunFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Rename an API key, change its description, or change a mailbox key's send mode. Its other access is fixed at creation; create a new key to change it.",
+    "Rename an API key or change its description. Its access is fixed at creation; create a new key to change it.",
   ),
-  Command.withExamples([
-    { command: "samva api-keys update key_abc123 --name ci-prod --dry-run" },
-    { command: "samva api-keys update key_abc123 --send-mode approval" },
-  ]),
-  Command.withHandler(({ id, name, description, sendMode, dryRun, json }) =>
+  Command.withExamples([{ command: "samva api-keys update key_abc123 --name ci-prod --dry-run" }]),
+  Command.withHandler(({ id, name, description, dryRun, json }) =>
     withJsonQuiet(
       json,
       Effect.gen(function* () {
-        if (Option.isNone(name) && Option.isNone(description) && Option.isNone(sendMode)) {
+        if (Option.isNone(name) && Option.isNone(description)) {
           return yield* new CliUsageError({
             code: "update_required",
-            message: "Pass --name, --description, --send-mode, or a combination.",
+            message: "Pass --name, --description, or both.",
           });
         }
         const payload = yield* decodeRequest(ApiKeys.UpdatePayload, {
@@ -520,10 +501,6 @@ const update = Command.make("update", {
           ...Option.match(description, {
             onNone: () => ({}),
             onSome: (value) => ({ description: value }),
-          }),
-          ...Option.match(sendMode, {
-            onNone: () => ({}),
-            onSome: (value) => ({ mailboxes: { sendMode: value } }),
           }),
         });
         if (dryRun) {
@@ -540,7 +517,6 @@ const update = Command.make("update", {
             ["API key", id],
             ["Name", payload.name],
             ["Description", payload.description],
-            ["Send mode", payload.mailboxes?.sendMode],
           ]);
         }
         const client = yield* getClientProvider;
