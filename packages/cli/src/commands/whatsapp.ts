@@ -552,38 +552,9 @@ const message = Command.make("message").pipe(
   Command.withSubcommands([messageStatus]),
 );
 
-const proofLocal = Command.make("local").pipe(
-  Command.withDescription("Run the local WhatsApp proof checklist"),
-  Command.withHandler(
-    Effect.fnUntraced(function* () {
-      return yield* new SamvaCliError({
-        message:
-          "`samva whatsapp proof local` is not implemented yet; it lands with the guided proof runners.",
-      });
-    }),
-  ),
-);
-
-const proofProduction = Command.make("production").pipe(
-  Command.withDescription("Run the production WhatsApp proof checklist"),
-  Command.withHandler(
-    Effect.fnUntraced(function* () {
-      return yield* new SamvaCliError({
-        message:
-          "`samva whatsapp proof production` is not implemented yet; it lands with the guided proof runners.",
-      });
-    }),
-  ),
-);
-
-const proof = Command.make("proof").pipe(
-  Command.withDescription("Guided WhatsApp proof runners"),
-  Command.withSubcommands([proofLocal, proofProduction]),
-);
-
 export const whatsappCommand = Command.make("whatsapp").pipe(
   Command.withDescription(
     "WhatsApp — `send` delivers text, media, reply buttons, reactions, or any whatsapp object inside the 24-hour customer service window, or an approved template at any time; `templates list` shows each template's Meta review status and `templates stats` how each performed; `broadcasts` sends a template to an audience; `flows` creates, publishes, and registers flows; `setup-links` creates links that connect a customer's number into a namespace. `status` shows connected numbers and their verification, quality, and messaging limits; `message status <id>` reads a message's lifecycle status. Business account connection stays in the dashboard.",
   ),
-  Command.withSubcommands([status, send, templates, broadcasts, flows, setupLinks, message, proof]),
+  Command.withSubcommands([status, send, templates, broadcasts, flows, setupLinks, message]),
 );

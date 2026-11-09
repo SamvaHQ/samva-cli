@@ -769,6 +769,7 @@ describe("--json stdout purity", () => {
       "org",
       "email",
       "messages",
+      "whatsapp",
       "contacts",
       "events",
       "journeys",
@@ -2727,12 +2728,13 @@ describe("Email Launch public command surface", () => {
     const help = `${stdout}\n${stderr}`;
 
     expect(code).toBe(0);
-    for (const excluded of ["sms", "whatsapp", "voice", "smtp"]) {
+    for (const excluded of ["sms", "voice", "smtp"]) {
       expect(help).not.toMatch(new RegExp(`\\b${excluded}\\b`, "i"));
     }
     for (const included of [
       "email",
       "messages",
+      "whatsapp",
       "scheduled-messages",
       "campaigns",
       "templates",

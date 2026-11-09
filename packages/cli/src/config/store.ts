@@ -153,7 +153,7 @@ export const resolveExecutionSelection = Effect.gen(function* () {
   const stored = config.profiles[profile] ?? { credentialIdentity: "none" as const };
   const apiUrl = apiUrlFlag ?? SAMVA_API_URL ?? DEFAULT_API_URL;
   const orgSlug = orgFlag ?? SAMVA_ORG ?? stored.orgSlug;
-  const apiKey = SAMVA_API_KEY && SAMVA_API_KEY.length > 0 ? SAMVA_API_KEY : undefined;
+  const apiKey = SAMVA_API_KEY;
 
   if (apiKey && (orgFlag !== undefined || SAMVA_ORG !== undefined)) {
     return yield* new CliAuthError({

@@ -98,10 +98,7 @@ const readExisting = (path: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     return (yield* fs.exists(path)) ? yield* fs.readFileString(path) : undefined;
-  }).pipe(
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (missing file), not a void outcome; Effect.void is not assignable to `string | undefined`.
-    Effect.catch(() => Effect.succeed<string | undefined>(undefined)),
-  );
+  }).pipe(Effect.catch(() => Effect.void.pipe(Effect.as(undefined))));
 
 export const typesCommand = Command.make("types", {
   out: Flag.String("out").pipe(

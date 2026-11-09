@@ -9,7 +9,7 @@
 export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   agentsList: "agents list",
   agentsListModels: "api",
-  agentsCreate: "api",
+  agentsCreate: "agents create",
   agentsGet: "api",
   agentsUpdate: "api",
   agentsRemove: "api",

@@ -316,7 +316,6 @@ beforeAll(async () => {
   );
   unauthenticatedEvidence = await runCli(["templates", "list", "--json"], {
     SAMVA_API_URL: api.url,
-    SAMVA_API_KEY: "",
     XDG_CONFIG_HOME: join(tempRoot, "empty-config"),
   });
 

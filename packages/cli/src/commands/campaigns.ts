@@ -140,8 +140,7 @@ const parseTemplateData = (
   raw: Option.Option<string>,
 ): Effect.Effect<JsonRecord | undefined, SamvaCliError> =>
   Option.match(raw, {
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (no template data), not a void outcome; Effect.void is not assignable to `JsonRecord | undefined`.
-    onNone: () => Effect.succeed(undefined),
+    onNone: () => Effect.void.pipe(Effect.as(undefined)),
     onSome: (value) =>
       Effect.try({
         try: () => JSON.parse(value) as unknown,
@@ -1285,7 +1284,9 @@ const runRecipients = Command.make("recipients", {
   all: allFlag,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("List recipients for a campaign run"),
+  Command.withDescription(
+    "List recipients for a campaign run; not_added skips contacts outside the opt-out topic audience",
+  ),
   Command.withExamples([
     { command: "samva campaigns runs recipients camp_abc123 crun_def456" },
     {

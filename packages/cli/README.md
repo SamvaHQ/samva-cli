@@ -1,6 +1,6 @@
 # @samva/cli
 
-Samva is the email and WhatsApp API for your app: transactional and campaign sending, inbound replies threaded into conversations, programmable mailboxes, and signed webhooks. Small businesses use the same platform to answer their customers in Samva Mail.
+Samva is the email and WhatsApp API for your app: transactional and campaign sending, inbound replies threaded into conversations, programmable mailboxes, and signed webhooks. AI agents get their own addresses and WhatsApp numbers on the same platform.
 
 The `samva` CLI sends and operates email from a terminal. The npm package includes
 the JavaScript implementation and selects a self-contained native executable when
@@ -200,7 +200,7 @@ samva templates publish --all
 
 `add` uses the entry's `defineTemplate` id as the template's handle; pass `--slug` and `--name` to
 choose others or to register an entry before the file exists. `publish --all` publishes every
-active template in the project, reports each result, exits non-zero when any entry failed, and
+template in the project, reports each result, exits non-zero when any entry failed, and
 lists `defineTemplate` files under `templates/` or `emails/` that are not registered. Rerunning it after a partial failure is safe.
 After `git mv`, `samva templates move <old-path> <new-path>` points the template at the new file
 and keeps its id, handle, and publications.
@@ -300,12 +300,14 @@ bounded and reports only the destination, compiler version, and file count.
 
 `samva templates publish` resolves the requested revision to an exact commit, verifies the working
 tree is clean and the commit is an ancestor of the fetched `origin` default branch, then creates an
-immutable publication receipt for each selected entry: the named entry, every active entry with
+immutable publication receipt for each selected entry: the named entry, every entry with
 `--all`, or the project's only entry. It does not rewrite Git history or alter the working tree.
 
-`templates list`, `get`, `create`, `update`, and `remove` operate on template metadata. They do not
-replace the project repository, workspace, or native Git history. `remove` deactivates a template;
-its file and publications remain.
+`templates list`, `get`, `create`, `update`, and `delete` operate on template metadata. They do not
+replace the project repository, workspace, or native Git history. `delete` permanently removes the
+template and its publications; sent-message history keeps its snapshots and the project file remains.
+`templates projects delete` removes a project with every template in it, its repository and its
+workspace.
 
 Inline email requires `--subject` and exactly one body source: `--html` or `--text`. Pass `-` as
 the value to read that body from stdin: `--text -` reads a plain-text body and `--html -` reads an

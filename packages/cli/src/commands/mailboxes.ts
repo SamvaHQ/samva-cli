@@ -160,8 +160,7 @@ const checkCursor = (
   cursor: string | undefined,
 ): Effect.Effect<string | undefined, CliUsageError> =>
   cursor === undefined
-    ? // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (no cursor), not a void outcome; Effect.void is not assignable to `string | undefined`.
-      Effect.succeed(undefined)
+    ? Effect.void.pipe(Effect.as(undefined))
     : Schema.decodeEffect(Cursor)(cursor).pipe(
         Effect.as(cursor),
         Effect.mapError(

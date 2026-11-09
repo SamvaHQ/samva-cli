@@ -104,7 +104,7 @@ describe("WhatsApp status", () => {
     expect(JSON.parse(json.stdout)).toEqual({
       schemaVersion: 1,
       type: "result",
-      command: "samva",
+      command: "whatsapp.status",
       data: body,
     });
   });
@@ -118,7 +118,7 @@ describe("WhatsApp status", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
       type: "result",
-      command: "samva",
+      command: "whatsapp.status",
       data: { items: [account], pagination },
     });
   });
@@ -148,7 +148,7 @@ describe("WhatsApp status", () => {
     expect(JSON.parse(result.stderr)).toEqual({
       schemaVersion: 1,
       type: "error",
-      command: "samva",
+      command: "whatsapp.status",
       message: "WhatsApp is not enabled for this organization.",
       details: { flag: "whatsapp" },
       next: "Use an enabled feature for this organization.",
@@ -175,7 +175,7 @@ describe("WhatsApp message status", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
       type: "result",
-      command: "samva",
+      command: "whatsapp.message.status",
       data: message,
     });
     expect(requests).toEqual(["GET /v1/messages/msg_test", "GET /v1/messages/msg_test"]);

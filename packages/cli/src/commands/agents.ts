@@ -1,4 +1,6 @@
 import { AgentTestRerun, RunAgentTestPayload } from "@samva/contracts/agents/setup-group";
+import { AgentName } from "@samva/core/agents/definition";
+import { AgentSetupJob } from "@samva/core/agents/presets";
 import { AgentId, NamespaceId } from "@samva/core/shared/base";
 import { Console, Effect, Schema } from "effect";
 import * as Argument from "effect/cli/Argument";
@@ -45,6 +47,48 @@ const list = Command.make("list", {
   ),
 );
 
+const create = Command.make("create", {
+  name: Argument.String("name").pipe(Argument.withSchema(AgentName)),
+  setupJob: Flag.Literals("setup-job", AgentSetupJob.literals).pipe(
+    Flag.withDescription("What the agent mostly does: support, store, or booking"),
+    Flag.optional,
+  ),
+  namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
+  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Create a hosted agent with an unpublished draft"),
+  Command.withExamples([
+    { command: 'samva agents create "Shop assistant" --setup-job store --json' },
+    { command: 'samva agents create "Customer support" --dry-run --json' },
+  ]),
+  Command.withHandler(({ name, setupJob, namespace, dryRun, json }) =>
+    Effect.gen(function* () {
+      const request = {
+        name,
+        setupJob: Option.getOrUndefined(setupJob),
+        namespaceId: Option.getOrUndefined(namespace),
+      };
+      if (dryRun)
+        return yield* json
+          ? printJson({ dryRun: true, action: "agents.create", request })
+          : Console.log(`[dry-run] Would create hosted agent ${name}.`);
+      const client = yield* getClientProvider;
+      const agent = yield* Agents.create(request).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not create agent", error)),
+      );
+      if (json) return yield* printJson(agent);
+      yield* printFields([
+        ["ID", agent.id],
+        ["Name", agent.name],
+        ["Setup job", agent.setupJob ?? "unstated"],
+        ["Namespace", agent.namespaceId ?? "organization"],
+      ]);
+    }),
+  ),
+);
+
 const rerun = Command.make("rerun", {
   agentId: Argument.String("agent-id").pipe(Argument.withSchema(AgentId)),
   data: Flag.String("data").pipe(
@@ -85,5 +129,9 @@ const rerun = Command.make("rerun", {
 
 export const agentsCommand = Command.make("agents").pipe(
   Command.withDescription("Hosted agents and saved tests"),
-  Command.withSubcommands([list, Command.make("tests").pipe(Command.withSubcommands([rerun]))]),
+  Command.withSubcommands([
+    list,
+    create,
+    Command.make("tests").pipe(Command.withSubcommands([rerun])),
+  ]),
 );

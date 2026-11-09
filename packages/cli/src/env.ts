@@ -10,20 +10,24 @@
 
 const env = process.env;
 
+/** An empty variable (a CI expansion of an unset secret) means unset. */
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value === undefined || value === "" ? undefined : value;
+
 /** API key for authenticated calls (`samva email send`, `samva org list`, …). */
-export const SAMVA_API_KEY = env["SAMVA_API_KEY"];
+export const SAMVA_API_KEY = nonEmpty(env["SAMVA_API_KEY"]);
 
 /** API base URL override; falls back to config then the production default. */
-export const SAMVA_API_URL = env["SAMVA_API_URL"];
+export const SAMVA_API_URL = nonEmpty(env["SAMVA_API_URL"]);
 
 /** Named execution profile override for humans, CI, and agents. */
-export const SAMVA_PROFILE = env["SAMVA_PROFILE"];
+export const SAMVA_PROFILE = nonEmpty(env["SAMVA_PROFILE"]);
 
 /** OAuth organization override; rejected when SAMVA_API_KEY is in use. */
-export const SAMVA_ORG = env["SAMVA_ORG"];
+export const SAMVA_ORG = nonEmpty(env["SAMVA_ORG"]);
 
 /** XDG config root; the CLI stores state under `$XDG_CONFIG_HOME/samva`. */
-export const XDG_CONFIG_HOME = env["XDG_CONFIG_HOME"];
+export const XDG_CONFIG_HOME = nonEmpty(env["XDG_CONFIG_HOME"]);
 
 /** User home directory (used when `XDG_CONFIG_HOME` is unset). */
-export const HOME = env["HOME"] ?? env["USERPROFILE"];
+export const HOME = nonEmpty(env["HOME"]) ?? nonEmpty(env["USERPROFILE"]);

@@ -46,6 +46,7 @@ const contact = {
   tags: ["customer"],
   metadata: { source: "signup" },
   importProvenance: null,
+  addedAt: now,
   createdAt: now,
   updatedAt: now,
 };

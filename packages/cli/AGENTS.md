@@ -245,7 +245,6 @@ directional unique-recipient counts with machine observations excluded; `--json`
 `campaigns create` requires `--topic-id`; replacing an audience with
 `campaigns update` also requires it. `email send --topic-id` and `scheduled-messages create --topic-id` select the topic for that send.
 
-The WhatsApp command family remains outside the released root command registry. Within that family,
 `samva whatsapp status` lists connected numbers with verification and credential status, the default
 marker, activity, quality, and messaging tier and limit. `--page` and `--limit` select a bounded page;
 `--json` returns `{items, pagination}` inside the result envelope, using the API field names.

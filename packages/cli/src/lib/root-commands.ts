@@ -26,6 +26,7 @@ import { subscriptionsCommand } from "../commands/subscriptions";
 import { templatesCommand } from "../commands/templates";
 import { topicsCommand } from "../commands/topics";
 import { webhooksCommand } from "../commands/webhooks";
+import { whatsappCommand } from "../commands/whatsapp";
 
 /** The single root-command registry used by parsing, help, and completions. */
 export const rootCommands = [
@@ -34,6 +35,7 @@ export const rootCommands = [
   orgCommand,
   emailCommand,
   messagesCommand,
+  whatsappCommand,
   contactsCommand,
   eventsCommand,
   journeysCommand,

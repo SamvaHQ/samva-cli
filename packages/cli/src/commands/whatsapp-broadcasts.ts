@@ -95,6 +95,7 @@ export const parseLiteralData = (entries: ReadonlyArray<string>) =>
 export interface WhatsAppBroadcastInput {
   readonly name: string;
   readonly template: string;
+  readonly topicId: string;
   readonly data: Readonly<Record<string, string>>;
   readonly bindings: Readonly<Record<string, WhatsAppBinding>>;
   readonly businessAccountId: string | undefined;
@@ -122,6 +123,7 @@ export const whatsappBroadcastPayload = (input: WhatsAppBroadcastInput) => ({
     },
   },
   audience: {
+    topicId: input.topicId,
     includeTags: nonEmpty(input.includeTags),
     excludeTags: nonEmpty(input.excludeTags),
     groupIds: nonEmpty(input.groupIds),
@@ -237,6 +239,7 @@ const create = Command.make("create", {
   template: Flag.String("template").pipe(
     Flag.withDescription("Approved WhatsApp template, by id (tmpl_…) or slug"),
   ),
+  topicId: Flag.String("topic-id").pipe(Flag.withDescription("Required topic for this audience")),
   bind: list(
     "bind",
     "Fill a template parameter per recipient: param=contact.<field> or param=customField.<key> (repeatable)",
@@ -273,12 +276,12 @@ const create = Command.make("create", {
   Command.withExamples([
     {
       command:
-        "samva whatsapp broadcasts create --name Restock --template restock --bind name=contact.firstName --bind plan=customField.plan --data offer=SAVE10 --include-tags customers",
+        "samva whatsapp broadcasts create --topic-id unsub_1234567890abcdef --name Restock --template restock --bind name=contact.firstName --bind plan=customField.plan --data offer=SAVE10 --include-tags customers",
       description: "Fill parameters from each contact, plus one literal value",
     },
     {
       command:
-        "samva whatsapp broadcasts create --name Restock --template restock --groups cgrp_123 --run --at 2026-08-01T09:00:00Z",
+        "samva whatsapp broadcasts create --topic-id unsub_1234567890abcdef --name Restock --template restock --groups cgrp_123 --run --at 2026-08-01T09:00:00Z",
       description: "Create the broadcast and schedule its run",
     },
   ]),
@@ -302,6 +305,7 @@ const create = Command.make("create", {
       const payload = whatsappBroadcastPayload({
         name: input.name,
         template: input.template,
+        topicId: input.topicId,
         data: yield* parseLiteralData(input.data),
         bindings: yield* parseBindings(input.bind),
         businessAccountId: Option.getOrUndefined(input.from),

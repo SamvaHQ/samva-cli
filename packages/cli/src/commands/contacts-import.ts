@@ -24,15 +24,9 @@ export const importContacts = Command.make("import", {
   ),
   files: Flag.String("file").pipe(
     Flag.withDescription(
-      "Repeat EVIDENCE=PATH: status, subscribed, unsubscribed, suppressed, or cleaned/bounced",
+      "Repeat PATH or EVIDENCE=PATH: status, subscribed, unsubscribed, suppressed, or cleaned/bounced. Missing permission assumes opt-in.",
     ),
     Flag.atLeast(1),
-  ),
-  suppressionFree: Flag.Boolean("suppression-free").pipe(
-    Flag.withDescription(
-      "Declare beehiiv subscriber files were filtered to Suppression does not exist",
-    ),
-    Flag.withDefault(false),
   ),
   namespace: namespaceFlag("create"),
   key: Flag.String("idempotency-key").pipe(
@@ -53,7 +47,7 @@ export const importContacts = Command.make("import", {
   Command.withExamples([
     {
       command:
-        "samva contacts import --preset kit --topic unsub_7q2xk9mvt4znw8rh --file status=readers.csv --dry-run --json",
+        "samva contacts import --preset kit --topic unsub_7q2xk9mvt4znw8rh --file readers.csv --dry-run --json",
     },
     {
       command:
@@ -61,17 +55,7 @@ export const importContacts = Command.make("import", {
     },
   ]),
   Command.withHandler(
-    Effect.fnUntraced(function* ({
-      preset,
-      topic,
-      files,
-      suppressionFree,
-      namespace,
-      key,
-      dryRun,
-      planHash,
-      json,
-    }) {
+    Effect.fnUntraced(function* ({ preset, topic, files, namespace, key, dryRun, planHash, json }) {
       if (!dryRun && Option.isNone(key))
         return yield* new CliUsageError({
           code: "import_key_required",
@@ -90,30 +74,20 @@ export const importContacts = Command.make("import", {
         files: yield* Effect.forEach(files, (spec) =>
           Effect.gen(function* () {
             const separator = spec.indexOf("=");
-            if (separator < 1 || separator === spec.length - 1)
-              return yield* new CliUsageError({
-                code: "import_file_evidence_required",
-                message:
-                  "Each --file needs EVIDENCE=PATH, for example status=readers.csv or unsubscribed=left.csv.",
-              });
-            const evidence = spec.slice(0, separator);
-            const path = spec.slice(separator + 1);
+            const prefix = separator < 0 ? undefined : spec.slice(0, separator);
             const declared =
-              evidence === "status"
+              prefix === "status"
                 ? { kind: "status_column" as const }
-                : {
-                    kind: "export_scope" as const,
-                    scope: yield* Schema.decodeUnknownEffect(ImportExportScope)(evidence).pipe(
-                      Effect.mapError(
-                        () =>
-                          new CliUsageError({
-                            code: "import_evidence_invalid",
-                            message:
-                              "File evidence must be status, subscribed, unsubscribed, suppressed, or cleaned/bounced.",
-                          }),
-                      ),
-                    ),
-                  };
+                : Schema.is(ImportExportScope)(prefix)
+                  ? { kind: "export_scope" as const, scope: prefix }
+                  : undefined;
+            const path = declared === undefined ? spec : spec.slice(separator + 1);
+            if (path.length === 0)
+              return yield* new CliUsageError({
+                code: "import_file_invalid",
+                message:
+                  "Each --file needs PATH or EVIDENCE=PATH, for example readers.csv or unsubscribed=left.csv.",
+              });
             const csv = yield* fs.readFileString(path).pipe(
               Effect.mapError(
                 () =>
@@ -123,7 +97,11 @@ export const importContacts = Command.make("import", {
                   }),
               ),
             );
-            return { name: basename(path), csv, evidence: declared, suppressionFree };
+            return {
+              name: basename(path),
+              csv,
+              ...(declared === undefined ? {} : { evidence: declared }),
+            };
           }),
         ),
       }).pipe(
@@ -161,7 +139,7 @@ export const importContacts = Command.make("import", {
           return yield* new CliUsageError({
             code: "import_plan_refused",
             message:
-              "The preview refused this import. Run with --dry-run --json to inspect conflicts and required evidence.",
+              "The preview refused this import. Run with --dry-run --json to inspect conflicts and file errors.",
           });
         reviewedHash = plan.planHash;
       }

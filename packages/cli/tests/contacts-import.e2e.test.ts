@@ -1,7 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { IMPORT_REQUEST_MAX_BYTES } from "@samva/core/contacts/import-job";
@@ -205,7 +205,87 @@ describe("list migration CLI HTTP boundary", () => {
     expect(result.stderr).toContain("import_plan_refused");
   });
 
-  it("requires evidence rather than inferring subscribed from the filename", async () => {
+  it.each(["beehiiv", "substack", "kit", "mailchimp"])(
+    "%s previews a bare path with permission evidence absent",
+    async (preset) => {
+      const result = await cli([
+        "import",
+        "--preset",
+        preset,
+        "--topic",
+        topic,
+        "--file",
+        join(directory, "readers.csv"),
+        "--dry-run",
+        "--json",
+      ]);
+      expect(result).toMatchObject({ code: 0, stderr: "" });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        path: "/v1/contacts/imports/plan",
+        body: { files: [{ name: "readers.csv" }] },
+      });
+      expect(requests[0]?.body).toEqual(
+        expect.objectContaining({
+          files: [{ name: "readers.csv", csv: "Email Address\nreader@example.test\n" }],
+        }),
+      );
+    },
+  );
+
+  it.each(["./exports/cohort=2026/readers.csv", "cohort=2026.csv", "./subscribed=readers.csv"])(
+    "reads the literal bare path %s without declaring evidence",
+    async (path) => {
+      const csv = "Email Address\nreader@example.test\n";
+      await mkdir(dirname(join(directory, path)), { recursive: true });
+      await writeFile(join(directory, path), csv);
+      const result = await cli([
+        "import",
+        "--preset",
+        "mailchimp",
+        "--topic",
+        topic,
+        "--file",
+        path,
+        "--dry-run",
+        "--json",
+      ]);
+      expect(result).toMatchObject({ code: 0, stderr: "" });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toEqual(
+        expect.objectContaining({
+          files: [{ name: basename(path), csv }],
+        }),
+      );
+    },
+  );
+
+  it("keeps an explicit restriction when its file path contains equals signs", async () => {
+    const path = join(directory, "left=2026.csv");
+    const csv = "Email Address\nleft@example.test\n";
+    await writeFile(path, csv);
+    const result = await cli([
+      "import",
+      "--preset",
+      "mailchimp",
+      "--topic",
+      topic,
+      "--file",
+      `unsubscribed=${path}`,
+      "--dry-run",
+      "--json",
+    ]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(requests[0]?.body).toEqual(
+      expect.objectContaining({
+        files: [
+          { name: "left=2026.csv", csv, evidence: { kind: "export_scope", scope: "unsubscribed" } },
+        ],
+      }),
+    );
+  });
+
+  it("starts with the same assumed-permission input that was previewed", async () => {
     const result = await cli([
       "import",
       "--preset",
@@ -214,12 +294,22 @@ describe("list migration CLI HTTP boundary", () => {
       topic,
       "--file",
       join(directory, "readers.csv"),
-      "--dry-run",
+      "--idempotency-key",
+      "assumed-migration",
       "--json",
     ]);
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("import_file_evidence_required");
-    expect(requests).toHaveLength(0);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.body).toEqual({
+      mode: "new",
+      input: requests[0]?.body,
+      planHash: plan.planHash,
+    });
+    expect(requests[0]?.body).toEqual(
+      expect.objectContaining({
+        files: [{ name: "readers.csv", csv: "Email Address\nreader@example.test\n" }],
+      }),
+    );
   });
 
   it("reads progress and resumes only the requested generation", async () => {

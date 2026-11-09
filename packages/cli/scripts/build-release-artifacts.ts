@@ -145,7 +145,9 @@ const buildTarget = async (target: ReleaseTarget) => {
 
 const smokeHostBinary = async (executablePath: string) => {
   const configRoot = await mkdtemp(join(tmpdir(), "samva-smoke-"));
-  const env = { ...process.env, XDG_CONFIG_HOME: configRoot, SAMVA_API_KEY: "", SAMVA_API_URL: "" };
+  const env = { ...process.env, XDG_CONFIG_HOME: configRoot };
+  delete env["SAMVA_API_KEY"];
+  delete env["SAMVA_API_URL"];
   try {
     const reported = await $`${executablePath} --version`.env(env).text();
     if (!reported.includes(selectorManifest.version)) {

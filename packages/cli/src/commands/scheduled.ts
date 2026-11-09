@@ -110,8 +110,7 @@ const parseTemplateData = (
   raw: Option.Option<string>,
 ): Effect.Effect<JsonRecord | undefined, SamvaCliError> =>
   Option.match(raw, {
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (no template data), not a void outcome; Effect.void is not assignable to `JsonRecord | undefined`.
-    onNone: () => Effect.succeed(undefined),
+    onNone: () => Effect.void.pipe(Effect.as(undefined)),
     onSome: (value) =>
       Effect.try({
         try: () => JSON.parse(value) as unknown,

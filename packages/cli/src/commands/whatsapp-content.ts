@@ -142,8 +142,7 @@ export const whatsappReactionContent = (messageId: string, emoji: string) => ({
 export const parseWhatsappTemplateData = (
   raw: string | undefined,
 ): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
-  // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (no template data), not a void outcome; Effect.void is not assignable to the `... | undefined` return.
-  if (raw === undefined) return Effect.succeed(undefined);
+  if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
   const invalid = usage("invalid_data", "--data must be a JSON object.");
   return Effect.try({
     try: () => JSON.parse(raw) as unknown,
@@ -161,8 +160,7 @@ export const parseWhatsappTemplateData = (
 export const parseWhatsappFlowData = (
   raw: string | undefined,
 ): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
-  // @effect-diagnostics-next-line effectSucceedWithVoid:off -- undefined is a real success value (no flow data), not a void outcome.
-  if (raw === undefined) return Effect.succeed(undefined);
+  if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
   const invalid = usage("invalid_flow_data", "--flow-data must be a JSON object.");
   return Effect.try({
     try: () => JSON.parse(raw) as unknown,
