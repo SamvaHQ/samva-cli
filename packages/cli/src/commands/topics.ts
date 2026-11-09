@@ -353,7 +353,7 @@ const setSubscriptions = Command.make("set", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Set explicit subscribed or unsubscribed status for one channel; retries are idempotent",
+    "Set explicit subscribed or unsubscribed status for one channel; subscribing keeps email unsubscribes",
   ),
   Command.withExamples([
     {
@@ -386,7 +386,10 @@ const setSubscriptions = Command.make("set", {
         Effect.mapError((error) => toCliApiError("Could not set topic subscriptions", error)),
       );
       if (json) return yield* printJson(data);
-      yield* printFields([["Updated", data.updated]]);
+      yield* printFields([
+        ["Updated", data.updated],
+        ["Kept unsubscribed", data.kept],
+      ]);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );

@@ -1,3 +1,13 @@
+## @samva/cli-darwin-arm64@0.33.0
+
+### Subscribing a contact never overrides their unsubscribe
+
+**Breaking:** `topics.setSubscriptions` with `channel: "email"` and `status: "subscribed"` leaves
+contacts who explicitly unsubscribed from the topic unsubscribed. The response adds `kept`, the number of
+contacts left that way, and the CLI prints it. Only the recipient can resubscribe, from the
+preference page or by confirming a double opt-in email. The check runs in the same transaction as
+the write, so a signup form or sync can subscribe readers without reading their status first.
+
 ## @samva/cli-darwin-arm64@0.32.0
 
 ### Describe Samva as email and WhatsApp for AI agents

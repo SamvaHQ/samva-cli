@@ -49,7 +49,7 @@ const startApi = async () => {
         topics: [{ topicId: ID, topicName: "Newsletter", status: "unsubscribed" }],
       };
     else if (path.includes("/subscriptions"))
-      response = req.method === "POST" ? { updated: 1 } : { items: [], nextCursor: null };
+      response = req.method === "POST" ? { updated: 1, kept: 0 } : { items: [], nextCursor: null };
     else if (req.method === "DELETE") response = { success: true };
     else if (path === "/v1/topics" || path.startsWith("/v1/topics?"))
       response = req.method === "GET" ? { items: [topic] } : topic;
@@ -163,7 +163,7 @@ describe("topics subprocess contract", () => {
           { configHome, env: api.env },
         );
         expect(result.code, result.stderr).toBe(0);
-        expect(JSON.parse(result.stdout).data).toEqual({ updated: 1 });
+        expect(JSON.parse(result.stdout).data).toEqual({ updated: 1, kept: 0 });
       }
       const listed = await runCli(
         [
