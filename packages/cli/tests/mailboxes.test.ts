@@ -387,7 +387,7 @@ const scenarios = [
         {
           address: "optout@example.com",
           reason: "topic-unsubscribe",
-          topicId: "unsub_1234567890123456",
+          topicId: "tpc_1234567890123456",
         },
       ],
     },

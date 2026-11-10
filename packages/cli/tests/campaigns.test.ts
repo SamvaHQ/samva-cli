@@ -72,7 +72,7 @@ describe("assembleCampaignCreatePayload", () => {
       includeTags: [],
       excludeTags: [],
       contactIds: ["c_1", "c_2"],
-      topicId: "unsub_1234567890abcdef",
+      topicId: "tpc_1234567890abcdef",
       pageSize: undefined,
       tracking: undefined,
     });

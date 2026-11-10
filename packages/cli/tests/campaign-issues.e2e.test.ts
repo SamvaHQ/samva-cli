@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
 import { runCli } from "./support/run-cli";
 
-const TOPIC = "unsub_1234567890abcdef";
+const TOPIC = "tpc_1234567890abcdef";
 const CAMPAIGN = "camp_1234567890abcdef";
 const issue = { path: "issues/october.md", commit: "a".repeat(40) };
 const content = { channel: "email", issue, email: {} };

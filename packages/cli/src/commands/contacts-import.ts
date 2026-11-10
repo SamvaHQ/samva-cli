@@ -47,11 +47,11 @@ export const importContacts = Command.make("import", {
   Command.withExamples([
     {
       command:
-        "samva contacts import --preset kit --topic unsub_7q2xk9mvt4znw8rh --file readers.csv --dry-run --json",
+        "samva contacts import --preset kit --topic tpc_7q2xk9mvt4znw8rh --file readers.csv --dry-run --json",
     },
     {
       command:
-        "samva contacts import --preset mailchimp --topic unsub_7q2xk9mvt4znw8rh --file subscribed=readers.csv --file cleaned/bounced=cleaned.csv --idempotency-key migration-1 --json",
+        "samva contacts import --preset mailchimp --topic tpc_7q2xk9mvt4znw8rh --file subscribed=readers.csv --file cleaned/bounced=cleaned.csv --idempotency-key migration-1 --json",
     },
   ]),
   Command.withHandler(

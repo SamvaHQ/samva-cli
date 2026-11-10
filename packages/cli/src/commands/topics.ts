@@ -14,7 +14,7 @@ import { confirmDestructive } from "../lib/confirm";
 import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
 
-const idArgument = Argument.String("id").pipe(Argument.withDescription("Topic id (unsub_...)"));
+const idArgument = Argument.String("id").pipe(Argument.withDescription("Topic id (tpc_...)"));
 const optionalString = (name: string, description: string) =>
   Flag.String(name).pipe(Flag.withDescription(description), Flag.optional);
 const dryRunFlag = Flag.Boolean("dry-run").pipe(
@@ -90,7 +90,7 @@ const list = Command.make("list", {
 );
 const get = Command.make("get", { id: idArgument, json: jsonFlag }).pipe(
   Command.withDescription("Read a topic and its publishing defaults"),
-  Command.withExamples([{ command: "samva topics get unsub_1234567890abcdef --json" }]),
+  Command.withExamples([{ command: "samva topics get tpc_1234567890abcdef --json" }]),
   Command.withHandler(({ id, json }) =>
     Effect.gen(function* () {
       const client = yield* getClientProvider;
@@ -162,7 +162,7 @@ const update = Command.make("update", {
 }).pipe(
   Command.withDescription("Update a topic; changing its default preserves explicit subscriptions"),
   Command.withExamples([
-    { command: "samva topics update unsub_1234567890abcdef --name Updates --default opt_out" },
+    { command: "samva topics update tpc_1234567890abcdef --name Updates --default opt_out" },
   ]),
   Command.withHandler(
     ({
@@ -219,9 +219,7 @@ const remove = Command.make("remove", {
   Command.withDescription(
     "Delete a topic; default topics and topics used by active campaigns are refused",
   ),
-  Command.withExamples([
-    { command: "samva topics remove unsub_1234567890abcdef --dry-run --json" },
-  ]),
+  Command.withExamples([{ command: "samva topics remove tpc_1234567890abcdef --dry-run --json" }]),
   Command.withHandler(({ id, dryRun, yes, json }) =>
     Effect.gen(function* () {
       if (dryRun)
@@ -251,7 +249,7 @@ const setDefault = Command.make("default", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Select the organization's default topic"),
-  Command.withExamples([{ command: "samva topics default unsub_1234567890abcdef --json" }]),
+  Command.withExamples([{ command: "samva topics default tpc_1234567890abcdef --json" }]),
   Command.withHandler(({ id, dryRun, json }) =>
     Effect.gen(function* () {
       if (dryRun)
@@ -282,7 +280,7 @@ const listSubscriptions = Command.make("list", {
 }).pipe(
   Command.withDescription("List explicit topic subscriptions; absent rows use the topic default"),
   Command.withExamples([
-    { command: "samva topics subscriptions list unsub_1234567890abcdef --channel email --json" },
+    { command: "samva topics subscriptions list tpc_1234567890abcdef --channel email --json" },
   ]),
   Command.withHandler(({ id, channel, status, limit, cursor, all, json }) =>
     Effect.gen(function* () {
@@ -358,7 +356,7 @@ const setSubscriptions = Command.make("set", {
   Command.withExamples([
     {
       command:
-        "samva topics subscriptions set unsub_1234567890abcdef --email ada@example.com --channel email --status subscribed --source import --json",
+        "samva topics subscriptions set tpc_1234567890abcdef --email ada@example.com --channel email --status subscribed --source import --json",
     },
   ]),
   Command.withHandler(({ id, channel, status, contactIds, emails, phones, source, dryRun, json }) =>

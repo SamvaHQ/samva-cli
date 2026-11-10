@@ -41,7 +41,7 @@ const subscribe = Command.make("subscribe", {
   Command.withExamples([
     {
       command:
-        "samva subscriptions subscribe --email ada@example.com --topic-id unsub_1234567890abcdef --from newsletter@example.com --json",
+        "samva subscriptions subscribe --email ada@example.com --topic-id tpc_1234567890abcdef --from newsletter@example.com --json",
     },
   ]),
   Command.withHandler(

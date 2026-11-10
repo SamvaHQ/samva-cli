@@ -1,3 +1,24 @@
+## @samva/cli@0.34.0
+
+### Topic IDs start with `tpc_`
+
+**Breaking:** topic IDs now start with `tpc_` instead of `unsub_`. Every existing topic keeps its
+suffix, so `unsub_7q2xk9mvt4znw8rh` is now `tpc_7q2xk9mvt4znw8rh`. Requests that pass an `unsub_`
+ID are rejected.
+
+Replace the prefix wherever you store a topic ID (configuration, environment variables, your own
+database) and upgrade the SDK and CLI together. Validation in the SDK, the CLI, and
+`@samva/webhooks` accepts only `tpc_`. Unsubscribe links in mail you already sent keep working.
+
+Topic IDs held outside the API do not carry over. Change these by hand:
+
+- **Newsletter issue files:** change `topic: unsub_…` in each issue's front matter to the `tpc_` ID
+  before the next build or send.
+- **Signup form embeds:** change `/v1/public/topics/unsub_…/subscribe` to the `tpc_` ID.
+
+Hosted newsletter archives and their custom domains published before this release stop serving, and
+issues sent before it do not return to a rebuilt archive.
+
 ## @samva/cli@0.33.0
 
 ### Subscribing a contact never overrides their unsubscribe

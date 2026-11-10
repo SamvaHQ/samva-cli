@@ -19,7 +19,7 @@ const report = {
   softBounceCount: 1,
   complaintCount: 1,
   engagement: { measurement: "directional", uniqueOpens: 3, uniqueClicks: 2 },
-  unsubscribesByTopic: [{ topicId: "unsub_1234567890abcdef", count: 1 }],
+  unsubscribesByTopic: [{ topicId: "tpc_1234567890abcdef", count: 1 }],
   replyCount: 2,
   skippedReasons: [{ reason: "not_added", count: 1 }],
 };
@@ -77,7 +77,7 @@ describe("campaign report CLI", () => {
     expect(result.stdout).toContain("Unique opens (directional)");
     expect(result.stdout).toContain("Unique clicks (directional)");
     expect(result.stdout).toContain("machine observations excluded");
-    expect(result.stdout).toContain("unsub_1234567890abcdef");
+    expect(result.stdout).toContain("tpc_1234567890abcdef");
     expect(result.stdout).toContain("Skipped · not_added");
     expect(result.stdout).toContain("Hard bounces");
     expect(result.stdout).toContain("Replies");

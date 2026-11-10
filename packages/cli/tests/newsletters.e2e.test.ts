@@ -9,7 +9,7 @@ import { runCli } from "./support/run-cli";
 
 it("routes newsletter management and domain commands with header-only idempotency", async () => {
   const id = "nl_1234567890abcdef";
-  const topicId = "unsub_1234567890abcdef";
+  const topicId = "tpc_1234567890abcdef";
   const newsletter = {
     id,
     topicId,

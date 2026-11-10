@@ -8,7 +8,7 @@ import { IMPORT_REQUEST_MAX_BYTES } from "@samva/core/contacts/import-job";
 
 import { runCli } from "./support/run-cli";
 
-const topic = "unsub_7q2xk9mvt4znw8rh";
+const topic = "tpc_7q2xk9mvt4znw8rh";
 const jobId = "cimport_7q2xk9mvt4znw8rh";
 const counts = {
   totalRows: 2,

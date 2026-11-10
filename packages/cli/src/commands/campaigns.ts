@@ -308,12 +308,12 @@ const create = Command.make("create", {
   Command.withExamples([
     {
       command:
-        'samva campaigns create --topic-id unsub_1234567890abcdef --name "Spring launch" --subject "We are live" --html "<h1>Hi</h1>" --include-tags newsletter,customers',
+        'samva campaigns create --topic-id tpc_1234567890abcdef --name "Spring launch" --subject "We are live" --html "<h1>Hi</h1>" --include-tags newsletter,customers',
       description: "Campaign to tagged contacts",
     },
     {
       command:
-        'samva campaigns create --topic-id unsub_1234567890abcdef --name "VIP note" --subject Hi --html "<p>Hello</p>" --text Hello --contact-ids c_1 --contact-ids c_2 --dry-run',
+        'samva campaigns create --topic-id tpc_1234567890abcdef --name "VIP note" --subject Hi --html "<p>Hello</p>" --text Hello --contact-ids c_1 --contact-ids c_2 --dry-run',
       description: "Target explicit contacts and preview the payload",
     },
   ]),
@@ -589,7 +589,7 @@ const update = Command.make("update", {
     { command: 'samva campaigns update camp_abc123 --name "August launch"' },
     {
       command:
-        "samva campaigns update camp_abc123 --template-slug august-launch --topic-id unsub_1234567890abcdef --include-tags newsletter",
+        "samva campaigns update camp_abc123 --template-slug august-launch --topic-id tpc_1234567890abcdef --include-tags newsletter",
       description: "Replace content and audience while the definition is still editable",
     },
   ]),
@@ -871,7 +871,7 @@ const composition = (name: "preview" | "test") =>
     ),
     Command.withExamples([
       {
-        command: `samva campaigns ${name} --topic-id unsub_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json`,
+        command: `samva campaigns ${name} --topic-id tpc_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json`,
       },
     ]),
     Command.withHandler(
@@ -1375,7 +1375,7 @@ export const campaignsCommand = Command.make("campaigns").pipe(
   Command.withExamples([
     {
       command:
-        'samva campaigns create --topic-id unsub_1234567890abcdef --name "Spring launch" --subject Hi --html "<h1>Hi</h1>" --include-tags newsletter',
+        'samva campaigns create --topic-id tpc_1234567890abcdef --name "Spring launch" --subject Hi --html "<h1>Hi</h1>" --include-tags newsletter',
       description: "Create a campaign",
     },
     { command: "samva campaigns runs create camp_abc123", description: "Create a run" },

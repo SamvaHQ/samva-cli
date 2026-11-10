@@ -104,7 +104,7 @@ describe("send payloads carry the reference", () => {
       includeTags: ["subscribers"],
       excludeTags: [],
       contactIds: [],
-      topicId: "unsub_1234567890abcdef",
+      topicId: "tpc_1234567890abcdef",
       pageSize: undefined,
       tracking: undefined,
     });

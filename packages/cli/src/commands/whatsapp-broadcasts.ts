@@ -276,12 +276,12 @@ const create = Command.make("create", {
   Command.withExamples([
     {
       command:
-        "samva whatsapp broadcasts create --topic-id unsub_1234567890abcdef --name Restock --template restock --bind name=contact.firstName --bind plan=customField.plan --data offer=SAVE10 --include-tags customers",
+        "samva whatsapp broadcasts create --topic-id tpc_1234567890abcdef --name Restock --template restock --bind name=contact.firstName --bind plan=customField.plan --data offer=SAVE10 --include-tags customers",
       description: "Fill parameters from each contact, plus one literal value",
     },
     {
       command:
-        "samva whatsapp broadcasts create --topic-id unsub_1234567890abcdef --name Restock --template restock --groups cgrp_123 --run --at 2026-08-01T09:00:00Z",
+        "samva whatsapp broadcasts create --topic-id tpc_1234567890abcdef --name Restock --template restock --groups cgrp_123 --run --at 2026-08-01T09:00:00Z",
       description: "Create the broadcast and schedule its run",
     },
   ]),

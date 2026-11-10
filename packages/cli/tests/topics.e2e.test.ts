@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
 import { runCli } from "./support/run-cli";
 
-const ID = "unsub_1234567890abcdef";
+const ID = "tpc_1234567890abcdef";
 const topic = {
   id: ID,
   namespaceId: null,

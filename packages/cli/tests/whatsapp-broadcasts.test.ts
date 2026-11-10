@@ -57,7 +57,7 @@ describe("whatsappBroadcastPayload", () => {
   const base = {
     name: "Restock",
     template: "restock",
-    topicId: "unsub_1",
+    topicId: "tpc_1",
     data: {},
     bindings: {},
     businessAccountId: undefined,
@@ -89,7 +89,7 @@ describe("whatsappBroadcastPayload", () => {
         },
       },
       audience: {
-        topicId: "unsub_1",
+        topicId: "tpc_1",
         includeTags: ["customers"],
         excludeTags: undefined,
         groupIds: ["cgrp_1"],
