@@ -27,6 +27,10 @@ const list = Command.make("list", {
   ),
   limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
   namespace: namespaceFlag("list"),
+  shared: Flag.Literals("shared", ["true", "false"]).pipe(
+    Flag.withDescription("Filter domains shared with every namespace"),
+    Flag.optional,
+  ),
   all: Flag.Boolean("all").pipe(
     Flag.withDescription("Traverse every page (requires --jsonl)"),
     Flag.withDefault(false),
@@ -37,8 +41,9 @@ const list = Command.make("list", {
   Command.withExamples([
     { command: "samva email domains list" },
     { command: "samva email domains list --json" },
+    { command: "samva email domains list --shared true --json" },
   ]),
-  Command.withHandler(({ cursor, limit, namespace, all, json }) =>
+  Command.withHandler(({ cursor, limit, namespace, shared, all, json }) =>
     Effect.gen(function* () {
       if (all && !isJsonLinesRequested())
         return yield* new CliUsageError({
@@ -52,6 +57,10 @@ const list = Command.make("list", {
         cursor: cursorValue,
         limit: limitValue,
         ...namespaceField(namespace),
+        ...Option.match(shared, {
+          onNone: () => ({}),
+          onSome: (value) => ({ shared: value === "true" }),
+        }),
       };
       if (all) {
         let nextCursor = cursorValue;
@@ -85,6 +94,7 @@ const list = Command.make("list", {
           ["Phase", domain.phase],
           ["Default", domain.isDefault ? "yes" : "no"],
           ["Namespace", domain.namespaceId ?? "organization"],
+          ["Shared", domain.shared ? "yes" : "no"],
           ["ID", domain.id],
         ]);
         yield* Console.log("");
@@ -97,6 +107,10 @@ const list = Command.make("list", {
 const add = Command.make("add", {
   domain: Flag.String("domain").pipe(Flag.withDescription("Domain to add, e.g. example.com")),
   namespace: namespaceFlag("create"),
+  shared: Flag.Boolean("shared").pipe(
+    Flag.withDescription("Share this organization-level domain with every namespace"),
+    Flag.withDefault(false),
+  ),
   dryRun: Flag.Boolean("dry-run").pipe(
     Flag.withDescription("Print the planned change without calling the API"),
     Flag.withDefault(false),
@@ -113,104 +127,143 @@ const add = Command.make("add", {
       command: "samva email domains add --domain example.com",
       description: "Apply domain add",
     },
+    { command: "samva email domains add --domain example.com --shared" },
     {
       command: "samva email domains add --domain customer.example --namespace ns_7q2xk9mvt4znw8rh",
       description: "Add the domain to a namespace",
     },
   ]),
-  Command.withHandler(({ domain, namespace, dryRun, json }) =>
+  Command.withHandler(({ domain, namespace, shared, dryRun, json }) =>
     Effect.gen(function* () {
+      if (shared && Option.isSome(namespace))
+        return yield* new CliUsageError({
+          code: "shared_namespace_conflict",
+          message: "--shared requires an organization-level domain; omit --namespace.",
+        });
+      const request = { domain, ...namespaceField(namespace), ...(shared ? { shared: true } : {}) };
       if (dryRun) {
         if (json)
           return yield* printJson({
             dryRun: true,
             action: "email.domains.add",
-            domain,
-            ...namespaceField(namespace),
+            ...request,
           });
         return yield* Console.log(`[dry-run] Would add domain "${domain}".`);
       }
 
       const client = yield* getClientProvider;
-      yield* Effect.matchEffect(
-        Email.addDomain({ domain, ...namespaceField(namespace) }).pipe(client.provide),
-        {
-          onFailure: (error) => {
-            const conflict = getConflictError(error);
-            if (!conflict) {
-              return Effect.fail(toCliApiError("Could not add domain", error));
+      yield* Effect.matchEffect(Email.addDomain(request).pipe(client.provide), {
+        onFailure: (error) => {
+          const conflict = getConflictError(error);
+          if (!conflict) {
+            return Effect.fail(toCliApiError("Could not add domain", error));
+          }
+
+          const findExisting = Effect.gen(function* () {
+            if (typeof conflict.id === "string" && conflict.id.length > 0) {
+              const fetched = yield* Email.getDomainById({ id: conflict.id }).pipe(
+                client.provide,
+                Effect.catchTag("ResourceNotFoundError", () => Effect.void),
+                Effect.mapError((lookupError) =>
+                  toCliApiError("Domain already exists but could not fetch it by id", lookupError),
+                ),
+              );
+              if (fetched) return fetched;
             }
 
-            const findExisting = Effect.gen(function* () {
-              if (typeof conflict.id === "string" && conflict.id.length > 0) {
-                const fetched = yield* Email.getDomainById({ id: conflict.id }).pipe(
-                  client.provide,
-                  Effect.catchTag("ResourceNotFoundError", () => Effect.void),
-                  Effect.mapError((lookupError) =>
-                    toCliApiError(
-                      "Domain already exists but could not fetch it by id",
-                      lookupError,
-                    ),
+            let cursor: string | undefined;
+            while (true) {
+              const listed = yield* Email.listDomains({ cursor, limit: 100 }).pipe(
+                client.provide,
+                Effect.mapError((listError) =>
+                  toCliApiError(
+                    "Domain may already exist but could not verify idempotently",
+                    listError,
                   ),
-                );
-                if (fetched) return fetched;
-              }
-
-              let cursor: string | undefined;
-              while (true) {
-                const listed = yield* Email.listDomains({ cursor, limit: 100 }).pipe(
-                  client.provide,
-                  Effect.mapError((listError) =>
-                    toCliApiError(
-                      "Domain may already exist but could not verify idempotently",
-                      listError,
-                    ),
-                  ),
-                );
-                const existing = listed.items.find((item) => item.domain === domain);
-                if (existing) return existing;
-                if (listed.nextCursor === null) break;
-                cursor = listed.nextCursor;
-              }
-
-              return yield* toCliApiError("Could not add domain", error);
-            });
-
-            return Effect.gen(function* () {
-              const existing = yield* findExisting;
-              // Only the resource this request would have created is an idempotent success.
-              if (!placedAsRequested(namespace, existing.namespaceId))
-                return yield* toCliApiError(
-                  `Domain "${existing.domain}" already exists at ${placementLabel(existing.namespaceId)}; move it with \`samva namespaces assign\``,
-                  error,
-                );
-              if (json) yield* printJson({ ...existing, idempotent: true });
-              else
-                yield* Effect.logWarning(
-                  `Domain "${existing.domain}" already exists (phase: ${existing.phase}).`,
-                );
-            });
-          },
-          onSuccess: (data) =>
-            Effect.gen(function* () {
-              if (json) return yield* printJson(data);
-              yield* Effect.logInfo(
-                `Domain "${data.domain}" staged (phase: ${data.phase}). Add these DNS records:\n`,
+                ),
               );
-              for (const record of data.dnsRecords) {
-                yield* printFields([
-                  ["Type", record.type],
-                  ["Name", record.name],
-                  ["Value", record.value],
-                  ["TTL", record.ttl],
-                  ["Priority", record.priority],
-                ]);
-                yield* Console.log("");
-              }
-              yield* Effect.logInfo(`Then verify:  samva email domains check ${data.id}`);
-            }),
+              const existing = listed.items.find((item) => item.domain === domain);
+              if (existing) return existing;
+              if (listed.nextCursor === null) break;
+              cursor = listed.nextCursor;
+            }
+
+            return yield* toCliApiError("Could not add domain", error);
+          });
+
+          return Effect.gen(function* () {
+            const existing = yield* findExisting;
+            // Only the resource this request would have created is an idempotent success.
+            if (shared && !existing.shared)
+              return yield* toCliApiError(
+                `Domain "${existing.domain}" already exists without sharing; share it with \`samva email domains update ${existing.id} --shared true\``,
+                error,
+              );
+            if (!placedAsRequested(namespace, existing.namespaceId))
+              return yield* toCliApiError(
+                `Domain "${existing.domain}" already exists at ${placementLabel(existing.namespaceId)}; move it with \`samva namespaces assign\``,
+                error,
+              );
+            if (json) yield* printJson({ ...existing, idempotent: true });
+            else
+              yield* Effect.logWarning(
+                `Domain "${existing.domain}" already exists (phase: ${existing.phase}).`,
+              );
+          });
         },
+        onSuccess: (data) =>
+          Effect.gen(function* () {
+            if (json) return yield* printJson(data);
+            yield* Effect.logInfo(
+              `Domain "${data.domain}" staged (phase: ${data.phase}). Add these DNS records:\n`,
+            );
+            for (const record of data.dnsRecords) {
+              yield* printFields([
+                ["Type", record.type],
+                ["Name", record.name],
+                ["Value", record.value],
+                ["TTL", record.ttl],
+                ["Priority", record.priority],
+              ]);
+              yield* Console.log("");
+            }
+            yield* Effect.logInfo(`Then verify:  samva email domains check ${data.id}`);
+          }),
+      });
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
+const update = Command.make("update", {
+  id: Argument.String("id").pipe(Argument.withDescription("Organization-level domain id")),
+  shared: Flag.Literals("shared", ["true", "false"]).pipe(
+    Flag.withDescription("Share or unshare this domain with every namespace"),
+  ),
+  dryRun: Flag.Boolean("dry-run").pipe(
+    Flag.withDescription("Print the planned change without calling the API"),
+    Flag.withDefault(false),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Change whether an organization-level domain is shared"),
+  Command.withExamples([
+    { command: "samva email domains update dom_abc123 --shared true" },
+    { command: "samva email domains update dom_abc123 --shared false --dry-run" },
+  ]),
+  Command.withHandler(({ id, shared, dryRun, json }) =>
+    Effect.gen(function* () {
+      const request = { id, shared: shared === "true" };
+      if (dryRun)
+        return yield* json
+          ? printJson({ dryRun: true, action: "email.domains.update", ...request })
+          : Console.log(`[dry-run] Would ${request.shared ? "share" : "unshare"} domain ${id}.`);
+      const client = yield* getClientProvider;
+      const data = yield* Email.updateDomainConfig(request).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not update domain sharing", error)),
       );
+      if (json) return yield* printJson(data);
+      yield* Console.log(`Domain ${id} is ${request.shared ? "shared" : "unshared"}.`);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
@@ -596,5 +649,14 @@ export const domainsCommand = Command.make("domains").pipe(
   Command.withExamples([
     { command: "samva email domains list", description: "List configured domains" },
   ]),
-  Command.withSubcommands([list, add, check, rotateDkim, setDefault, remove, customTracking]),
+  Command.withSubcommands([
+    list,
+    add,
+    update,
+    check,
+    rotateDkim,
+    setDefault,
+    remove,
+    customTracking,
+  ]),
 );

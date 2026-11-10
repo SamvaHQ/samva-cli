@@ -1,3 +1,18 @@
+## @samva/cli-linux-x64@0.36.0
+
+### Share a sending domain across namespaces
+
+Organization-level email domains accept `shared` on create, update, and list requests. Senders
+inherit domain sharing. Namespace credentials can read and send from shared domains while using
+their own sending health and suppressions; changes require organization authority.
+
+**Breaking:** `email.setDefaultSender` takes a request body; raw HTTP callers send `{}` for the sender's own
+scope or `{ "namespaceId": "ns_..." }` for a namespace override.
+
+Choose a shared sender as a namespace default with `email.setDefaultSender`. Replace namespace
+defaults before unsharing a domain. The CLI domain commands accept `--shared`, and MCP domain
+tools accept `shared`.
+
 ## @samva/cli-linux-x64@0.35.0
 
 ### Manage suppressions within a namespace

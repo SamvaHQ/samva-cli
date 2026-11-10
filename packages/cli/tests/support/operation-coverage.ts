@@ -131,7 +131,7 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   emailGetDomainById: "api",
   emailRemoveDomain: "email domains remove",
   emailSetDefaultDomain: "email domains set-default",
-  emailUpdateDomainConfig: "api",
+  emailUpdateDomainConfig: "email domains update",
   emailDetectRegistrar: "api",
   emailGetDomainConnect: "api",
   emailBuildDomainConnectApplyUrl: "api",

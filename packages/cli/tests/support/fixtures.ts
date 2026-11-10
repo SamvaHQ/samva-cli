@@ -10,6 +10,7 @@ export const emailDomainFixture = (
   id: "dom_1234567890abcdefgh",
   unknownRecipientMailboxId: null,
   namespaceId: null,
+  shared: false,
   domain: "example.com",
   phase: "ready",
   isDefault: false,

@@ -282,3 +282,10 @@ Extension installation accepts unversioned configuration as `--policy '<json>'`;
 removes; `--yes` deletes the project and its entries, repository and workspace. References block
 deletion with `TemplateInUseError` (409) and reference kinds and ids; remove those references first.
 Sent-message history retains its snapshots. External object cleanup retries durably.
+
+`samva email domains add --domain example.com --shared` shares an organization-level domain and
+its senders with every namespace. `domains list --shared true|false` filters sharing; `domains update
+<id> --shared true|false` changes it. Namespaced callers can read and send through shared domains,
+but organization-level access is required to change them. Unsharing is refused while a namespace
+uses one of the domain's senders as its default; select another sender first with `email senders
+set-default <id> --namespace <namespace-id>`.

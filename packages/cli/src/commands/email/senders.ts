@@ -236,25 +236,36 @@ const check = Command.make("check", {
 
 const setDefault = Command.make("set-default", {
   id: Argument.String("id").pipe(Argument.withDescription("Sender id to make the default")),
+  namespace: namespaceFlag("create").pipe(
+    Flag.withDescription(
+      "Choose the default sender for this namespace; omit for the credential scope",
+    ),
+  ),
   dryRun: Flag.Boolean("dry-run").pipe(
     Flag.withDescription("Print the planned change without calling the API"),
     Flag.withDefault(false),
   ),
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Make a verified sender the organization's default From address"),
+  Command.withDescription("Make a verified sender the default From address for its scope"),
   Command.withExamples([
     { command: "samva email senders set-default sender_abc123 --dry-run" },
     { command: "samva email senders set-default sender_abc123" },
+    { command: "samva email senders set-default sender_abc123 --namespace ns_1234567890123456" },
   ]),
-  Command.withHandler(({ id, dryRun, json }) =>
+  Command.withHandler(({ id, namespace, dryRun, json }) =>
     Effect.gen(function* () {
       if (dryRun)
         return yield* json
-          ? printJson({ dryRun: true, action: "email.senders.set-default", id })
+          ? printJson({
+              dryRun: true,
+              action: "email.senders.set-default",
+              id,
+              ...namespaceField(namespace),
+            })
           : Console.log(`[dry-run] Would make sender ${id} the default sender.`);
       const client = yield* getClientProvider;
-      const data = yield* Email.setDefaultSender({ id }).pipe(
+      const data = yield* Email.setDefaultSender({ id, ...namespaceField(namespace) }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not set the default sender", error)),
       );
