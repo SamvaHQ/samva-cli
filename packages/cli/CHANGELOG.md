@@ -1,3 +1,24 @@
+## @samva/cli@0.37.0
+
+### Give Customers a Hosted Namespace Portal
+
+Create, list, and revoke customer portal links with `namespaces.createPortalLink`,
+`namespaces.listPortalLinks`, and `namespaces.revokePortalLink`, or
+`samva namespaces portal-links create|list|revoke`. Organization-wide callers can give a customer
+access to domain setup, senders, activity, suppressions, usage, and mailbox names and addresses
+without creating a Samva account. Links expire and can be revoked; access remains bounded by the
+creator's current grants. The returned URL contains a credential and is shown only when created.
+
+### Restrict Teammates to One Namespace
+
+Invite a teammate with `organizations.inviteMember` or `samva org invite --namespace` to confine
+their dashboard, Mail, API keys, and OAuth connections to one namespace. Provide their personal
+mailbox address with `mailboxAddress` or `--mailbox-address`; add a usable domain to the namespace
+or share an organization domain before inviting its staff.
+
+Restricted members cannot access organization-wide administration. Their role and mailbox grants
+continue to control the operations they can perform within the namespace.
+
 ## @samva/cli@0.36.0
 
 ### Share a sending domain across namespaces

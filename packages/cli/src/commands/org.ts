@@ -21,6 +21,7 @@ import { listOrganizations } from "../lib/oauth";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { printResult } from "../lib/output";
 import { orgAvatarCommand } from "./org-avatar";
+import { orgInviteCommand } from "./org-invite";
 import { usageCommand } from "./usage";
 
 const list = Command.make("list", { json: jsonFlag }).pipe(
@@ -174,5 +175,5 @@ export const orgCommand = Command.make("org").pipe(
     { command: "samva org list", description: "List accessible organizations" },
     { command: "samva org use my-org-slug", description: "Set active org (OAuth)" },
   ]),
-  Command.withSubcommands([list, use, current, orgAvatarCommand, usageCommand]),
+  Command.withSubcommands([list, use, current, orgInviteCommand, orgAvatarCommand, usageCommand]),
 );

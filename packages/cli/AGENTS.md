@@ -289,3 +289,9 @@ its senders with every namespace. `domains list --shared true|false` filters sha
 but organization-level access is required to change them. Unsharing is refused while a namespace
 uses one of the domain's senders as its default; select another sender first with `email senders
 set-default <id> --namespace <namespace-id>`.
+
+`samva org invite <email> --mailbox-address <address>` invites a teammate with `--role member|admin|mail_user`
+(default `member`). `--namespace <id>` restricts their membership and personal mailbox to one namespace;
+add a usable domain there or share an organization domain first. `--dry-run` prints the invitation without sending it, and `--json`
+returns the API invitation in the result envelope. The caller needs unrestricted organization
+administration authority.

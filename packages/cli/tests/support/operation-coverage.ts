@@ -227,6 +227,7 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   organizationsGetPersonalMailboxAddressOptions: "api",
   organizationsCreate: "api",
   organizationsGet: "org list",
+  organizationsInviteMember: "org invite",
   organizationsGetProfile: "api",
   organizationsGetTrustTier: "api",
   organizationsUpdate: "org avatar set",
@@ -401,6 +402,9 @@ export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {
   namespacesAssignResource: "namespaces assign",
   namespacesRemoveResource: "namespaces unassign",
   namespacesGetUsage: "namespaces usage",
+  namespacesCreatePortalLink: "namespaces portal-links create",
+  namespacesListPortalLinks: "namespaces portal-links list",
+  namespacesRevokePortalLink: "namespaces portal-links revoke",
 
   extensionsList: "extensions list",
   extensionsPublish: "extensions publish",

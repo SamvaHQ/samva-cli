@@ -65,7 +65,7 @@ const outputAssignments = /^(--json|--jsonl|--quiet)=/;
 const commandTree = {
   login: {},
   logout: {},
-  org: { list: {}, use: {}, current: {}, avatar: { set: {}, clear: {} }, usage: {} },
+  org: { list: {}, use: {}, current: {}, invite: {}, avatar: { set: {}, clear: {} }, usage: {} },
   email: {
     send: {},
     doctor: {},
@@ -78,6 +78,7 @@ const commandTree = {
     domains: {
       list: {},
       add: {},
+      update: {},
       check: {},
       remove: {},
       "rotate-dkim": {},

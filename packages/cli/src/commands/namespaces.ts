@@ -13,6 +13,7 @@ import { getClientProvider } from "../lib/client";
 import { confirmDestructive } from "../lib/confirm";
 import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
+import { namespacePortalLinks } from "./namespace-portal-links";
 
 const idArgument = Argument.String("id").pipe(Argument.withDescription("Namespace id (ns_...)"));
 const optionalString = (name: string, description: string) =>
@@ -449,5 +450,15 @@ const usage = Command.make("usage", {
 export const namespacesCommand = Command.make("namespaces").pipe(
   Command.withDescription("Manage namespaces, the sub-tenants of your organization"),
   Command.withExamples([{ command: "samva namespaces list --json" }]),
-  Command.withSubcommands([list, create, get, update, remove, assign, unassign, usage]),
+  Command.withSubcommands([
+    list,
+    create,
+    get,
+    update,
+    remove,
+    assign,
+    unassign,
+    usage,
+    namespacePortalLinks,
+  ]),
 );

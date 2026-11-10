@@ -274,3 +274,109 @@ describe("namespace flag spelling", () => {
     expect(requests).toHaveLength(1);
   });
 });
+
+describe("namespace portal links", () => {
+  const linkId = "npl_1234567890123456";
+  const link = {
+    id: linkId,
+    organizationId: "org_1234567890123456",
+    namespaceId: nsId,
+    createdBy: "user_1234567890123456",
+    expiresAt: "2026-10-24T00:00:00.000Z",
+    revokedAt: null,
+    redirectUrl: "https://app.example.com/settings",
+    metadata: { customer: "acme" },
+    createdAt: date,
+  };
+
+  it("creates a link through the SDK and returns its URL once in clean JSON", async () => {
+    const url = "https://samva.dev/portal#token=private-token";
+    const result = await run(
+      [
+        "portal-links",
+        "create",
+        nsId,
+        "--redirect-url",
+        link.redirectUrl,
+        "--metadata",
+        "customer=acme",
+        "--expires-in",
+        "3600",
+        "--json",
+      ],
+      { status: 201, body: { ...link, url } },
+    );
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout).data).toMatchObject({ id: linkId, url });
+    expect(requests).toEqual([
+      {
+        method: "POST",
+        path: `/v1/namespaces/${nsId}/portal-links`,
+        body: { redirectUrl: link.redirectUrl, metadata: { customer: "acme" }, expiresIn: 3600 },
+      },
+    ]);
+  });
+
+  it("lists a bounded page without a secret URL", async () => {
+    const result = await run(
+      ["portal-links", "list", nsId, "--limit", "5", "--cursor", "next", "--json"],
+      {
+        status: 200,
+        body: { items: [link], nextCursor: null },
+      },
+    );
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).data.items).toHaveLength(1);
+    const path = new URL(requests[0]!.path, apiUrl);
+    expect(path.pathname).toBe(`/v1/namespaces/${nsId}/portal-links`);
+    expect(path.searchParams.get("limit")).toBe("5");
+    expect(path.searchParams.get("cursor")).toBe("next");
+    expect(result.stdout).not.toContain("private-token");
+  });
+
+  it("previews create and revoke without sending a request", async () => {
+    for (const args of [
+      ["create", nsId],
+      ["revoke", nsId, linkId],
+    ]) {
+      const result = await run(["portal-links", ...args, "--dry-run", "--json"], {
+        status: 200,
+        body: {},
+      });
+      expect(result.code, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).data.dryRun).toBe(true);
+    }
+    expect(requests).toEqual([]);
+  });
+
+  it("requires confirmation, then revokes with DELETE", async () => {
+    const refused = await run(["portal-links", "revoke", nsId, linkId], {
+      status: 200,
+      body: link,
+    });
+    expect(refused.code).toBe(2);
+    expect(requests).toEqual([]);
+    const result = await run(["portal-links", "revoke", nsId, linkId, "--yes", "--json"], {
+      status: 200,
+      body: { ...link, revokedAt: date },
+    });
+    expect(result.code, result.stderr).toBe(0);
+    expect(requests).toEqual([
+      {
+        method: "DELETE",
+        path: `/v1/namespaces/${nsId}/portal-links/${linkId}`,
+        body: undefined,
+      },
+    ]);
+  });
+
+  it("preserves the API's organization-authority refusal", async () => {
+    const result = await run(["portal-links", "create", nsId, "--json"], {
+      status: 403,
+      body: { _tag: "ForbiddenError", message: "Organization-wide access is required" },
+    });
+    expect(result.code).toBe(4);
+    expect(result.stderr).toContain("ForbiddenError");
+  });
+});
