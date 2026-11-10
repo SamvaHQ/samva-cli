@@ -774,6 +774,7 @@ describe("--json stdout purity", () => {
       "events",
       "journeys",
       "campaigns",
+      "suppressions",
       "subscriptions",
       "topics",
       "newsletters",

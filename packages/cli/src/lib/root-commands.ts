@@ -23,6 +23,7 @@ import { policiesCommand } from "../commands/policies";
 import { profileCommand } from "../commands/profile";
 import { scheduledMessagesCommand } from "../commands/scheduled";
 import { subscriptionsCommand } from "../commands/subscriptions";
+import { suppressionsCommand } from "../commands/suppressions";
 import { templatesCommand } from "../commands/templates";
 import { topicsCommand } from "../commands/topics";
 import { webhooksCommand } from "../commands/webhooks";
@@ -40,6 +41,7 @@ export const rootCommands = [
   eventsCommand,
   journeysCommand,
   campaignsCommand,
+  suppressionsCommand,
   subscriptionsCommand,
   topicsCommand,
   newslettersCommand,

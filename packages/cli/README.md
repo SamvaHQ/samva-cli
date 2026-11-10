@@ -82,7 +82,7 @@ do not select an API; a config whose profile sets `target` fails to load and nam
 
 Use `--namespace <id>` to filter `mailboxes list`, `webhooks list`, `agents list`,
 `api-keys list`, `topics list`, `newsletters list`, `scheduled-messages list`,
-`conversations list`, and `knowledge list`. `analytics stats` and `analytics delivery-metrics`
+`conversations list`, `knowledge list`, and `suppressions list`. `analytics stats` and `analytics delivery-metrics`
 take the same filter. A filter narrows what the credential can already read.
 Topics, newsletters, scheduled messages, and conversations also take `--namespace` when
 creating a resource; topic subscription checks use it when resolving an address.
@@ -101,6 +101,13 @@ with `--namespace` to add a source for agents in that namespace. Sources can be 
 agents in the same namespace and cannot be shared across namespaces. `knowledge get <id>` reads
 one source and `knowledge sync <id>` refreshes it. Organization brands remain readable by namespace
 keys for rendering; those keys cannot change them.
+
+`samva suppressions list` reads one page, with optional `--type`, `--status`, and `--search`
+filters; `--all --jsonl` streams every page. An organization key lists every scope without a
+namespace filter, and `--namespace` selects exactly that namespace. A namespace key reads and
+removes only its own entries. Entries include `namespaceId`; `null` means a suppression that
+protects every namespace. Review the reason before `samva suppressions remove <id> --yes`.
+`--dry-run` previews removal without a request. Other applicable suppressions still prevent delivery.
 
 ## Common operations
 

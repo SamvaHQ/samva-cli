@@ -238,6 +238,7 @@ const commandTree = {
   "api-keys": { list: {}, get: {}, create: {}, update: {}, rotate: {}, revoke: {} },
   profile: { list: {}, show: {}, create: {}, use: {}, delete: {} },
   feedback: { send: {} },
+  suppressions: { list: {}, remove: {} },
   subscriptions: { subscribe: {} },
   topics: {
     list: {},
