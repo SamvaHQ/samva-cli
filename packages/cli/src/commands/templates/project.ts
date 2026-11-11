@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { Digest } from "@samva/core/shared/digest";
 import { declaredTemplateId } from "@samva/core/templates/declared-id";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
@@ -244,7 +245,7 @@ const projectDirectory = (name: string): string => {
 };
 
 const digest = async (value: string): Promise<string> => {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  const bytes = await Digest.sha256(new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 

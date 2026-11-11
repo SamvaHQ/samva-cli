@@ -1,8 +1,8 @@
 # @samva/cli
 
-Samva is the email and WhatsApp API for your app: transactional and campaign sending, inbound replies threaded into conversations, programmable mailboxes, and signed webhooks. AI agents get their own addresses and WhatsApp numbers on the same platform.
+Samva is email and WhatsApp for AI agents, and the API developers build on. An agent gets its own address and WhatsApp number, and the same platform covers transactional and campaign sending, inbound replies threaded into conversations, programmable mailboxes, and signed webhooks.
 
-The `samva` CLI sends and operates email from a terminal. The npm package includes
+The `samva` CLI sends and operates email and WhatsApp from a terminal. The npm package includes
 the JavaScript implementation and selects a self-contained native executable when
 one is available. Template authoring commands run the project's `@samva/vite`
 toolchain under Node.js 22 or newer.

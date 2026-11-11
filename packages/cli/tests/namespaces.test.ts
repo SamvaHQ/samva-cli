@@ -290,7 +290,7 @@ describe("namespace portal links", () => {
   };
 
   it("creates a link through the SDK and returns its URL once in clean JSON", async () => {
-    const url = "https://samva.dev/portal#token=private-token";
+    const url = "https://portal.samva.dev/#token=private-token";
     const result = await run(
       [
         "portal-links",
