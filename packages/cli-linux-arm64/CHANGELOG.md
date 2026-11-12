@@ -1,3 +1,12 @@
+## @samva/cli-linux-arm64@0.37.1
+
+### Always allow names the owner-only case
+
+`samva mailboxes actions approve --always` now says that for a hosted agent's integration tool call
+it lets the tool run without approval for every agent, which only the organization owner may do.
+`mailboxes actions get` and `mailboxes needs-you --json` carry each held action's `alwaysAllow`:
+who may approve with Always allow and whether you may.
+
 ## @samva/cli-linux-arm64@0.37.0
 
 ### Give Customers a Hosted Namespace Portal

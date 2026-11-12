@@ -614,6 +614,7 @@ describe("mailbox command HTTP contracts", () => {
       draftId: null,
       proposedBy: action.proposedBy,
       source: action.source,
+      alwaysAllow: { by: "admin", allowed: true },
       createdAt: date,
       tool,
       intent: null,

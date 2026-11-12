@@ -772,7 +772,7 @@ const actionDecision = (verb: "approve" | "deny") =>
           always: Flag.Boolean("always").pipe(
             Flag.withDefault(false),
             Flag.withDescription(
-              "Allow matching future actions from this actor, subject to policy floors and guards",
+              "Allow matching future actions from this actor, subject to policy floors and guards. For an agent's integration tool call this lets the tool run without approval for every agent, which only the organization owner may do; the action's alwaysAllow says who may",
             ),
           ),
           editText: optional("edit-text").pipe(

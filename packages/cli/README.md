@@ -20,6 +20,22 @@ implementation when Bun is installed. Native executables for each platform, with
 file, are also attached to the CLI's [GitHub releases](https://github.com/SamvaHQ/samva-cli/releases),
 beside its source.
 
+## First run
+
+Sign in, create a mailbox on a hosted address, send from it, and watch for the reply:
+
+```sh
+samva login
+samva org use <slug>   # `samva org list` shows your organizations
+samva mailboxes create --address support@acme.samva.email --name Support
+samva mailboxes send mbx_... --to ada@example.com --subject "Hello" --text "Hello from Samva."
+samva mailboxes events mbx_...
+```
+
+`create` prints the mailbox ID the other commands take. `events` prints each received, sent, and
+held message as a JSON line until you press Ctrl+C. See the
+[mailbox CLI guide](https://samva.dev/docs/mailboxes/cli) for replies, approvals, and quarantine.
+
 ## Shell completions
 
 Generate a completion script from the installed CLI. Regenerate it after upgrading the CLI.
