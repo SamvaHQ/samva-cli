@@ -9,13 +9,14 @@ import * as Organizations from "samva/effect/organizations";
 import * as Whoami from "samva/effect/whoami";
 
 import {
+  type ExecutionContext,
   isCredentialExpired,
   readConfig,
   resolveExecutionContext,
   writeConfig,
 } from "../config/store";
 import { CliAuthError, SamvaCliError, toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
+import { getClientProvider, getClientProviderForContext } from "../lib/client";
 import { AGENT_AUTH_HINT } from "../lib/examples";
 import { listOrganizations } from "../lib/oauth";
 import { jsonFlag, printFields, printJson } from "../lib/output";
@@ -114,27 +115,26 @@ const use = Command.make("use", { slug: Argument.String("slug") }).pipe(
   ),
 );
 
-/** The organization and key an API key resolves to, asked of the API because a key carries no slug. */
-const currentForApiKey = Effect.gen(function* () {
-  const client = yield* getClientProvider;
-  return yield* Whoami.get().pipe(
-    client.provide,
-    Effect.mapError((error) => {
-      const failure = toCliApiError("Could not look up the organization", error);
-      return new SamvaCliError({
-        message: `Could not look up the organization for SAMVA_API_KEY. ${failure.message}`,
-        api: failure.api,
-      });
-    }),
-  );
-});
+/** Read the resolved organization instead of deriving a mail domain from its mutable slug. */
+const currentOrganization = (context: ExecutionContext) =>
+  Effect.gen(function* () {
+    const client = yield* getClientProviderForContext(context);
+    return yield* Whoami.get().pipe(
+      client.provide,
+      Effect.mapError((error) => {
+        const failure = toCliApiError("Could not look up the organization", error);
+        return new SamvaCliError({
+          message: `Could not look up the organization. ${failure.message}`,
+          api: failure.api,
+        });
+      }),
+    );
+  });
 
 const current = Command.make("current", { json: jsonFlag }).pipe(
-  Command.withDescription(
-    "Show the active organization slug (under SAMVA_API_KEY, the organization the key belongs to)",
-  ),
+  Command.withDescription("Show the active organization and its hosted mail domain"),
   Command.withExamples([
-    { command: "samva org current", description: "Print active org slug" },
+    { command: "samva org current", description: "Show the active org and hosted mail domain" },
     {
       command: "samva org current --json",
       description: 'JSON: { "activeOrgSlug": "...", "organization": {...}, "credential": {...} }',
@@ -143,28 +143,28 @@ const current = Command.make("current", { json: jsonFlag }).pipe(
   Command.withHandler(({ json }) =>
     Effect.gen(function* () {
       const context = yield* resolveExecutionContext;
-      if (context.apiKey) {
-        const caller = yield* currentForApiKey;
-        if (!json) return yield* Console.log(caller.organization.slug);
-        const credential = caller.credential;
-        return yield* printJson({
-          activeOrgSlug: caller.organization.slug,
-          organization: caller.organization,
-          credential:
-            credential.type === "apiKey"
-              ? { type: credential.type, id: credential.id, name: credential.name }
-              : { type: credential.type, id: credential.user.id, name: credential.user.name },
-        });
-      }
-      const slug = context.orgSlug;
-      if (!slug) {
+      if (!context.apiKey && !context.orgSlug) {
         return yield* new CliAuthError({
           code: "missing_organization",
           message: "No active organization set. Run `samva org use <slug>` or `samva org list`.",
         });
       }
-      if (json) return yield* printJson({ activeOrgSlug: slug });
-      yield* Console.log(slug);
+      const caller = yield* currentOrganization(context);
+      if (!json) {
+        return yield* printFields([
+          ["Slug", caller.organization.slug],
+          ["Hosted mail domain", caller.organization.hostedMailDomain],
+        ]);
+      }
+      const credential = caller.credential;
+      return yield* printJson({
+        activeOrgSlug: caller.organization.slug,
+        organization: caller.organization,
+        credential:
+          credential.type === "apiKey"
+            ? { type: credential.type, id: credential.id, name: credential.name }
+            : { type: credential.type, id: credential.user.id, name: credential.user.name },
+      });
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );

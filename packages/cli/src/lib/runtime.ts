@@ -203,6 +203,7 @@ const commandTree = {
     assign: {},
     unassign: {},
     usage: {},
+    "portal-links": { create: {}, list: {}, revoke: {} },
   },
   extensions: {
     init: {},

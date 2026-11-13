@@ -159,7 +159,12 @@ const routes: Record<string, unknown> = {
   "GET /v1/api-keys": { items: [apiKey], nextCursor: "next_page" },
   "GET /v1/api-keys/key_1234567890abcdef": apiKey,
   "GET /v1/whoami": {
-    organization: { id: "org_3m8p2vqz6ty4bnkd", slug: "acme", name: "Acme" },
+    organization: {
+      id: "org_3m8p2vqz6ty4bnkd",
+      slug: "acme",
+      name: "Acme",
+      hostedMailDomain: "original-handle.samva.email",
+    },
     credential: {
       type: "apiKey",
       id: apiKey.id,
@@ -289,7 +294,11 @@ describe("human output is formatted, not a bare JSON document", () => {
       ["api-keys", "get", apiKey.id],
       ["CI sender", "restricted (email:write)", "active"],
     ],
-    ["org current under an API key", ["org", "current"], ["acme"]],
+    [
+      "org current under an API key",
+      ["org", "current"],
+      ["acme", "Hosted mail domain", "original-handle.samva.email"],
+    ],
     [
       "org usage",
       ["org", "usage"],

@@ -169,11 +169,11 @@ describe("subprocess environment isolation", () => {
     const result = await runCli(["org", "current", "--json"], {
       env: { SAMVA_ORG: "explicit-org" },
     });
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      type: "result",
-      data: { activeOrgSlug: "explicit-org" },
+    expect(result.code).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      type: "error",
+      reason: "missing_credentials",
     });
   });
 });

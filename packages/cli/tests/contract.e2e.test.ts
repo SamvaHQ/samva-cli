@@ -507,7 +507,12 @@ const startApi = (): Promise<{
         let result: unknown;
         if (path === "/v1/whoami") {
           result = {
-            organization: { id: "org_3m8p2vqz6ty4bnkd", slug: "key-org", name: "Key Org" },
+            organization: {
+              id: "org_3m8p2vqz6ty4bnkd",
+              slug: "key-org",
+              name: "Key Org",
+              hostedMailDomain: "original-handle.samva.email",
+            },
             credential: {
               type: "apiKey",
               id: "key_1234567890abcdef",
@@ -954,11 +959,11 @@ describe("--json stdout purity", () => {
       });
       expect(selected.code).toBe(0);
 
-      const current = await runCli(["org", "current", "--json"], {
+      const current = await runCli(["profile", "show", "--json"], {
         env: { XDG_CONFIG_HOME: isolated },
       });
       expect(current.code).toBe(0);
-      expect(parseResult(current.stdout)).toEqual({ activeOrgSlug: "fresh-org" });
+      expect(parseResult(current.stdout)).toMatchObject({ orgSlug: "fresh-org" });
     } finally {
       await rm(isolated, { recursive: true, force: true });
     }
@@ -985,13 +990,21 @@ describe("--json stdout purity", () => {
       expect(current.code, current.stderr).toBe(0);
       expect(parseResult(current.stdout)).toEqual({
         activeOrgSlug: "key-org",
-        organization: { id: "org_3m8p2vqz6ty4bnkd", slug: "key-org", name: "Key Org" },
+        organization: {
+          id: "org_3m8p2vqz6ty4bnkd",
+          slug: "key-org",
+          name: "Key Org",
+          hostedMailDomain: "original-handle.samva.email",
+        },
         credential: { type: "apiKey", id: "key_1234567890abcdef", name: "ci" },
       });
       const human = await runCli(["--profile", "key-custom", "org", "current"], {
         env: { SAMVA_API_KEY: "samva_sk_test", SAMVA_API_URL: api.url },
       });
-      expect(human.stdout.trim()).toBe("key-org");
+      expect(human.code, human.stderr).toBe(0);
+      expect(human.stdout).toContain("key-org");
+      expect(human.stdout).toContain("Hosted mail domain");
+      expect(human.stdout).toContain("original-handle.samva.email");
       expect(api.requests.map((request) => request.path)).toEqual(["/v1/whoami", "/v1/whoami"]);
     } finally {
       await api.close();
@@ -1011,7 +1024,7 @@ describe("--json stdout purity", () => {
       });
       expect(result.code).toBe(4);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("Could not look up the organization for SAMVA_API_KEY");
+      expect(result.stderr).toContain("Could not look up the organization.");
       expect(result.stderr).toContain("Invalid API key");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

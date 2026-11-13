@@ -27,14 +27,19 @@ Sign in, create a mailbox on a hosted address, send from it, and watch for the r
 ```sh
 samva login
 samva org use <slug>   # `samva org list` shows your organizations
+samva org current      # Read the hosted mail domain; it can differ from the slug
+# Example when the hosted mail domain is acme.samva.email:
 samva mailboxes create --address support@acme.samva.email --name Support
 samva mailboxes send mbx_... --to ada@example.com --subject "Hello" --text "Hello from Samva."
 samva mailboxes events mbx_...
 ```
 
+`org current` prints labelled fields. To capture only the slug in a script, use
+`org_slug=$(samva org current --json | jq -r .data.activeOrgSlug)`.
+
 `create` prints the mailbox ID the other commands take. `events` prints each received, sent, and
 held message as a JSON line until you press Ctrl+C. See the
-[mailbox CLI guide](https://samva.dev/docs/mailboxes/cli) for replies, approvals, and quarantine.
+[mailbox CLI guide](https://samva.dev/docs/mailboxes/cli?utm_source=readme&utm_medium=cli) for replies, approvals, and quarantine.
 
 ## Shell completions
 

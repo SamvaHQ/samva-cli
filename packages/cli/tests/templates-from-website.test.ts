@@ -43,7 +43,12 @@ const template = {
 const ask = "Research https://example.com and rebuild this template's theme to match it.";
 const created = { template, website: { url: "https://example.com/", host: "example.com" }, ask };
 const whoami = {
-  organization: { id: "org_3m8p2vqz6ty4bnkd", slug: "acme", name: "Acme" },
+  organization: {
+    id: "org_3m8p2vqz6ty4bnkd",
+    slug: "acme",
+    name: "Acme",
+    hostedMailDomain: "acme.samva.email",
+  },
   credential: {
     type: "apiKey",
     id: "key_1234567890abcdef",

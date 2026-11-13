@@ -35,8 +35,11 @@ caller holds. `create` and `rotate` return the secret once: `--json` carries `{a
 displayOnce, warning}`, so `samva api-keys create ... --json | jq -r .data.key` yields the key, and
 human mode prints it to stdout with the warning on stderr. `rotate` and `revoke` require
 confirmation (`--yes` outside a terminal), and every mutation supports `--dry-run`. Under
-`SAMVA_API_KEY`, `samva org current` asks the API who the key is (`GET /v1/whoami`) and reports its
-organization and key; with OAuth it reports the profile's selected organization.
+either `SAMVA_API_KEY` or OAuth, `samva org current` reads `GET /v1/whoami` and prints the resolved
+organization slug and hosted mail domain. `--json` includes `organization.hostedMailDomain` and the
+credential identity. Scripts capture the slug with
+`org_slug=$(samva org current --json | jq -r .data.activeOrgSlug)`, since human output contains
+labelled fields. Use the hosted domain for mailbox addresses; it can differ from the slug.
 
 `samva webhooks secret <id>` reads the current signing secret with `webhooks:update` permission.
 Human output includes the secret, its creation time, and when the previous secret stops verifying

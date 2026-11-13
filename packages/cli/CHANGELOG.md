@@ -1,3 +1,25 @@
+## @samva/cli@0.38.0
+
+### Find your hosted mailbox domain
+
+`samva org current` human output changes from a bare slug to labelled slug and hosted-mail-domain
+fields. Scripts must read `samva org current --json` and select `data.activeOrgSlug` instead of
+capturing the human output, for example:
+
+```sh
+org_slug=$(samva org current --json | jq -r .data.activeOrgSlug)
+```
+
+Both API keys and signed-in sessions receive `organization.hostedMailDomain` in JSON. Use that
+domain in `samva mailboxes create --address hello@<hostedMailDomain>` instead of guessing it from
+the slug.
+
+### Portal link commands name themselves in JSON output
+
+`samva namespaces portal-links create`, `list`, and `revoke` reported their `command` as
+`namespaces` in the `--json` and `--jsonl` envelope. They now report `namespaces.portal-links.create`,
+`namespaces.portal-links.list`, and `namespaces.portal-links.revoke`.
+
 ## @samva/cli@0.37.1
 
 ### Always allow names the owner-only case
