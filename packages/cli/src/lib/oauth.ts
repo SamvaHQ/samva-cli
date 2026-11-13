@@ -286,7 +286,7 @@ export interface UserOrganization {
 export const listOrganizations = (
   apiUrl: string,
   accessToken: string,
-): Effect.Effect<ReadonlyArray<UserOrganization>, SamvaCliError> =>
+): Effect.Effect<ReadonlyArray<UserOrganization>, CliAuthError | SamvaCliError> =>
   Effect.gen(function* () {
     const client = createCliAuthClient(apiUrl, accessToken);
     const result = yield* Effect.tryPromise({
@@ -294,6 +294,12 @@ export const listOrganizations = (
       catch: (cause) =>
         new SamvaCliError({ message: `Could not list organizations: ${String(cause)}` }),
     });
+    if (result.error?.status === 401) {
+      return yield* new CliAuthError({
+        code: "expired_credentials",
+        message: "Your session has expired. Run `samva login` to sign in again.",
+      });
+    }
     if (result.error) {
       return yield* new SamvaCliError({
         message: `Could not list organizations (returned ${result.error.status}). ${

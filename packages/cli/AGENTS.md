@@ -17,7 +17,8 @@ response as returned, not the `{schemaVersion,...}` envelope, so `--json` and `-
 request); a full URL is refused so credentials reach only the selected API URL, and redirects are not
 followed. The method is `GET`, or `POST` once a field or `--input` is given. `-f` adds a string field,
 `-F` a typed one (`true`, `false`, `null`, integers, `@file`, `@-`), `a[b]=v` nests, `a[]=v` appends;
-on a `GET` or with `--input` fields go to the query string. `--paginate` follows `nextCursor` through
+on a `GET` or with `--input` fields go to the query string, and a `POST`, `PUT`, or `PATCH` with
+neither sends `{}`. `--paginate` follows `nextCursor` through
 the `cursor` query parameter and prints one page per line, `--slurp` one JSON array. A non-2xx
 response writes its body to stderr and exits `4` for 401 and 403, otherwise `1`. Pipe to `jq`; there
 is no built-in filter.
@@ -40,6 +41,21 @@ organization slug and hosted mail domain. `--json` includes `organization.hosted
 credential identity. Scripts capture the slug with
 `org_slug=$(samva org current --json | jq -r .data.activeOrgSlug)`, since human output contains
 labelled fields. Use the hosted domain for mailbox addresses; it can differ from the slug.
+
+`samva agents list` lists hosted agents, optionally filtered by `--namespace`; `create <name>`
+starts an unpublished draft, with optional `--setup-job support|store|booking` and `--namespace`.
+`get <agent-id>` shows identity, revision, publication, pauses, and spend; `--json` includes the full
+agent and its draft. Save a definition with `samva agents get <agent-id> --json | jq .data.draft >
+draft.json`, edit it, then run `samva agents draft replace <agent-id> --revision <revision> --file
+draft.json` (`--file -` reads piped stdin). Replacement takes the revision from the last read and
+replaces the whole draft; a stale revision returns HTTP 409. The result includes the new revision.
+`publish <agent-id> --revision <revision>` publishes that draft; without `--revision`, it reads the
+agent first and publishes its current revision. An identical draft reports that nothing was published.
+`update <agent-id>` accepts `--name`, `--monthly-spend-cap <dollars>` in whole cents, or
+`--remove-spend-cap`; these changes take effect without publishing. No fields, or both spend-cap
+flags, exits `2`. `tests rerun <agent-id> --data '<draft JSON>'` compares saved-test decisions with
+the published agent; the JSON contains `name` and `definition`. Every agent mutation supports
+`--dry-run` without API requests, and `--json` returns the complete result in `data`.
 
 `samva webhooks secret <id>` reads the current signing secret with `webhooks:update` permission.
 Human output includes the secret, its creation time, and when the previous secret stops verifying
@@ -145,7 +161,15 @@ send email. The API requires the `newsletters` and `email` features for the orga
 archive domains. It returns `{ items, nextCursor }`; omit `--cursor` for the first page. `domains get`
 rechecks one domain's DNS and certificate status.
 
-`samva templates init --name <name>` creates a starter-backed Artifact project and clones its Git
+`samva templates suggest <brief>` ranks the gallery designs that fit a brief (three, with a
+`reason` each, and a `recreation` match when the brief names a company). `samva templates
+from-brief <brief>` creates the project from the top design, or from `--gallery-template <id>`, and
+prints the design it started from, a recreation note, and the dashboard editor link, which opens the
+template assistant with the brief (`ask`) ready to send; `--json` prints `template`, `startedFrom`,
+`alternatives`, `recreation`, `ask`, and `editorUrl`. A named company's email starts from Samva's recreation of it, or from that
+company's other recreation for its look; with none it starts from the closest design.
+
+`samva templates init --name <name>` creates a starter-backed Artifact project (`--gallery-template <id>` picks the gallery design) and clones its Git
 repository. `samva templates clone <project-or-template-id>` clones an existing project. Both configure a
 repository-local credential helper that exchanges Samva authorization for a short-lived,
 repository-scoped credential; the token is never stored in the remote URL or Git config. Normal

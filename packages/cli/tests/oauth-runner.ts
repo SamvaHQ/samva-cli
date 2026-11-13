@@ -19,7 +19,6 @@ BunRuntime.runMain(
           JSON.stringify({
             accessToken: "oauth-test-token",
             tokenType: "bearer",
-            expiresAt: 4102444800,
           }),
         ),
       write: () => Effect.die("Unscripted keyring write"),

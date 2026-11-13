@@ -31,12 +31,14 @@ import { isJsonLinesRequested, outputModeFromArgv } from "../lib/runtime";
 import { devCommand } from "./templates/dev-command";
 import { reportDiagnostic } from "./templates/diagnostics";
 import { assetBaseFlag, dirFlag } from "./templates/flags";
+import { fromBriefCommand } from "./templates/from-brief-command";
 import { fromWebsiteCommand } from "./templates/from-website-command";
 import { buildDir } from "./templates/local-build";
 import { exportProject } from "./templates/local-export";
 import { add, clone, credential, init, move, publish } from "./templates/project";
 import { renderCommand } from "./templates/render-command";
 import { snapshotCommand } from "./templates/snapshot-command";
+import { suggestCommand } from "./templates/suggest-command";
 import {
   invocationEnv,
   loadSamvaBrandResolver,
@@ -1130,6 +1132,10 @@ export const templatesCommand = Command.make("templates").pipe(
       description: "Clone an existing project with its repository credential helper",
     },
     {
+      command: 'samva templates from-brief "Welcome email for a coffee subscription"',
+      description: "Create a project from the gallery design that fits a brief",
+    },
+    {
       command: "samva templates from-website example.com",
       description:
         "Create a project from a website and print the editor link that matches its brand",
@@ -1176,6 +1182,8 @@ export const templatesCommand = Command.make("templates").pipe(
     updateRemote,
     deleteRemote,
     projects,
+    suggestCommand,
+    fromBriefCommand,
     fromWebsiteCommand,
     devCommand,
     check,

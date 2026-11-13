@@ -1,6 +1,5 @@
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
-import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
@@ -10,7 +9,6 @@ import * as Whoami from "samva/effect/whoami";
 
 import {
   type ExecutionContext,
-  isCredentialExpired,
   readConfig,
   resolveExecutionContext,
   writeConfig,
@@ -44,12 +42,6 @@ const list = Command.make("list", { json: jsonFlag }).pipe(
       // Under OAuth login the token is user-scoped, so list every org the user
       // belongs to (no active org required). API keys are bound to one org.
       if (context.credentials) {
-        if (isCredentialExpired(context.credentials, yield* Clock.currentTimeMillis)) {
-          return yield* new CliAuthError({
-            code: "expired_credentials",
-            message: "Your session has expired. Run `samva login` to sign in again.",
-          });
-        }
         const orgs = yield* listOrganizations(context.apiUrl, context.credentials.accessToken);
         if (json) return yield* printJson(orgs);
         if (orgs.length === 0) {

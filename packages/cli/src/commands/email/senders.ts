@@ -84,6 +84,7 @@ const list = Command.make("list", {
           ["Email", sender.email],
           ["Name", sender.name],
           ["Status", sender.verificationStatus],
+          ["Sendable", sender.sendable ? "yes" : "no"],
           ["Provider", sender.providerLifecycle],
           ["Default", sender.isDefault ? "yes" : "no"],
           ["Namespace", sender.namespaceId ?? "organization"],

@@ -30,10 +30,14 @@ const ConfigSchema = Schema.Struct({
   profiles: Schema.Record(ProfileNameSchema, ProfileSchema),
 });
 
+/**
+ * The stored OAuth credential is a Better Auth session token. It carries no
+ * expiry: the server extends the session while the CLI uses it, so only the
+ * server can say it has ended, and it answers 401 when it has.
+ */
 const CredentialsSchema = Schema.Struct({
   accessToken: Schema.String,
   tokenType: Schema.String,
-  expiresAt: Schema.Finite,
   scope: Schema.optional(Schema.String),
 });
 
@@ -47,7 +51,6 @@ export interface SamvaConfig {
 export interface SamvaCredentials {
   readonly accessToken: string;
   readonly tokenType: string;
-  readonly expiresAt: number;
   readonly scope?: string | undefined;
 }
 
@@ -213,7 +216,8 @@ export const decodeStoredCredentials = (profile: string, rawCredentials: string)
         message: `Stored credentials for profile ${profile} are invalid. Run \`samva logout\` then \`samva login\`.`,
       }),
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(CredentialsSchema)),
+    // Records written by earlier releases also carry a login-time `expiresAt`.
+    Effect.flatMap(Schema.decodeUnknownEffect(CredentialsSchema, { onExcessProperty: "ignore" })),
     Effect.mapError(
       () =>
         new CliConfigError({
@@ -225,13 +229,6 @@ export const decodeStoredCredentials = (profile: string, rawCredentials: string)
 
 /** URL-only callers must not decode credentials before they begin recovery. */
 export const resolveApiUrl = Effect.map(resolveExecutionSelection, (selection) => selection.apiUrl);
-
-/**
- * OAuth access tokens carry a second-resolution expiry. Compared against the
- * Effect `Clock` (not `Date.now`) so the check is deterministic under TestClock.
- */
-export const isCredentialExpired = (credentials: SamvaCredentials, nowMillis: number): boolean =>
-  credentials.expiresAt <= Math.floor(nowMillis / 1000);
 
 export const writeCredentials = Effect.fn("CliConfig.writeCredentials")(function* (
   credentials: SamvaCredentials,

@@ -72,7 +72,6 @@ it("reads the hosted domain for OAuth with the selected organization header", as
               return JSON.stringify({
                 accessToken: "oauth-test",
                 tokenType: "bearer",
-                expiresAt: 4_000_000_000,
               });
             }),
           write: () => Effect.die("Unexpected credential write"),

@@ -1,14 +1,9 @@
-import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Client from "samva/effect/client";
 
-import {
-  type ExecutionContext,
-  isCredentialExpired,
-  resolveExecutionContext,
-} from "../config/store";
+import { type ExecutionContext, resolveExecutionContext } from "../config/store";
 import { CliAuthError, SamvaCliError, toCliApiError } from "../errors";
 import { CLI_CLIENT_HEADERS } from "./client-attribution";
 
@@ -35,12 +30,6 @@ const getClientConfigForContext = (context: ExecutionContext, baseUrl: string) =
     }
 
     if (context.credentials) {
-      if (isCredentialExpired(context.credentials, yield* Clock.currentTimeMillis)) {
-        return yield* new CliAuthError({
-          code: "expired_credentials",
-          message: "Your session has expired. Run `samva login` to sign in again.",
-        });
-      }
       const authToken = context.credentials.accessToken;
       const activeOrgSlug = context.orgSlug;
       if (!activeOrgSlug) {

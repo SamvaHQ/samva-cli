@@ -1,3 +1,45 @@
+## @samva/cli-darwin-x64@0.39.0
+
+### Stay signed in while you use the CLI
+
+`samva login` no longer expires on a fixed date a week after you sign in. Samva extends the session
+each day you use the CLI, and the CLI now asks for a new login only when Samva reports the session
+has ended. Credentials saved by earlier releases keep working without a new login.
+
+### Inspect, edit, and publish hosted agents
+
+Use `samva agents get` to inspect a hosted agent, `update` to rename it or change its monthly spend
+cap, `draft replace` to load a whole draft definition from a file or stdin, and `publish` to publish
+it. Mutations support `--dry-run`, draft replacement requires the revision you read, and publishing
+can read the current revision for you.
+
+### `samva api` sends `{}` for a write with no fields
+
+A `POST`, `PUT`, or `PATCH` through `samva api` with no fields and no `--input` now sends `{}` as a
+JSON body. Endpoints whose fields are all optional, such as setting the default sender, accept it;
+before, they refused the request with a validation error.
+
+### Check templates whose CSS uses a property with no client data
+
+Authoring 0.23.1 stops `samva templates check` from failing when a template's CSS uses a property the
+email client data has no entry for on some client, such as `word-wrap` on Gmail for iOS. The check
+runs the project's own `@samva/vite`, so update the project's `@samva/markup` and `@samva/vite` to
+0.23.1 to get it. The property is then reported as unknown support for that client, an info finding
+that appears in `--json` output.
+
+### Start a template from a brief
+
+`samva templates suggest <brief>` lists the three gallery designs a new email for that brief starts
+from. `samva templates from-brief <brief>` creates the template project from the first of them (or
+`--gallery-template <id>`) and prints the editor link, which opens the template assistant with the
+brief ready to send. `samva templates init` names its gallery design with `--gallery-template`
+in place of `--starter`, the same `galleryTemplateId` the API, SDK, and MCP use.
+
+### `samva email senders list` shows whether each sender can send
+
+Each sender prints a `Sendable` line: `no` means sends from the address are refused because your
+organization does not own a verified sending identity for it or its domain.
+
 ## @samva/cli-darwin-x64@0.38.0
 
 ### Find your hosted mailbox domain

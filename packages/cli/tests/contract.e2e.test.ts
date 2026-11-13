@@ -441,6 +441,7 @@ const startApi = (): Promise<{
       verificationStatus: "verified",
       verifiedAt: "2026-07-01T00:00:00.000Z",
       verificationToken: null,
+      sendable: true,
       providerLifecycle: "active",
       providerFailureCode: null,
       isDefault: true,

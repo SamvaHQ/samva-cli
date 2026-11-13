@@ -17,7 +17,6 @@ import {
   writeCredentials,
   clearCredentials,
   type SamvaConfig,
-  isCredentialExpired,
   type SamvaCredentials,
 } from "../src/config/store";
 import {
@@ -29,22 +28,24 @@ import {
 } from "../src/errors";
 import { ApiUrl, Org, Profile, Json, JsonLines, NoInput } from "../src/lib/runtime";
 
-const credentials = (expiresAtSeconds: number): SamvaCredentials => ({
+const credentials = (): SamvaCredentials => ({
   accessToken: "tok_test",
   tokenType: "bearer",
-  expiresAt: expiresAtSeconds,
-});
-
-describe("isCredentialExpired", () => {
-  it("treats a token as expired once the wall clock reaches its second-resolution expiry", () => {
-    // expiresAt is seconds; the clock is milliseconds.
-    expect(isCredentialExpired(credentials(1000), 1_000_000)).toBe(true);
-    expect(isCredentialExpired(credentials(1000), 1_000_999)).toBe(true);
-    expect(isCredentialExpired(credentials(1000), 999_000)).toBe(false);
-  });
 });
 
 describe("stored credential decoding", () => {
+  it.effect("keeps a record whose login-time expiry has passed usable", () =>
+    Effect.gen(function* () {
+      // The server extends the session while it is used, so a stored deadline is no verdict.
+      const decoded = yield* decodeStoredCredentials(
+        "default",
+        JSON.stringify({ ...credentials(), expiresAt: 0 }),
+      );
+
+      expect(decoded).toEqual(credentials());
+    }),
+  );
+
   it.effect("keeps malformed keyring payloads typed and recoverable", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(decodeStoredCredentials("broken", "not-json"));
@@ -125,14 +126,12 @@ describe("stored credential decoding", () => {
         write: (profile, secret) =>
           Effect.gen(function* () {
             expect(profile).toBe("default");
-            expect(JSON.parse(secret)).toEqual(credentials(2000));
+            expect(JSON.parse(secret)).toEqual(credentials());
             expect(fixture.config().profiles.default?.credentialIdentity).toBe("oauth");
             return yield* failure;
           }),
       });
-      expect(yield* fixture.provide(Effect.flip(writeCredentials(credentials(2000))))).toBe(
-        failure,
-      );
+      expect(yield* fixture.provide(Effect.flip(writeCredentials(credentials())))).toBe(failure);
     }),
   );
 
@@ -143,11 +142,11 @@ describe("stored credential decoding", () => {
         read: (profile) =>
           Effect.sync(() => {
             expect(profile).toBe("default");
-            return JSON.stringify(credentials(2000));
+            return JSON.stringify(credentials());
           }),
       });
       const context = yield* fixture.provide(resolveExecutionContext);
-      expect(context.credentials).toEqual(credentials(2000));
+      expect(context.credentials).toEqual(credentials());
       expect(context.apiUrl).toBe("https://api.samva.dev");
     }),
   );

@@ -372,7 +372,7 @@ describe("samva templates add", () => {
   });
 });
 
-describe("samva templates init --starter", () => {
+describe("samva templates init --gallery-template", () => {
   it("validates the email starter and sends it in the create request before cloning", async () => {
     localRepository = true;
     const destination = join(root, "starter-clone");
@@ -381,7 +381,7 @@ describe("samva templates init --starter", () => {
       "init",
       "--name",
       "Welcome",
-      "--starter",
+      "--gallery-template",
       "welcome",
       "--dir",
       destination,
@@ -413,15 +413,15 @@ describe("samva templates init --starter", () => {
         "init",
         "--name",
         "Welcome",
-        "--starter",
+        "--gallery-template",
         starter,
         "--json",
       ]);
 
       expect(result.code).toBe(2);
       expect(result.stderr).toContain("unknown_starter");
-      expect(result.stderr).toContain(`Unknown email starter '${starter}'`);
-      expect(result.stderr).toContain("Valid starter ids: welcome, digest.");
+      expect(result.stderr).toContain(`Unknown gallery template '${starter}'`);
+      expect(result.stderr).toContain("Valid gallery template ids: welcome, digest.");
       expect(calls.map((call) => call.route)).toEqual(["GET /v1/starters/"]);
     },
   );

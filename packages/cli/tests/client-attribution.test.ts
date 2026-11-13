@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
+import { CliAuthError } from "../src/errors";
 import { CLI_VERSION } from "../src/lib/client-attribution";
 import { getText } from "../src/lib/http";
 import { listOrganizations, requestDeviceCode, revokeSession } from "../src/lib/oauth";
@@ -81,6 +82,22 @@ describe("CLI client attribution", () => {
         expect(headers.get("x-samva-client")).toBe(`cli/${CLI_VERSION}`);
         expect(headers.get("authorization")).toBe("Bearer token");
       }
+    }),
+  );
+});
+
+describe("user-scoped organization list", () => {
+  it.effect("asks for a new login when the server has ended the session", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(Response.json({ message: "Unauthorized" }, { status: 401 }))),
+      );
+
+      const error = yield* Effect.flip(listOrganizations("https://api.test", "ended_session"));
+
+      expect(error).toBeInstanceOf(CliAuthError);
+      expect(error).toMatchObject({ code: "expired_credentials" });
     }),
   );
 });

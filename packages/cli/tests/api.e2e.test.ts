@@ -139,6 +139,14 @@ describe("samva api request", () => {
     expect(lastBody()).toEqual({ name: "orders", url: "https://example.com/hook" });
   });
 
+  it("sends an empty JSON object for a write with no fields", async () => {
+    await api(["email/senders/sender_1/default", "-X", "POST"]);
+    expect(requests[0]).toMatchObject({ method: "POST", body: "{}" });
+    expect(requests[0]?.headers["content-type"]).toBe("application/json");
+    await api(["webhooks/wep_1", "-X", "DELETE"]);
+    expect(requests[1]).toMatchObject({ method: "DELETE", body: "" });
+  });
+
   it("lets -X choose the method for body fields", async () => {
     await api(["webhooks/wep_1", "-X", "patch", "-f", "name=renamed"]);
     expect(requests[0]).toMatchObject({ method: "PATCH", url: "/v1/webhooks/wep_1" });

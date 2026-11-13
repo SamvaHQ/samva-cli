@@ -595,7 +595,7 @@ describe("template authoring commands", () => {
       "init",
       "--name",
       "New email",
-      "--starter",
+      "--gallery-template",
       "unvalidated-starter",
       "--dir",
       "new-email",
@@ -620,7 +620,7 @@ describe("template authoring commands", () => {
         "New email",
         "--dir",
         "new-email",
-        ...(starter === undefined ? [] : ["--starter", starter]),
+        ...(starter === undefined ? [] : ["--gallery-template", starter]),
         "--dry-run",
         "--json",
       ]);

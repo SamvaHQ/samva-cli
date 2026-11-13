@@ -86,6 +86,7 @@ const STDIN_ONCE = new CliUsageError({
 
 const decoder = new TextDecoder();
 const bodyMethods = new Set(["GET", "HEAD"]);
+const emptyObjectBodyMethods = new Set(["POST", "PUT", "PATCH"]);
 
 const isJsonResponse = (response: Response) =>
   /\bjson\b/i.test(response.headers.get("content-type") ?? "");
@@ -193,6 +194,7 @@ const api = Command.make("api", {
       "The default method is GET, and POST once any field or --input is given; -X overrides it.",
       "-f adds a string field, and -F a typed one (true, false, null, and integers; @path reads a file, @- stdin).",
       "Fields form a JSON body; `a[b]=v` nests and `a[]=v` appends to an array, with `a[]` alone an empty array.",
+      "A POST, PUT, or PATCH with no fields and no --input sends the body {}.",
       "On GET, or with --input, fields go to the query string instead (arrays repeat the key).",
       "",
       "stdout is the response body, byte for byte except that a terminal gets indented JSON; it is not the CLI result envelope, and --json and --jsonl are refused.",
@@ -332,8 +334,15 @@ const api = Command.make("api", {
           message: `${method} cannot carry a body. Use -X POST, -X PUT, or -X PATCH with --input.`,
         });
       }
+      // A write with no fields sends `{}`: the API's payloads are JSON objects, so an endpoint
+      // whose payload fields are all optional rejects a missing body.
       const body: string | Uint8Array | undefined =
-        inputBody ?? (hasFields && !fieldsInQuery ? JSON.stringify(fieldObject) : undefined);
+        inputBody ??
+        (hasFields && !fieldsInQuery
+          ? JSON.stringify(fieldObject)
+          : !hasFields && emptyObjectBodyMethods.has(method)
+            ? "{}"
+            : undefined);
 
       const config = yield* getClientConfig;
       const headers: Record<string, string> = {

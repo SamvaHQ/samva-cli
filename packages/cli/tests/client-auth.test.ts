@@ -4,7 +4,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Templates from "samva/effect/templates";
 
 import type { ExecutionContext } from "../src/config/store";
-import { CliAuthError, processErrorCode, processErrorReason } from "../src/errors";
+import { processErrorCode, processErrorReason } from "../src/errors";
 import { getAuthenticatedJsonForContext, getClientProviderForContext } from "../src/lib/client";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -13,7 +13,7 @@ describe("authenticated API requests outside the SDK", () => {
   for (const auth of [
     { apiKey: "samva_test_key" },
     {
-      credentials: { accessToken: "oauth_token", tokenType: "bearer", expiresAt: 4_000_000_000 },
+      credentials: { accessToken: "oauth_token", tokenType: "bearer" },
       orgSlug: "acme",
     },
   ]) {
@@ -59,23 +59,30 @@ describe("authenticated API requests outside the SDK", () => {
     );
   }
 
-  it.effect("refuses expired OAuth credentials before fetching", () =>
+  it.effect("leaves OAuth session expiry to the server", () =>
     Effect.gen(function* () {
       const context: ExecutionContext = {
         profile: "default",
         apiUrl: "https://api.test",
         orgSlug: "acme",
-        credentials: { accessToken: "expired", tokenType: "bearer", expiresAt: 0 },
+        credentials: { accessToken: "ended_session", tokenType: "bearer" },
       };
-      const fetch = vi.fn();
+      const fetch = vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            { _tag: "UnauthorizedError", message: "Authentication required" },
+            { status: 401 },
+          ),
+        ),
+      );
       vi.stubGlobal("fetch", fetch);
 
       const error = yield* Effect.flip(getAuthenticatedJsonForContext(context, "/v1/starters/"));
-      expect(error).toBeInstanceOf(CliAuthError);
-      expect(error).toMatchObject({ code: "expired_credentials" });
-      expect(fetch).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(processErrorCode(error)).toBe(4);
     }),
   );
+
   it.effect("keeps a tagged API error's message, status, and exit code", () =>
     Effect.gen(function* () {
       const context: ExecutionContext = {

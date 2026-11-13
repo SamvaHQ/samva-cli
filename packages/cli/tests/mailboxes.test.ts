@@ -152,6 +152,7 @@ const action = {
   send: receipt("approvalRequired"),
   intent: null,
   resolution: null,
+  alwaysAllow: { by: "admin", allowed: true },
   createdAt: date,
   updatedAt: date,
 };
@@ -310,6 +311,7 @@ const scenarios = [
       draftId: null,
       decision: null,
       resolution: null,
+      alwaysAllow: null,
       createdAt: date,
       updatedAt: date,
       send: receipt("uncertain"),

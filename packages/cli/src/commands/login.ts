@@ -1,6 +1,5 @@
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
-import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 
@@ -86,11 +85,9 @@ export const loginCommand = Command.make("login", { noBrowser: noBrowserFlag }).
         device.expires_in,
       );
 
-      const nowMs = yield* Clock.currentTimeMillis;
       yield* writeCredentials({
         accessToken: token.access_token,
         tokenType: token.token_type,
-        expiresAt: Math.floor(nowMs / 1000) + token.expires_in,
         scope: token.scope,
       });
       yield* printResult({ action: "login" }, "Logged in.");

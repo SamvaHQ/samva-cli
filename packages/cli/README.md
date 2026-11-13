@@ -182,6 +182,10 @@ TTLs have elapsed. The command never removes DNS records.
 
 ## Template projects
 
+`samva templates suggest "<brief>"` lists the gallery designs that fit a brief, and `samva templates
+from-brief "<brief>"` creates a project from the best match (or `--gallery-template <id>`) and
+prints the dashboard editor link, which opens the assistant with the brief ready to send.
+
 Create a starter-backed project, or clone an existing template project. Samva creates the project
 identity and Artifact repository; Git owns the local checkout and synchronization:
 
