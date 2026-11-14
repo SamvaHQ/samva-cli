@@ -17,10 +17,9 @@ import { jsonFlag, printFields, printJson } from "../lib/output";
  * Meta has registered it.
  *
  * WhatsApp sends a business's first message only from a template Meta approved, so a published
- * template is submitted for review here and its status read back. The registrations API is hidden
- * (served while the `whatsapp` launch flag is on, absent from the public SDK), so the commands
- * call it directly with the CLI's credentials, as `samva whatsapp send` does. They live in the
- * unmounted `whatsapp` tree so the public binary advertises nothing flagged.
+ * template is submitted for review here and its status read back. The registrations API is
+ * published in OpenAPI and the SDK, with runtime access controlled by the `whatsapp` flag.
+ * These commands use authenticated JSON requests.
  */
 
 /** A registration as the API wire carries it: dates stay ISO strings. */

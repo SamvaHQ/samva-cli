@@ -30,9 +30,8 @@ import { gitConfig, listProjectTemplates, runGit } from "./templates/project";
  *
  * A flow's file is `flows/<handle>.json` in a template project. `publish` records one commit of
  * that file as the flow's next version, and `register` creates that version as a Meta flow and
- * publishes it. The flows API is hidden (served while the `whatsapp` launch flag is on, absent
- * from the public SDK), so the commands call it directly with the CLI's credentials, as the
- * template registration commands do.
+ * publishes it. The flows API is published in OpenAPI and the SDK, with runtime access controlled
+ * by the `whatsapp` flag. These commands use authenticated JSON requests.
  */
 
 /** Flows as the API wire carries them: dates stay ISO strings. */

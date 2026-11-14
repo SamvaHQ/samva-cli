@@ -21,9 +21,9 @@ import { jsonFlag, printFields, printJson } from "../lib/output";
  * `samva whatsapp setup-links create | list | get | revoke` — hosted links a platform hands its
  * own customer to connect a WhatsApp number into a namespace, without a Samva account.
  *
- * The setup-links API is hidden (served while the `whatsapp` launch flag is on, absent from the
- * public SDK), so the commands call it directly with the CLI's credentials, as the flows commands
- * do. A namespace-scoped key is confined to its namespace by the API.
+ * The setup-links API is published in OpenAPI and the SDK, with runtime access controlled by the
+ * `whatsapp` flag. These commands use authenticated JSON requests. A namespace-scoped key is
+ * confined to its namespace by the API.
  */
 
 /** Links as the API wire carries them: dates stay ISO strings. */
