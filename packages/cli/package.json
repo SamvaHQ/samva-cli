@@ -59,7 +59,7 @@
     "@types/node": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:effect",
-    "samva": "workspace:0.45.0",
+    "samva": "workspace:0.45.1",
     "vite": "~8.3.7",
     "vitest": "catalog:"
   },
