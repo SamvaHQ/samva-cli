@@ -140,6 +140,12 @@ export const curatedCommands: Readonly<Record<string, string>> = {
   scheduledMessagesCancel: "scheduled-messages cancel",
   scheduledMessagesResume: "scheduled-messages resume",
 
+  templateShareLinksCreate: "templates share-link create",
+  templateShareLinksUpdate: "templates share-link update",
+  templateShareLinksGet: "templates share-link get",
+  templateShareLinksRename: "templates share-link rename",
+  templateShareLinksDelete: "templates share-link delete",
+
   templatesList: "templates list",
   templatesCreate: "templates create",
   templatesCreateFromWebsite: "templates from-website",
@@ -212,6 +218,12 @@ export const curatedCommands: Readonly<Record<string, string>> = {
 
   whoamiGet: "org current",
 
+  mailboxesCountSplits: "api",
+  mailboxesListSplits: "api",
+  mailboxesCreateSplit: "api",
+  mailboxesUpdateSplit: "api",
+  mailboxesDeleteSplit: "api",
+  mailboxesListAddresses: "api",
   mailboxesList: "mailboxes list",
   mailboxesCreate: "mailboxes create",
   mailboxesGet: "mailboxes get",
@@ -243,6 +255,9 @@ export const curatedCommands: Readonly<Record<string, string>> = {
   mailboxesApproveAction: "mailboxes actions approve",
   mailboxesDenyAction: "mailboxes actions deny",
   mailboxesListEvents: "mailboxes events",
+  mailboxesCreateImportUpload: "mailboxes import",
+  mailboxesStartImport: "mailboxes import",
+  mailboxesGetImport: "mailboxes import-status",
 
   namespacesList: "namespaces list",
   namespacesCreate: "namespaces create",

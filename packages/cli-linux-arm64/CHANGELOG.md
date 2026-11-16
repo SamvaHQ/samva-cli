@@ -1,3 +1,25 @@
+## @samva/cli-linux-arm64@0.40.0
+
+### Create and manage template share links
+
+Use `samva templates share-link create|update|get|rename|delete <project-id>` to share a saved
+template project and manage its link. Create accepts `--slug`; rename requires it. Get reports
+views and opens. Delete requires `--yes` and keeps copies people already opened. Every mutation
+supports `--dry-run` without contacting the API.
+
+Copy every email from a share link into the current organization with
+`samva templates create --data '{"shareLinkSlug":"context-dev"}' --json`.
+The result includes the project ID, and repeated opens reuse the existing copy. Local template
+builds resolve the exported bundle's embedded brand without fetching its original organization's
+brand.
+
+### Agents follow up on contact events
+
+Agent definitions accept `eventTriggers` for contact events that start a turn on an existing
+conversation, and `followUpTemplate` for an approved WhatsApp template to send outside the service
+window. Configure both through the SDK or the CLI's `agents draft` JSON definition, then publish
+the agent. Inside the window, the agent replies in its own words.
+
 ## @samva/cli-linux-arm64@0.39.0
 
 ### Stay signed in while you use the CLI

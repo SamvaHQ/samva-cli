@@ -67,6 +67,20 @@ const cli = (args: ReadonlyArray<string>, stdin?: string) =>
   });
 
 describe("agent inspection", () => {
+  it("shows event triggers and the WhatsApp follow-up template", async () => {
+    getBody = {
+      ...agent,
+      draft: {
+        ...agent.draft,
+        eventTriggers: ["booking.confirmed"],
+        followUpTemplate: "appointment-update",
+      },
+    };
+    const run = await cli(["get", id]);
+    expect(run.code, run.stderr).toBe(0);
+    expect(run.stdout).toContain("booking.confirmed");
+    expect(run.stdout).toContain("appointment-update");
+  });
   it("gets the full agent including its draft and revision as JSON", async () => {
     const run = await cli(["get", id, "--json"]);
     expect(run.code, run.stderr).toBe(0);
@@ -196,6 +210,25 @@ describe("agent metadata updates", () => {
 });
 
 describe("agent draft replacement", () => {
+  it("sends event triggers and a follow-up template in the definition", async () => {
+    const definition = {
+      ...agent.draft,
+      eventTriggers: ["booking.confirmed", "contact.created"],
+      followUpTemplate: "appointment-update",
+    };
+    const run = await cli(
+      ["draft", "replace", id, "--revision", "revision-1", "--file", "-", "--json"],
+      JSON.stringify(definition),
+    );
+    expect(run.code, run.stderr).toBe(0);
+    expect(requests).toEqual([
+      {
+        method: "PUT",
+        path: `/v1/agents/${id}/draft`,
+        body: { revision: "revision-1", definition },
+      },
+    ]);
+  });
   it("round-trips the draft read by get through a file", async () => {
     const read = await cli(["get", id, "--json"]);
     expect(read.code, read.stderr).toBe(0);

@@ -646,14 +646,14 @@ describe("mailbox command HTTP contracts", () => {
     expect(machine.code, machine.stderr).toBe(0);
     expect(JSON.parse(machine.stdout)).toEqual(page);
   });
-  it("validates and previews a Done/Close patch without calling the API", async () => {
+  it("validates and previews a thread and reminder patch without calling the API", async () => {
     const preview = await run(
       [
         "thread-update",
         mailboxId,
         threadId,
         "--data",
-        '{"done":false,"closed":false}',
+        '{"done":false,"closed":false,"snoozedUntil":"2030-01-01T00:00:00.000Z","ifNoReply":true}',
         "--dry-run",
         "--json",
       ],
@@ -666,7 +666,12 @@ describe("mailbox command HTTP contracts", () => {
       action: "mailboxes.thread-update",
       id: mailboxId,
       threadId,
-      request: { done: false, closed: false },
+      request: {
+        done: false,
+        closed: false,
+        snoozedUntil: "2030-01-01T00:00:00.000Z",
+        ifNoReply: true,
+      },
     });
     const invalid = await run(
       ["thread-update", mailboxId, threadId, "--data", '{"done":"yes"}', "--json"],

@@ -66,6 +66,15 @@ Their JSON results contain `secret` and `warning` (`create` also includes `endpo
 `samva templates export --out <dir>` renders every local template's fixtures to HTML
 and text with the asset manifest, needing a Samva credential only to resolve a live `samva:brand`; `--asset-base <origin>` is for an
 export that will be delivered, which cannot carry a relative reference.
+`samva templates share-link create <project-id> [--slug <slug>]` exports the latest Save as a
+share link and prints its link. The slug defaults to the slugified project name and accepts 3–60
+lowercase letters, digits, or hyphens. `update <project-id>` replaces the snapshot at the same link;
+`get <project-id>` returns the link, view and open counts, and update time (`null` in JSON when
+absent). `rename <project-id> --slug <slug>` breaks the old link without redirecting it.
+`delete <project-id> --yes` disables the link while leaving opened copies intact. Every mutation
+supports an offline `--dry-run`; `--json` carries the complete result. A taken slug returns
+`SlugTaken` with a suggestion; choose the next slug explicitly.
+
 `samva templates check --watch` is the continuous authoring gate. Human mode prints observations;
 machine watch output uses `--jsonl`. `--json` remains one-shot.
 `samva mailboxes events` is a stream: human mode prints one raw record per line, `--jsonl` one result
@@ -322,3 +331,17 @@ set-default <id> --namespace <namespace-id>`.
 add a usable domain there or share an organization domain first. `--dry-run` prints the invitation without sending it, and `--json`
 returns the API invitation in the result envelope. The caller needs unrestricted organization
 administration authority.
+
+`samva mailboxes import <mailbox-id> <path>` uploads a plain mbox, an Apple Mail `.mbox` package,
+or a directory tree of packages into an existing mailbox as history. `--dry-run` lists archives
+without uploading; otherwise the command waits for each job and prints imported, duplicate,
+spam/trash, and failed counts. `--json` returns `{items, files, skippedEmpty}`: `items` holds one job summary, `files` records
+source paths with Apple `tableOfContents` detection and flag-fallback warnings, and `skippedEmpty`
+lists empty Apple packages. Every nonempty package uploads into the same queued job before the
+command starts it once, so its counts cover the whole tree. Apple packages stage Inbox, Sent/Sent
+Messages, Archive, then other mailbox paths, sorted by path within each group; the first copy owns
+initial placement and flags while same-import copies add labels. Apple package paths become labels; the
+sidecar's flags are not reliably decoded, so MIME flags apply and the default is read/unflagged.
+`import-status <mailbox-id> <import-id>` reads progress and failure reasons. A failed job or failed
+messages exit `1`, preserving structured results. Repeating an export deduplicates messages within
+the mailbox. Importing emits no live-mail events or notifications.

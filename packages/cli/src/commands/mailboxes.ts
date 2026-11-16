@@ -48,6 +48,7 @@ import {
 import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
 import { mailboxesEventsCommand } from "./mailboxes-events";
+import { mailboxesImportCommand, mailboxesImportStatusCommand } from "./mailboxes-import";
 
 const mailboxIdArgument = Argument.String("mailbox-id").pipe(Argument.withSchema(MailboxId));
 const messageIdArgument = Argument.String("message-id").pipe(Argument.withSchema(MessageId));
@@ -423,7 +424,7 @@ const threadUpdate = Command.make("thread-update", {
   threadId: Argument.String("thread-id").pipe(Argument.withSchema(MailboxThreadId)),
   data: Flag.String("data").pipe(
     Flag.withDescription(
-      "JSON patch or @file: done, closed, folder, priority, read, starred, snoozedUntil",
+      "JSON patch or @file: done, closed, folder, priority, read, starred, snoozedUntil, ifNoReply",
     ),
   ),
   dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
@@ -1499,6 +1500,8 @@ export const mailboxesCommand = Command.make("mailboxes").pipe(
   Command.withDescription("Mailbox reading and governed sending"),
   Command.withSubcommands([
     mailboxesEventsCommand,
+    mailboxesImportCommand,
+    mailboxesImportStatusCommand,
     list,
     create,
     get,

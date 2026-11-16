@@ -309,6 +309,30 @@ const relativeSnapshot = (root: string, path: string): string =>
 export const resolveProjectBrand = async (
   input: ResolveProjectBrandInput,
 ): Promise<BrandResolution> => {
+  const theme = input.files[input.themePath ?? "theme.css"];
+  if (typeof theme === "string") {
+    const embedded = /\/\* samva-starter-brand:([^]*?) \*\//u.exec(theme);
+    if (theme.includes("/* samva-starter-brand:")) {
+      if (embedded === null)
+        return { ok: false, message: "The starter's embedded brand is invalid." };
+      // This resolver is embedded into the project's toolchain without workspace dependencies.
+      // oxlint-disable-next-line samva/no-try-catch-or-throw -- Malformed project metadata is a brand resolution failure.
+      try {
+        const value: unknown = JSON.parse(decodeURIComponent(embedded[1] ?? ""));
+        const brand = isObject(value) ? asBrand({ ...value, name: value.slug }) : undefined;
+        return brand === undefined
+          ? { ok: false, message: "The starter's embedded brand is invalid." }
+          : {
+              ok: true,
+              brand: toResolved({ ...brand, version: SNAPSHOT_VERSION, pulledAt: "" }),
+              source: "snapshot",
+              warnings: [],
+            };
+      } catch {
+        return { ok: false, message: "The starter's embedded brand is invalid." };
+      }
+    }
+  }
   const specifier = projectBrandSpecifier(input.files, {
     themePath: input.themePath ?? "",
     brandPlugin: samvaBrandPlugin,
@@ -402,6 +426,15 @@ export const createBrandResolver = (options: {
   const cache = new Map<string, { readonly at: number; readonly resolution: BrandResolution }>();
   return {
     resolve: async (files, themePath) => {
+      const theme = files[themePath ?? "theme.css"];
+      if (typeof theme === "string" && theme.includes("/* samva-starter-brand:"))
+        return resolveProjectBrand({
+          root: options.root,
+          files,
+          themePath,
+          env: options.env,
+          offline: options.offline,
+        });
       const key =
         projectBrandSpecifier(files, {
           themePath: themePath ?? "",

@@ -329,3 +329,41 @@ describe("resolveProjectBrand", () => {
     expect(resolution).toMatchObject({ ok: false, message: expect.stringContaining("acme.json") });
   });
 });
+
+describe("share link brand", () => {
+  it("resolves the embedded snapshot without credentials or a live brand lookup", async () => {
+    const brand = brandBody();
+    const theme = `${brand.css}\n/* samva-starter-brand:${encodeURIComponent(JSON.stringify(brand))} */`;
+    const result = await resolveProjectBrand({
+      root: "/unused",
+      files: { "theme.css": theme },
+      env: {},
+      offline: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      source: "snapshot",
+      brand: { slug: brand.slug, assets: brand.assets, footer: brand.footer, css: brand.css },
+      warnings: [],
+    });
+  });
+  it("refuses corrupt embedded metadata", async () => {
+    expect(
+      await resolveProjectBrand({
+        root: "/unused",
+        files: { "theme.css": "/* samva-starter-brand:%ZZ */" },
+        env: {},
+      }),
+    ).toMatchObject({ ok: false });
+  });
+});
+
+it("refuses a truncated starter snapshot instead of looking up a live brand", async () => {
+  expect(
+    await resolveProjectBrand({
+      root: "/unused",
+      files: { "theme.css": "/* samva-starter-brand:%7B" },
+      env: {},
+    }),
+  ).toMatchObject({ ok: false });
+});

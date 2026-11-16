@@ -113,6 +113,40 @@ describe("samva api request", () => {
     expect(requests[0]?.headers["x-api-key"]).toBeUndefined();
   });
 
+  it("lets an owner list contact connections and revoke the selected account", async () => {
+    const accountId = "intgacct_1234567890abcdef";
+    const items = [
+      { accountId, integrationId: "intg_1234567890abcdef", contactId: "contact_1234567890abcdef" },
+    ];
+    reply = (request) => ({
+      status: 200,
+      body: JSON.stringify(
+        request.method === "DELETE" ? { id: accountId, deleted: true } : { items },
+      ),
+    });
+    const invoke = (args: ReadonlyArray<string>) =>
+      runCli(["--no-env-file", oauthRunner, "api", ...args], {
+        executable: "bun",
+        configHome: home,
+        env: { SAMVA_API_URL: apiUrl },
+      });
+    const listed = await invoke(["accounts/contact-connections"]);
+    expect(listed.code).toBe(0);
+    expect(JSON.parse(listed.stdout)).toEqual({ items });
+    const removed = await invoke([`accounts/${accountId}`, "-X", "DELETE"]);
+    expect(removed.code).toBe(0);
+    expect(JSON.parse(removed.stdout)).toEqual({ id: accountId, deleted: true });
+    expect(requests.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
+      { method: "GET", url: "/v1/accounts/contact-connections", body: "" },
+      { method: "DELETE", url: `/v1/accounts/${accountId}`, body: "" },
+    ]);
+    for (const request of requests) {
+      expect(request.headers.authorization).toBe("Bearer oauth-test-token");
+      expect(request.headers["x-org-slug"]).toBe("acme");
+      expect(request.headers["x-api-key"]).toBeUndefined();
+    }
+  });
+
   it("keeps a query string in the path and sends GET fields beside it", async () => {
     await api([
       "email/domains?limit=2",
@@ -133,7 +167,14 @@ describe("samva api request", () => {
   });
 
   it("defaults to POST with a JSON body once a field is given", async () => {
-    await api(["webhooks", "-f", "name=orders", "-f", "url=https://example.com/hook"]);
+    const result = await api([
+      "webhooks",
+      "-f",
+      "name=orders",
+      "-f",
+      "url=https://example.com/hook",
+    ]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(requests[0]).toMatchObject({ method: "POST", url: "/v1/webhooks" });
     expect(requests[0]?.headers["content-type"]).toBe("application/json");
     expect(lastBody()).toEqual({ name: "orders", url: "https://example.com/hook" });

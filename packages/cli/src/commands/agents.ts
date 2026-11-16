@@ -123,6 +123,8 @@ const get = Command.make("get", {
         ["Setup job", agent.setupJob ?? "unstated"],
         ["Namespace", agent.namespaceId ?? "organization"],
         ["Revision", agent.revision],
+        ["Event triggers", (agent.draft.eventTriggers ?? []).join(", ") || "none"],
+        ["WhatsApp follow-up template", agent.draft.followUpTemplate ?? "none"],
         ["Published version", agent.publishedVersion ?? "unpublished"],
         ["Published at", agent.publishedAt ?? "unpublished"],
         ["Paused", pauses.length > 0 ? pauses.join(", ") : "no"],

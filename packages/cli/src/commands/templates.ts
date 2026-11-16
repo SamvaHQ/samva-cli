@@ -37,6 +37,7 @@ import { buildDir } from "./templates/local-build";
 import { exportProject } from "./templates/local-export";
 import { add, clone, credential, init, move, publish } from "./templates/project";
 import { renderCommand } from "./templates/render-command";
+import { shareLinkCommand } from "./templates/share-link-command";
 import { snapshotCommand } from "./templates/snapshot-command";
 import { suggestCommand } from "./templates/suggest-command";
 import {
@@ -809,15 +810,33 @@ const createRemote = Command.make("create", {
   dryRun: dryRunFlag,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Create a remote template from JSON"),
+  Command.withDescription("Create a remote template, or copy a share link with only shareLinkSlug"),
   Command.withExamples([
     {
       command: `samva templates create --data '{"name":"Welcome","projectName":"welcome-email"}' --dry-run`,
+    },
+    {
+      command: `samva templates create --data '{"shareLinkSlug":"for-context-dev"}' --json`,
+      description: "Open this organization's copy of every email in a share link",
     },
   ]),
   Command.withHandler(({ data, namespace, idempotencyKey, shared, dryRun, json }) =>
     Effect.gen(function* () {
       const decoded = yield* decodePayload(data, "--data", Templates.CreatePayload);
+      if (decoded.shareLinkSlug === undefined && decoded.name === undefined)
+        return yield* new CliUsageError({
+          code: "template_name_required",
+          message:
+            "Provide name for a named/gallery project, or only shareLinkSlug to copy a share link.",
+        });
+      if (
+        decoded.shareLinkSlug !== undefined &&
+        Object.keys(decoded).some((key) => key !== "shareLinkSlug")
+      )
+        return yield* new CliUsageError({
+          code: "share_link_source_only",
+          message: "Copy a share link with only shareLinkSlug in --data.",
+        });
       if (shared && decoded.shared === false)
         return yield* new CliUsageError({
           code: "shared_conflict",
@@ -836,6 +855,12 @@ const createRemote = Command.make("create", {
         return yield* new CliUsageError({
           code: "namespace_conflict",
           message: "--namespace and the namespaceId in --data name different namespaces.",
+        });
+      if (decoded.shareLinkSlug !== undefined && (shared || Option.isSome(namespace)))
+        return yield* new CliUsageError({
+          code: "share_link_source_only",
+          message:
+            "Copy a share link with only shareLinkSlug in --data; omit --namespace and --shared.",
         });
       const payload = {
         ...decoded,
@@ -1182,6 +1207,7 @@ export const templatesCommand = Command.make("templates").pipe(
     updateRemote,
     deleteRemote,
     projects,
+    shareLinkCommand,
     suggestCommand,
     fromBriefCommand,
     fromWebsiteCommand,

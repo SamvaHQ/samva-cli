@@ -112,6 +112,8 @@ const apiStatuses: Readonly<Record<string, number>> = {
   ForbiddenError: 403,
   ResourceNotFoundError: 404,
   ConflictError: 409,
+  SlugTaken: 409,
+  ShareLinkUnavailable: 410,
   TemplateInUseError: 409,
   MailboxSendConflictError: 409,
   MailboxSendRefusedError: 403,
@@ -183,6 +185,12 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
     case "MalformedRequestError":
       next =
         "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.";
+      break;
+    case "ShareLinkUnavailable":
+      next = "Use an available share link; the owner may have renamed or deleted this one.";
+      break;
+    case "SlugTaken":
+      next = "Choose another share link slug; details.suggestion is an available alternative.";
       break;
     case "TemplateInUseError":
       next = "Remove the listed references before deleting the template or project.";
