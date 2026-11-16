@@ -1219,7 +1219,7 @@ describe("--json stdout purity", () => {
     expect(recipientPreview).toMatchObject({ code: 0, stderr: "" });
     expect(parseResult(recipientPreview.stdout)).toMatchObject({
       action: "email.tracking.recipient.set",
-      request: { email: "Reader@Example.com", optedOut: true },
+      request: { email: "Reader@example.com", optedOut: true },
     });
   });
 

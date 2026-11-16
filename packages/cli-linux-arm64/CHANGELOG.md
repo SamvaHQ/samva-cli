@@ -1,3 +1,21 @@
+## @samva/cli-linux-arm64@0.40.1
+
+### Refresh the bundled runtime
+
+The CLI includes Effect 4.1.4, including its command wizard parsing fix and restored MCP skill discovery on earlier protocol revisions.
+
+### Validate tracking recipients before making requests
+
+`samva email tracking recipient get` and `set` reject invalid email addresses before
+authentication or API requests. Preview and apply use the same validation and domain
+normalization as the API.
+
+### Identify template share-link and mailbox import commands in JSON output
+
+Results and errors from `samva templates share-link`, `samva mailboxes import`, and
+`samva mailboxes import-status` identify the full command, such as `templates.share-link.create`,
+in the JSON envelope's `command` field.
+
 ## @samva/cli-linux-arm64@0.40.0
 
 ### Create and manage template share links

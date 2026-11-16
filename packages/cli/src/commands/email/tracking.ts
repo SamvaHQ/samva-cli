@@ -1,3 +1,4 @@
+import { EmailAddressString } from "@samva/core/shared/base";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -17,7 +18,7 @@ const toggle = (name: string, description: string) =>
   Flag.Literals(name, ["on", "off"]).pipe(Flag.withDescription(description), Flag.optional);
 
 const validateRecipientEmail = (email: string) =>
-  Schema.decodeEffect(Email.TrackingRecipientEmail)(email).pipe(
+  Schema.decodeEffect(EmailAddressString)(email).pipe(
     Effect.mapError(
       () =>
         new CliUsageError({

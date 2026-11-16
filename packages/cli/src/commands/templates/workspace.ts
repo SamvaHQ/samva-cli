@@ -17,9 +17,9 @@ import { jsonFlag, printJsonDocument } from "../../lib/output";
  *
  * The Git commands remain the way to author a project you have cloned. This
  * group is for a caller that has no clone: an agent in a sandbox, a CI job, a
- * script. It reaches exactly the operations the hosted MCP tools reach, through
- * the same domain-authorized API, so both external transports complete the same
- * journey against the same substrate rather than two lookalike ones.
+ * script. It exposes the core authoring operations through the same
+ * domain-authorized API as hosted MCP. Conflict resolution and workspace restore
+ * are available through MCP and the API.
  *
  * Every command prints its complete result as JSON. There is no human rendering
  * here on purpose: these outputs are revisions, digests, and diagnostics that a

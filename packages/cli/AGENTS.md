@@ -27,7 +27,8 @@ is no built-in filter.
 `revoke`. `create` takes `--name` and either `--full-access` or restricted access built from repeatable
 `--grant <resource>=read|write` and mailbox access: repeatable `--mailbox-permission
 read|update|send|quarantine.read`, optionally narrowed to repeatable `--mailbox <id>` (default:
-every mailbox the owner reaches). `--namespace <id>` confines a restricted key to one namespace.
+every shared mailbox the owner reaches; personal mailboxes require an explicit ID).
+`--namespace <id>` confines a restricted key to one namespace.
 Passing no access, or both
 `--full-access` and restricted access, exits `2`, as does `--mailbox` without a
 `--mailbox-permission`. `--description` and `--expires-at` are optional. `update` renames a key
@@ -130,9 +131,9 @@ shared project into a namespace.
 
 `samva templates workspace <open|diff|patch|add-asset|check|fixture|save|history|publish>` is the
 hosted project workspace over the CLI, for a caller with no clone: an agent in a sandbox, a CI job,
-a script. It reaches the same operations the hosted MCP tools reach, so an agent can start a journey in one
-and finish it in the other; `add-asset` alone has no MCP twin, because a chat client holds no file
-bytes to send. Every subcommand prints its complete
+a script. Core authoring operations share the API with hosted MCP. Conflict resolution and
+workspace restore are available through MCP and the API; `add-asset` has no MCP twin, because a
+chat client holds no file bytes to send. Every subcommand prints its complete
 result as JSON because these outputs — revisions, digests, diagnostics — are inputs to the next
 call. `open` returns the revision every other subcommand is fenced to; a workspace that moved refuses
 them, and reopening is the recovery. The reads (`diff`, `check`, `fixture`) fence to the current
@@ -220,10 +221,12 @@ calls to you, rather than to an installation. Read what exists with `list`, `ver
 `run <id> <run-id>` (adds the handler's log lines); the list commands page with `--limit`,
 `--cursor`, and `--all --jsonl`.
 
-`samva mailboxes` reads and sends as a mailbox. Every command except `list` and `create`
-takes the mailbox ID as its first argument and the message, action, or endpoint ID second,
+`samva mailboxes` reads and sends as a mailbox. Commands scoped to one mailbox take its ID
+as the first argument and the message, action, or endpoint ID second,
 as in `read <mailbox-id> <message-id>` and `endpoints update <mailbox-id> <endpoint-id>`; `events`
-takes any number of mailbox IDs, or none for every mailbox the credential reads. `list` pages with `--limit`, `--cursor`, `--after`,
+takes any number of mailbox IDs, or none for every mailbox the credential reads. `needs-you` and
+`all-threads` span accessible mailboxes without a positional mailbox ID. `list` pages with
+`--limit`, `--cursor`, `--after`,
 and `--before`. `create --address <address> --name <name>` makes a mailbox with one email endpoint; the
 slug defaults to the address's local part, and a collision asks for `--slug` rather than suffixing.
 `get <id>` inspects a mailbox; `update <id> --data <JSON-or-@file>` changes
@@ -307,7 +310,7 @@ one of `decide` (a default) or `atLeast` (a binding floor). `get` returns a flat
 returns the next snapshot; clearing keeps the counter. On `409`, reload and review before editing
 again, never automatically retry stale full configuration with a newer version. The API checks
 authority for each scope.
-`mailboxes needs-you` includes every held action, its decision, and counts under `heldActions`.
+`mailboxes needs-you` includes every held action, its decision, and counts under `counts.heldActions`.
 `mailboxes actions approve ... --review-round <observed-round> --edit-text '<text>'` approves
 replacement message text with the same required review identity.
 Extension installation accepts unversioned configuration as `--policy '<json>'`; omit snapshot

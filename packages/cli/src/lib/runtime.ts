@@ -136,6 +136,7 @@ const commandTree = {
   },
   "scheduled-messages": { create: {}, list: {}, get: {}, cancel: {}, resume: {} },
   templates: {
+    "share-link": { create: {}, update: {}, get: {}, rename: {}, delete: {} },
     init: {},
     clone: {},
     credential: {},
@@ -172,6 +173,8 @@ const commandTree = {
   },
   brands: { list: {}, get: {}, pull: {}, push: {}, default: {}, remove: {} },
   mailboxes: {
+    import: {},
+    "import-status": {},
     events: {},
     list: {},
     create: {},

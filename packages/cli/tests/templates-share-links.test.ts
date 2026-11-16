@@ -63,6 +63,7 @@ describe("share link commands", () => {
     const result = await cli([command, projectId, ...flags, "--dry-run", "--json"]);
     expect(result.code, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout).command).toBe(`templates.share-link.${command}`);
     expect(JSON.parse(result.stdout).data).toMatchObject({
       dryRun: true,
       action: `templates.share-link.${command}`,
@@ -104,6 +105,7 @@ describe("share link commands", () => {
     expect(human.stdout).toContain("4");
     const machine = await cli(["get", projectId, "--json"]);
     expect(machine.code, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout).command).toBe("templates.share-link.get");
     expect(JSON.parse(machine.stdout).data).toEqual(status);
     response = null;
     const deleted = await cli(["get", projectId, "--json"]);
@@ -152,6 +154,7 @@ describe("share link commands", () => {
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(JSON.parse(result.stderr)).toMatchObject({
+      command: "templates.share-link.create",
       reason: "SlugTaken",
       details: { suggestion: "for-context-dev-2" },
     });
