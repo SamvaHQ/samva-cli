@@ -54,6 +54,7 @@ const contact = {
 let configHome: string;
 let requests: Array<{ url: URL; apiKey: string | string[] | undefined }>;
 let apiUrl: string;
+let mergeBody: unknown;
 let closeApi: () => Promise<void>;
 let forbidden: boolean;
 let failSecondPage: false | "forbidden" | "validation" | "transport";
@@ -62,6 +63,7 @@ beforeEach(async () => {
   configHome = await mkdtemp(join(tmpdir(), "samva-cli-contacts-"));
   requests = [];
   forbidden = false;
+  mergeBody = undefined;
   failSecondPage = false;
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -82,6 +84,17 @@ beforeEach(async () => {
     }
     if (forbidden)
       return reply(403, { _tag: "ForbiddenError", message: "Contacts read permission required" });
+    if (url.pathname === `/v1/contacts/${id}/merge`) {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        mergeBody = JSON.parse(body);
+        reply(200, contact);
+      });
+      return;
+    }
     if (url.pathname === `/v1/contacts/${id}`) return reply(200, contact);
     if (url.pathname !== "/v1/contacts") return reply(404, {});
     const second = url.searchParams.get("cursor") === "next-page";
@@ -113,6 +126,42 @@ const cli = (args: ReadonlyArray<string>) =>
   });
 
 describe("contacts CLI HTTP boundary", () => {
+  it("merges with an explicit confirmation and sends only the absorbed ID", async () => {
+    const from = "contact_9z4wx8jqm2rkt6ps";
+    const result = await cli(["merge", id, "--from", from, "--yes", "--json"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(JSON.parse(result.stdout)).toMatchObject({ command: "contacts.merge", data: { id } });
+    expect(mergeBody).toEqual({ from });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.apiKey).toBe("samva_sk_test_contacts");
+  });
+
+  it("requires confirmation before a merge and refuses self-merges without a request", async () => {
+    const result = await cli(["merge", id, "--from", "contact_9z4wx8jqm2rkt6ps", "--json"]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("confirmation_required");
+    const self = await cli(["merge", id, "--from", id, "--yes", "--json"]);
+    expect(self.code).toBe(2);
+    expect(self.stderr).toContain("self_merge");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("previews a merge without sending a request", async () => {
+    const result = await cli([
+      "merge",
+      id,
+      "--from",
+      "contact_9z4wx8jqm2rkt6ps",
+      "--dry-run",
+      "--json",
+    ]);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      data: { dryRun: true, id, action: "contacts.merge" },
+    });
+    expect(requests).toHaveLength(0);
+  });
+
   it("forwards filters and projection while returning one bounded page envelope", async () => {
     const result = await cli([
       "list",

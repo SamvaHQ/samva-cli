@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -5,6 +6,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 import { DEFAULT_AGENT_DEFINITION } from "@samva/core/agents/definition";
+import { generateAgentModule } from "@samva/core/agents/module";
 
 import { runCli } from "./support/run-cli";
 
@@ -337,14 +339,21 @@ describe("agent draft replacement", () => {
 });
 
 describe("agent publishing", () => {
+  const module = generateAgentModule(agent.name, "1.0.0", agent.draft);
   const published = {
     agent: { ...agent, publishedVersion: 1, publishedAt: agent.createdAt },
     version: {
       agentId: id,
       version: 1,
       definition: agent.draft,
+      authoring: "builder",
       publishedAt: agent.createdAt,
       modelFallback: null,
+      bundle: {
+        manifest: module.manifest,
+        sha256: createHash("sha256").update(module.source).digest("hex"),
+        sizeBytes: Buffer.byteLength(module.source),
+      },
     },
     published: true,
   };

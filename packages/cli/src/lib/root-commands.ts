@@ -8,7 +8,6 @@ import { contactsCommand } from "../commands/contacts";
 import { conversationsCommand } from "../commands/conversations";
 import { emailCommand } from "../commands/email";
 import { eventsCommand } from "../commands/events";
-import { extensionsCommand } from "../commands/extensions";
 import { feedbackCommand } from "../commands/feedback";
 import { journeysCommand } from "../commands/journeys";
 import { knowledgeCommand } from "../commands/knowledge";
@@ -54,7 +53,6 @@ export const rootCommands = [
   conversationsCommand,
   knowledgeCommand,
   namespacesCommand,
-  extensionsCommand,
   webhooksCommand,
   apiCommand,
   apiKeysCommand,

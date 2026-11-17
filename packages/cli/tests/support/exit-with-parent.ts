@@ -1,7 +1,6 @@
 /**
  * Preloaded into every CLI process a test spawns. A test runner killed outright (SIGKILL, a crashed
- * worker) runs no teardown, and commands that retry until stopped (`mailboxes events`,
- * `extensions dev`) would otherwise outlive it, reparented and reconnecting to a fixture that is
+ * worker) runs no teardown, and commands that retry until stopped (`mailboxes events`) would otherwise outlive it, reparented and reconnecting to a fixture that is
  * gone. Exit as soon as the parent is no longer the runner that spawned this process.
  *
  * The runner passes its PID rather than this process reading `process.ppid` at startup: a runner

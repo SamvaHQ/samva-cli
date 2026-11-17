@@ -11,6 +11,7 @@ import * as Contacts from "samva/effect/contacts";
 
 import { CliUsageError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { confirmDestructive } from "../lib/confirm";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested } from "../lib/runtime";
@@ -249,8 +250,60 @@ const events = Command.make("events", {
   ),
 );
 
+const merge = Command.make("merge", {
+  id: Argument.String("id").pipe(Argument.withDescription("Contact ID to keep")),
+  from: Flag.String("from").pipe(Flag.withDescription("Contact ID to absorb")),
+  yes: Flag.Boolean("yes").pipe(Flag.withDescription("Confirm the merge"), Flag.withDefault(false)),
+  dryRun: Flag.Boolean("dry-run").pipe(
+    Flag.withDescription("Preview without merging"),
+    Flag.withDefault(false),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Merge another contact into this one, preserving identities and activity. This cannot be undone.",
+  ),
+  Command.withExamples([
+    {
+      command:
+        "samva contacts merge contact_7q2xk9mvt4znw8rh --from contact_9z4wx8jqm2rkt6ps --yes --json",
+    },
+  ]),
+  Command.withHandler(({ id, from, yes, dryRun, json }) =>
+    Effect.gen(function* () {
+      if (id === from)
+        return yield* new CliUsageError({
+          code: "self_merge",
+          message: "Choose two different contacts to merge.",
+        });
+      if (dryRun)
+        return yield* json
+          ? printJson({ dryRun: true, action: "contacts.merge", id, from })
+          : Console.log(`[dry-run] Would merge ${from} into ${id}.`);
+      yield* confirmDestructive({
+        yes,
+        json,
+        message: `Merge ${from} into ${id}? This cannot be undone.`,
+        nonInteractiveMessage:
+          "Merging contacts requires --yes in non-interactive mode. Preview with --dry-run.",
+      });
+      const client = yield* getClientProvider;
+      const contact = yield* Contacts.merge({ id, from }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not merge contacts", error)),
+      );
+      if (json) return yield* printJson(contact);
+      yield* printFields([
+        ["Contact ID", contact.id],
+        ["Name", contact.name],
+        ["Absorbed contact", from],
+      ]);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 export const contactsCommand = Command.make("contacts").pipe(
   Command.withDescription("List, inspect, and import contacts"),
   Command.withExamples([{ command: "samva contacts list --search ada --json" }]),
-  Command.withSubcommands([list, get, events, importContacts, importStatus, resumeImport]),
+  Command.withSubcommands([list, get, events, merge, importContacts, importStatus, resumeImport]),
 );

@@ -473,7 +473,6 @@ describe("the raw-JSON guard", () => {
       .sort();
     expect(selectors).toEqual([
       // reads the global output mode from argv
-      "extensions.ts",
       "mailboxes-events.ts",
       // --format json, routed through printJsonDocument
       "templates/render-command.ts",

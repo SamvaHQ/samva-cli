@@ -206,21 +206,6 @@ Keep Samva brand resolution in the CLI and pass `samvaBrandPlugin` to the projec
 toolchain, so standalone `@samva/vite` stays independent of Samva authentication and storage.
 Standalone callers supply their own resolver. The README owns resolution order and configuration.
 
-`samva extensions` is the mailbox extension developer loop: `init` scaffolds an authoring project,
-`dev` handles mailbox events locally, `publish` records an immutable version, and `install` grants
-that version scoped mailbox permissions. Hosted extensions run on Samva; webhook extensions use
-the installation credentials returned once at install. Publishing and installation management
-require a person signed in with `samva login`. `upgrade <installation-id>` selects the latest
-published version, or `--version <version-or-id>` selects one. `--dry-run` asks the API for the
-from/to versions and added/removed grants without changing the installation; the installation
-shown in a preview is its current state. Applying requires confirmation (`--yes` outside a
-terminal) and an exact, repeatable `--accept-permissions` acknowledgement for each added grant,
-such as `permission:send` or `event:mailbox.message.sent`. Local development with that login attributes tool
-calls to you, rather than to an installation. Read what exists with `list`, `versions <name>`,
-`version <name> <version>`, `installations`, `installation <id>`, `runs <id>` (outcomes only), and
-`run <id> <run-id>` (adds the handler's log lines); the list commands page with `--limit`,
-`--cursor`, and `--all --jsonl`.
-
 `samva mailboxes` reads and sends as a mailbox. Commands scoped to one mailbox take its ID
 as the first argument and the message, action, or endpoint ID second,
 as in `read <mailbox-id> <message-id>` and `endpoints update <mailbox-id> <endpoint-id>`; `events`
@@ -253,16 +238,16 @@ require the observed decision's positive `reviewRound`, a person different from 
 confirmation (`--yes` outside a terminal); both offer `--dry-run`. A stale round returns `409`.
 Refresh the action and review the new decision before deciding again; never default the round or
 silently substitute the latest value.
-Human mailbox and extension results retain the same facts as JSON: mailbox endpoints (channel, address,
+Human mailbox results retain the same facts as JSON: mailbox endpoints (channel, address,
 sender name, default), thread state and activity, message bodies, attachments, authentication and actor,
-receipt waits and skipped recipients, held-mail results, and installation/run details.
+receipt waits and skipped recipients, and held-mail results.
 `samva mailboxes events` reads the SDK event stream, which reconnects (`--no-reconnect` turns that
 off), and prints one record per event, `{cursor, id, event}` (`--jsonl` wraps each in a result
 envelope, `--quiet` prints none, `--json` is refused). A refusal, or a drop under
 `--no-reconnect`, ends the command with the server's `_tag` as
 the error `reason`, its `status` and `details`, and a `Try:` line; the last handled cursor, which
 `--cursor` resumes from, goes to stderr in human mode and into `details.lastCursor` otherwise.
-`samva extensions dev` follows the same output modes. 401 and 403 exit 4. An expired
+401 and 403 exit 4. An expired
 cursor exits 1 and the next step is to start without `--cursor`. Ctrl+C exits cleanly.
 
 `samva subscriptions subscribe` requests one email confirmation with `--email`,
@@ -313,8 +298,6 @@ authority for each scope.
 `mailboxes needs-you` includes every held action, its decision, and counts under `counts.heldActions`.
 `mailboxes actions approve ... --review-round <observed-round> --edit-text '<text>'` approves
 replacement message text with the same required review identity.
-Extension installation accepts unversioned configuration as `--policy '<json>'`; omit snapshot
-`version` and replacement `ifVersion` there.
 
 `samva templates delete <id> --dry-run` previews permanent template deletion; `--yes` deletes it.
 `samva templates projects delete <id> --dry-run` lists every visible template the project deletion
@@ -348,3 +331,19 @@ sidecar's flags are not reliably decoded, so MIME flags apply and the default is
 `import-status <mailbox-id> <import-id>` reads progress and failure reasons. A failed job or failed
 messages exit `1`, preserving structured results. Repeating an export deduplicates messages within
 the mailbox. Importing emits no live-mail events or notifications.
+
+`samva agents init <dir> --name <name>` scaffolds an explicit `agent.ts` declaration, Markdown
+instructions and skills, a tool, and an eval under `evals/`. Register each imported value in
+`defineAgent`; paths do not discover behavior. `build [dir] --entry agent.ts --out dist/agent.js`
+bundles one self-contained ES module with Markdown text imports. `info [dir] --entry agent.ts`
+reports the validated manifest, declared tools, skills, events, schedules, digest, and coded
+diagnostics; invalid projects exit nonzero, with diagnostics preserved in `--json` results.
+Both commands evaluate the project's top-level declaration locally; run them only on source you
+trust. They do not invoke tool, event, or schedule handlers. Tools explicitly declare `replay`
+and may declare `approval`; Samva's stricter policy floors still apply.
+
+`samva agents publish <agent-id> --dir <dir> [--entry agent.ts]` builds and publishes the module
+through `/v1/agents/{id}/versions`. `--revision <observed-revision>` fences publication; when
+omitted the CLI reads the current revision once. `--dry-run` builds and validates locally
+without authentication or HTTP calls. Omitting `--dir` preserves draft publication. Local
+agent development against the host is a separate capability.

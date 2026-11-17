@@ -1,5 +1,5 @@
 import { AgentDefinition, MonthlySpendCapDollars } from "@samva/contracts/agents/group";
-import { AgentTestRerun, RunAgentTestPayload } from "@samva/contracts/agents/setup-group";
+import { AgentTestRerun, RunAgentTestPayload } from "@samva/contracts/agents/tests";
 import { AgentName } from "@samva/core/agents/definition";
 import { AgentSetupJob } from "@samva/core/agents/presets";
 import { AgentId, NamespaceId } from "@samva/core/shared/base";
@@ -12,9 +12,11 @@ import * as Option from "effect/Option";
 import * as Agents from "samva/effect/agents";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
+import { buildAgent } from "../lib/agent-project";
 import { getClientProvider, postAuthenticatedJson } from "../lib/client";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { readStdinUtf8 } from "../lib/stdin";
+import { agentProjectCommands } from "./agents-project";
 
 const list = Command.make("list", {
   namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
@@ -272,6 +274,11 @@ const replace = Command.make("replace", {
 );
 
 const publish = Command.make("publish", {
+  dir: Flag.String("dir").pipe(
+    Flag.withDescription("Build a local agent module directory; evaluates its declaration locally"),
+    Flag.optional,
+  ),
+  entry: Flag.String("entry").pipe(Flag.withDefault("agent.ts")),
   agentId: Argument.String("agent-id").pipe(Argument.withSchema(AgentId)),
   revision: Flag.String("revision").pipe(
     Flag.withSchema(Schema.NonEmptyString),
@@ -284,21 +291,26 @@ const publish = Command.make("publish", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Publish the draft; without --revision, reads and publishes the current revision",
+    "Publish the draft, or --dir <directory> to build and publish a local module; without --revision reads the current revision",
   ),
   Command.withExamples([
     { command: "samva agents publish agt_1234567890123456 --json" },
+    { command: "samva agents publish agt_1234567890123456 --dir ./support --json" },
     { command: "samva agents publish agt_1234567890123456 --revision <revision> --dry-run --json" },
   ]),
-  Command.withHandler(({ agentId, revision, dryRun, json }) =>
+  Command.withHandler(({ agentId, revision, dir, entry, dryRun, json }) =>
     Effect.gen(function* () {
+      const built = Option.isSome(dir) ? yield* buildAgent(dir.value, entry) : undefined;
       if (dryRun)
         return yield* json
           ? printJson({
               dryRun: true,
               action: "agents.publish",
               agentId,
-              request: { revision: Option.getOrUndefined(revision) },
+              request: {
+                revision: Option.getOrUndefined(revision),
+                ...(built ? { bundle: { manifest: built.manifest, source: built.bundle } } : {}),
+              },
               ...(Option.isNone(revision)
                 ? { resolveRevision: "Read the agent's current revision before publishing" }
                 : {}),
@@ -315,7 +327,15 @@ const publish = Command.make("publish", {
               toCliApiError("Could not read agent revision before publishing", error),
             ),
           )).revision;
-      const result = yield* Agents.publish({ id: agentId, revision: currentRevision }).pipe(
+      const result = yield* (
+        built
+          ? Agents.publishVersion({
+              id: agentId,
+              revision: currentRevision,
+              bundle: { manifest: built.manifest, source: built.bundle },
+            })
+          : Agents.publish({ id: agentId, revision: currentRevision })
+      ).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not publish agent", error)),
       );
@@ -323,7 +343,7 @@ const publish = Command.make("publish", {
       yield* Console.log(
         result.published
           ? `Published version ${result.version.version}`
-          : `The draft matches version ${result.version.version}; nothing was published.`,
+          : `The ${built ? "module" : "draft"} matches version ${result.version.version}; nothing was published.`,
       );
     }),
   ),
@@ -370,6 +390,7 @@ const rerun = Command.make("rerun", {
 export const agentsCommand = Command.make("agents").pipe(
   Command.withDescription("Hosted agents and saved tests"),
   Command.withSubcommands([
+    ...agentProjectCommands,
     list,
     create,
     get,

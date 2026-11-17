@@ -29,6 +29,7 @@ export const curatedCommands: Readonly<Record<string, string>> = {
   agentsUpdate: "agents update",
   agentsReplaceDraft: "agents draft replace",
   agentsPublish: "agents publish",
+  agentsPublishVersion: "agents publish",
   agentsRerunTests: "agents tests rerun",
 
   analyticsGetStats: "analytics stats",
@@ -65,6 +66,7 @@ export const curatedCommands: Readonly<Record<string, string>> = {
 
   contactsList: "contacts list",
   contactsGet: "contacts get",
+  contactsMerge: "contacts merge",
   contactsPlanImport: "contacts import",
   contactsStartImport: "contacts import",
   contactsGetImportJob: "contacts import-status",
@@ -270,21 +272,6 @@ export const curatedCommands: Readonly<Record<string, string>> = {
   namespacesCreatePortalLink: "namespaces portal-links create",
   namespacesListPortalLinks: "namespaces portal-links list",
   namespacesRevokePortalLink: "namespaces portal-links revoke",
-
-  extensionsList: "extensions list",
-  extensionsPublish: "extensions publish",
-  extensionsListVersions: "extensions versions",
-  extensionsGetVersion: "extensions version",
-
-  extensionInstallationsList: "extensions installations",
-  extensionInstallationsInstall: "extensions install",
-  extensionInstallationsUpgrade: "extensions upgrade",
-  extensionInstallationsGet: "extensions installation",
-  extensionInstallationsUninstall: "extensions uninstall",
-  extensionInstallationsDisable: "extensions disable",
-  extensionInstallationsEnable: "extensions enable",
-  extensionInstallationsListRuns: "extensions runs",
-  extensionInstallationsGetRun: "extensions run",
 };
 
 export const OPERATION_COVERAGE: Readonly<Record<string, string>> = {

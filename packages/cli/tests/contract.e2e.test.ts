@@ -793,7 +793,6 @@ describe("--json stdout purity", () => {
       "conversations",
       "knowledge",
       "namespaces",
-      "extensions",
       "webhooks",
       "api",
       "api-keys",
@@ -2743,7 +2742,7 @@ describe("Email Launch public command surface", () => {
     const help = `${stdout}\n${stderr}`;
 
     expect(code).toBe(0);
-    for (const excluded of ["sms", "voice", "smtp"]) {
+    for (const excluded of ["sms", "voice", "smtp", "extensions"]) {
       expect(help).not.toMatch(new RegExp(`\\b${excluded}\\b`, "i"));
     }
     for (const included of [
@@ -2754,7 +2753,6 @@ describe("Email Launch public command surface", () => {
       "campaigns",
       "templates",
       "mailboxes",
-      "extensions",
       "webhooks",
     ]) {
       expect(help).toMatch(new RegExp(`\\b${included}\\b`, "i"));

@@ -1,3 +1,102 @@
+## @samva/cli-darwin-arm64@0.41.0
+
+### Authoring 0.24.0
+
+The CLI bundles authoring 0.24.0 for local template builds, checks and exports, and new projects
+start from a starter on 0.24.0. That release's editor, which `samva templates dev` runs from the
+project, shows Design with the theme's real colours and fonts and saves Design edits with Save
+version instead of a separate Apply.
+
+### Write agents as code and publish them as immutable versions
+
+Define a hosted agent in TypeScript with `defineAgent` and `defineTool` from `samva/agent`. An
+entry module registers its instructions, Markdown skills and tools by name. A tool declares an
+Effect schema for its input, whether a repeated call is safe (`replay: "safe" | "unsafe"`), and an
+optional `approval` floor that combines with your decision rules; the stricter requirement wins.
+Each call receives its own `ctx` for mailbox reads and replies in the current conversation,
+integration calls and memory. Test a project offline with `defineEval`, `runAgent` and `runEval` from `samva/agent/test`, which run a tool
+against a fake `ctx` and keep input validation. In a fake conversation context, set
+`ctx.capability.trigger.target` to `{ mailboxId, threadId, messageId }`, or `null` when there is no
+mailbox target.
+
+Publish a module with `client.agents.publishVersion` or `POST /v1/agents/{id}/versions`, passing the
+draft `revision` and a bundle of one ES module plus its manifest. Samva stores the source by its
+SHA-256 digest without running it, and each publish creates the next immutable version. Publishing
+identical code returns `published: false`, and a stale `revision` returns 409. Reading a version now
+returns its `bundle` (digest, size, manifest) and `authoring` (`builder` or `code`). The existing
+`publish` endpoint remains available for dashboard-generated modules.
+
+The CLI adds project commands and extends publication:
+
+- `samva agents init <dir> --name "<name>"` scaffolds a project with an entry file.
+- `samva agents build <dir>` bundles it into one module.
+- `samva agents info <dir>` lists what the entry registers and reports problems with coded
+  diagnostics, without writing a bundle.
+- `samva agents publish <agentId> --dir <dir>` publishes the project as the next version.
+
+Saving a change to an agent's settings in the dashboard rebuilds the draft's module from those
+settings, so a dashboard publish replaces code in the draft. Versions you already published keep
+their code.
+
+### Merge duplicate contacts
+
+Merge two contacts with `client.contacts.merge({ id, from })` or
+`samva contacts merge <id> --from <contact-id>`. The kept contact receives their identities,
+subscriptions, and activity. Absorbed IDs continue to resolve to the kept contact, and responses
+include `mergedInto` when an absorbed ID was requested.
+
+Hosted agents merge through a verified connection with
+`client.contacts.mergeByConnection({ id, connection })` and their current signed admission.
+The separate operation derives the other contact from the connection's verified email.
+
+### Run Shopify journeys independently for each order
+
+Use `enrollment: { type: "shopify_order", shop: "your-store.myshopify.com" }` in a journey
+definition to give each order its own run and saved event inputs. Waits, goals and event branches
+match that order. A `shopify.refund_created` goal stops the same order's check-in, including when
+the refund precedes enrollment. Journeys without `enrollment` retain contact-scoped behavior.
+
+WhatsApp steps can fill template parameters from the saved trigger event:
+
+```json
+{
+  "template": "order-check-in",
+  "eventBindings": { "order_number": "order.name" }
+}
+```
+
+Email steps can pin a `publicationId`. WhatsApp steps can pin
+`pinnedRegistration: { registrationId, templateChannelVariantId }` with an explicit
+`businessAccountId`. Republishing does not replace pinned content; approval, consent and suppression
+still apply when sending.
+
+Shopify customers with only a customer phone can receive eligible WhatsApp sends. Shared-phone
+conflicts do not merge contacts, and email subscription does not grant WhatsApp marketing consent.
+The CLI accepts these fields in `samva journeys create` and `samva journeys draft` definitions, including
+offline `--dry-run` validation.
+
+### Handle mailbox and contact events in agent modules
+
+**Breaking:** Replace `defineExtension` and the `samva/mailbox`, `samva/mailbox/test`, and
+`samva/mailbox/webhook` authoring exports with `defineAgent` from `samva/agent` and its `events`
+handlers. The `extensions` and `extensionInstallations` SDK services and their REST endpoints are
+removed. Use ordinary webhooks for code you run on your own server.
+
+Replace `samva extensions` commands with the agent project commands: scaffold with
+`samva agents init`, inspect with `samva agents info`, build with `samva agents build`, and publish
+with `samva agents publish <agentId> --dir <project>`. Select the mailbox endpoints the agent
+should handle. Previously published extensions are retained without running and are not converted
+automatically; publish their handlers as agent modules.
+
+Register mailbox event names or custom contact event names under `events`. Each handler receives
+`{ id, type, timestamp, data }` and a fresh `ctx` with its event id and attempt. Failed handlers
+retry with the same event id; make external effects safe to repeat. Mailbox reads and replies stay
+scoped to the event and follow your decision rules. An explicit `mailbox.message.received` handler
+handles that message without also starting an automatic model reply; conversation history remains.
+
+For offline tests, use `runAgent` and `createTestClient` from `samva/agent/test` with a supplied
+fake context instead of `runExtension` and `mailboxEvent`.
+
 ## @samva/cli-darwin-arm64@0.40.1
 
 ### Refresh the bundled runtime

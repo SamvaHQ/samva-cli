@@ -1,16 +1,7 @@
 import { SamvaCliError, toCliApiError } from "../errors";
 
 /** What an API key cannot do, as the verb the next step names. */
-export type PersonOnlyAction =
-  | "approve"
-  | "deny"
-  | "release"
-  | "discard"
-  | "publish"
-  | "install"
-  | "manage"
-  | "cancel"
-  | "retry";
+export type PersonOnlyAction = "approve" | "deny" | "release" | "discard" | "cancel" | "retry";
 
 const personOnlyNext = (action: PersonOnlyAction) => {
   switch (action) {
@@ -26,17 +17,11 @@ const personOnlyNext = (action: PersonOnlyAction) => {
       return "Releasing a held message needs a person signed in with `samva login`; an API key cannot release.";
     case "discard":
       return "Discarding a held message needs a person signed in with `samva login`; an API key cannot discard.";
-    case "publish":
-      return "Publishing an extension needs a person signed in with `samva login`; an API key cannot publish.";
-    case "install":
-      return "Installing an extension needs a person signed in with `samva login`; an API key cannot install.";
-    case "manage":
-      return "Managing an installation needs a person signed in with `samva login`; an API key cannot.";
   }
 };
 
 /**
- * Mailbox and extension commands report API failures through `toCliApiError`. Phone-channel
+ * Mailbox commands report API failures through `toCliApiError`. Phone-channel
  * gates name the unavailable channel; person-only operations direct API-key callers to sign in.
  */
 export const mailboxApiError = (

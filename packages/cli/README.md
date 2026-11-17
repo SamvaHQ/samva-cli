@@ -117,6 +117,22 @@ support `--dry-run`.
 A scheduled message keeps its namespace when it sends later, including retries and resumes.
 Analytics and conversations remain confined to a namespace key's own namespace.
 
+Author a hosted agent with `samva agents init ./support --name "Support"`, then run `bun install`
+in that directory. The scaffold imports its instructions, Markdown skills, and tools explicitly
+from `agent.ts`; registering imports in `defineAgent` determines what the agent exposes.
+`samva agents build ./support` validates the declaration and writes one ES module to
+`dist/agent.js`. `samva agents info ./support --json` reports the manifest and coded diagnostics;
+invalid projects exit nonzero. `--entry <path>` selects another explicit entry. These commands
+evaluate the project's top-level declaration locally, without calling its tool or event handlers.
+Run the scaffold's `eval` package script from that directory to exercise its tool and event handler.
+
+Create the hosted record with `samva agents create "Support"`, then publish the module with
+`samva agents publish <agent-id> --dir ./support --revision <observed-revision>`. Omitting
+`--revision` reads the current revision before publication; stale revisions fail without retry.
+`--dry-run` validates the local module without making an API request. Without `--dir`, publish
+uses the hosted draft. Each tool declares whether replay is `safe` or `unsafe`; its optional
+approval requirement combines with Samva's policy floors, with the stricter requirement winning.
+
 Use `knowledge add-website --url <https-url>` or `knowledge add-file --media-id <ready-upload-id>`
 with `--namespace` to add a source for agents in that namespace. Sources can be attached to several
 agents in the same namespace and cannot be shared across namespaces. `knowledge get <id>` reads

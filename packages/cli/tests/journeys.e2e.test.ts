@@ -138,6 +138,52 @@ describe("journeys CLI HTTP boundary", () => {
     expect(requests).toEqual([]);
   });
 
+  it("validates order enrollment and immutable event bindings offline", async () => {
+    const orderDefinition = {
+      trigger: { type: "event", eventName: "shopify.order_delivered" },
+      enrollment: { type: "shopify_order", shop: "preview.myshopify.com" },
+      goal: { eventName: "shopify.refund_created" },
+      rootNodeId: "send",
+      nodes: {
+        send: {
+          type: "send_whatsapp",
+          config: { template: "check-in", eventBindings: { order: "order.name" } },
+          next: [{ nodeId: "done" }],
+        },
+        done: { type: "exit", config: {}, next: [] },
+      },
+    };
+    const result = await runCli(
+      [
+        "journeys",
+        "create",
+        "--name",
+        "Order",
+        "--definition",
+        JSON.stringify(orderDefinition),
+        "--dry-run",
+      ],
+      { configHome },
+    );
+    expect(result.code).toBe(0);
+    expect(requests).toEqual([]);
+    orderDefinition.nodes.send.config.eventBindings.order = "order.unknown";
+    const invalid = await runCli(
+      [
+        "journeys",
+        "create",
+        "--name",
+        "Order",
+        "--definition",
+        JSON.stringify(orderDefinition),
+        "--dry-run",
+      ],
+      { configHome },
+    );
+    expect(invalid.code).toBe(2);
+    expect(invalid.stderr).toContain("Unknown Shopify event property");
+  });
+
   it("refuses a definition that is not JSON before requesting", async () => {
     const result = await cli(["journeys", "create", "--name", "W", "--definition", "{", "--json"]);
     expect(result.code).toBe(2);
@@ -156,6 +202,36 @@ describe("journeys CLI HTTP boundary", () => {
       "The root must name a node",
     ],
     ["no nodes", { ...definition, nodes: {} }, "at least 1 entry"],
+    [
+      "event bindings with a contact trigger",
+      {
+        ...definition,
+        rootNodeId: "send",
+        nodes: {
+          ...definition.nodes,
+          send: {
+            type: "send_whatsapp",
+            config: { template: "check-in", eventBindings: { order: "order.name" } },
+            next: [{ nodeId: "done" }],
+          },
+        },
+      },
+      "WhatsApp event bindings require an event trigger",
+    ],
+    [
+      "order enrollment with a contact trigger",
+      { ...definition, enrollment: { type: "shopify_order", shop: "preview.myshopify.com" } },
+      "shopify_order enrollment requires a Shopify order event trigger",
+    ],
+    [
+      "order enrollment with a checkout trigger",
+      {
+        ...definition,
+        trigger: { type: "event", eventName: "shopify.checkout_started" },
+        enrollment: { type: "shopify_order", shop: "preview.myshopify.com" },
+      },
+      "shopify_order enrollment requires a Shopify order event trigger",
+    ],
     [
       "an unreachable node",
       {
