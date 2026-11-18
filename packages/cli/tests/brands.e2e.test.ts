@@ -52,6 +52,10 @@ const startApi = (): Promise<{
           res.end(JSON.stringify(value));
         };
         if (req.method === "GET" && req.url === "/v1/brands") return reply(200, { items: brands });
+        if (req.method === "POST" && req.url === "/v1/brands") {
+          const input = JSON.parse(body);
+          return reply(201, { ...brand(input.slug, false), name: input.name });
+        }
         if (found === undefined)
           return reply(404, {
             _tag: "ResourceNotFoundError",
@@ -407,5 +411,23 @@ describe("samva brands remove", () => {
       slug: "promo",
     });
     expect(api.requests).toEqual([]);
+  });
+});
+
+describe("samva brands create", () => {
+  it("posts a named brand and emits the JSON envelope", async () => {
+    const result = await runCli(["brands", "create", "new-brand", "--name", "New brand", "--json"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(parseResult(result.stdout, "brands.create")).toMatchObject({
+      slug: "new-brand",
+      name: "New brand",
+    });
+    expect(api.requests).toEqual([
+      {
+        method: "POST",
+        url: "/v1/brands",
+        body: JSON.stringify({ slug: "new-brand", name: "New brand" }),
+      },
+    ]);
   });
 });

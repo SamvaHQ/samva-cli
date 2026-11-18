@@ -42,6 +42,12 @@ export const curatedCommands: Readonly<Record<string, string>> = {
   apiKeysUpdate: "api-keys update",
   apiKeysRotate: "api-keys rotate",
 
+  brandsCreate: "brands create",
+  templatesListFamilies: "templates families list",
+  templatesGetFamily: "templates families get",
+  templatesCreateFamily: "templates families create",
+  templatesAttachFamilyMember: "templates families attach",
+  templatesDetachFamilyMember: "templates families detach",
   brandsList: "brands list",
   brandsGet: "brands get",
   brandsUpdate: "brands push",

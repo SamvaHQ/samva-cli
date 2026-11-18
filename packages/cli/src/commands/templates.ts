@@ -30,6 +30,7 @@ import { jsonFlag, objectRows, printFields, printJson, printJsonLine } from "../
 import { isJsonLinesRequested, outputModeFromArgv } from "../lib/runtime";
 import { devCommand } from "./templates/dev-command";
 import { reportDiagnostic } from "./templates/diagnostics";
+import { familiesCommand } from "./templates/families-command";
 import { assetBaseFlag, dirFlag } from "./templates/flags";
 import { fromBriefCommand } from "./templates/from-brief-command";
 import { fromWebsiteCommand } from "./templates/from-website-command";
@@ -1208,6 +1209,7 @@ export const templatesCommand = Command.make("templates").pipe(
     deleteRemote,
     projects,
     shareLinkCommand,
+    familiesCommand,
     suggestCommand,
     fromBriefCommand,
     fromWebsiteCommand,

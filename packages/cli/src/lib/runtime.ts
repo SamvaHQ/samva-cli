@@ -144,6 +144,7 @@ const commandTree = {
   },
   "scheduled-messages": { create: {}, list: {}, get: {}, cancel: {}, resume: {} },
   templates: {
+    families: { list: {}, get: {}, create: {}, attach: {}, detach: {} },
     "share-link": { create: {}, update: {}, get: {}, rename: {}, delete: {} },
     init: {},
     clone: {},
@@ -179,7 +180,7 @@ const commandTree = {
     delete: {},
     projects: { delete: {} },
   },
-  brands: { list: {}, get: {}, pull: {}, push: {}, default: {}, remove: {} },
+  brands: { create: {}, list: {}, get: {}, pull: {}, push: {}, default: {}, remove: {} },
   mailboxes: {
     import: {},
     "import-status": {},

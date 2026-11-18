@@ -1,3 +1,4 @@
+import { TemplateId } from "@samva/core/shared/base";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
@@ -14,10 +15,11 @@ import { getClientProvider } from "../../lib/client";
 import { namespaceField, namespaceFlag } from "../../lib/namespace";
 import { jsonFlag, printFields, printJson } from "../../lib/output";
 import { editorPath, webOriginForApi } from "./from-website-command";
-import { briefArgument, recreationNote } from "./suggest-command";
+import { briefArgument, channelFlag, recreationNote } from "./suggest-command";
 
 export const fromBriefCommand = Command.make("from-brief", {
   brief: briefArgument,
+  channel: channelFlag,
   name: Flag.String("name").pipe(
     Flag.withDescription(
       "Name for the new template; defaults to the name of the design it starts from",
@@ -27,6 +29,13 @@ export const fromBriefCommand = Command.make("from-brief", {
   galleryTemplate: Flag.String("gallery-template").pipe(
     Flag.withDescription(
       "Start from this gallery template id instead of the best match (see `samva templates suggest`)",
+    ),
+    Flag.optional,
+  ),
+  variantOf: Flag.String("variant-of").pipe(
+    Flag.withSchema(TemplateId),
+    Flag.withDescription(
+      "Make this template another channel's version of this template (tmpl_...): its files are mounted read-only for the assistant and the two join one family in its namespace",
     ),
     Flag.optional,
   ),
@@ -52,59 +61,69 @@ export const fromBriefCommand = Command.make("from-brief", {
         'samva templates from-brief "Order shipped update" --gallery-template <id> --name "Shipped" --json',
       description: "Start from a chosen gallery template; machine-readable result",
     },
+    {
+      command:
+        'samva templates from-brief "Order shipped, on WhatsApp" --channel whatsapp --variant-of <id>',
+      description: "Make the WhatsApp version of an email template, carrying its content over",
+    },
   ]),
-  Command.withHandler(({ brief, name, galleryTemplate, namespace, idempotencyKey, json }) =>
-    Effect.gen(function* () {
-      const key = Option.getOrUndefined(idempotencyKey);
-      if (key !== undefined && (key.length < 1 || key.length > 255))
-        return yield* new SamvaCliError({
-          message: "--idempotency-key must contain between 1 and 255 characters.",
-        });
-      const client = yield* getClientProvider;
-      const context = yield* resolveExecutionContext;
-      // Resolve the organization slug before the write so a failure leaves nothing created.
-      const orgSlug = context.apiKey
-        ? (yield* Whoami.get().pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not look up the organization", error)),
-          )).organization.slug
-        : context.orgSlug;
-      const result = yield* Templates.createFromBrief(
-        {
-          brief,
-          ...(Option.isSome(name) ? { name: name.value } : {}),
-          ...(Option.isSome(galleryTemplate) ? { galleryTemplateId: galleryTemplate.value } : {}),
-          ...namespaceField(namespace),
-        },
-        { idempotencyKey: key ?? crypto.randomUUID() },
-      ).pipe(
-        client.provide,
-        Effect.mapError((error) =>
-          toCliApiError("Could not create a template from the brief", error),
-        ),
-      );
-      const path =
-        orgSlug === undefined ? null : editorPath(orgSlug, result.template.id, result.ask);
-      const origin = webOriginForApi(context.apiUrl);
-      const editorUrl = path !== null && origin !== null ? `${origin}${path}` : null;
-      if (json)
-        return yield* printJson({
-          template: { id: result.template.id, name: result.template.name },
-          startedFrom: result.startedFrom,
-          alternatives: result.alternatives,
-          recreation: result.recreation,
-          ask: result.ask,
-          editorUrl,
-        });
-      yield* printFields([
-        ["Template", result.template.id],
-        ["Started from", `${result.startedFrom.name} (${result.startedFrom.galleryTemplateId})`],
-        ...(editorUrl !== null
-          ? ([["Editor", editorUrl]] as const)
-          : ([["Ask", result.ask]] as const)),
-      ]);
-      const note = recreationNote(result.recreation, result.startedFrom);
-      if (note !== null) yield* Console.log(note);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  Command.withHandler(
+    ({ brief, channel, name, galleryTemplate, variantOf, namespace, idempotencyKey, json }) =>
+      Effect.gen(function* () {
+        const key = Option.getOrUndefined(idempotencyKey);
+        if (key !== undefined && (key.length < 1 || key.length > 255))
+          return yield* new SamvaCliError({
+            message: "--idempotency-key must contain between 1 and 255 characters.",
+          });
+        const client = yield* getClientProvider;
+        const context = yield* resolveExecutionContext;
+        // Resolve the organization slug before the write so a failure leaves nothing created.
+        const orgSlug = context.apiKey
+          ? (yield* Whoami.get().pipe(
+              client.provide,
+              Effect.mapError((error) =>
+                toCliApiError("Could not look up the organization", error),
+              ),
+            )).organization.slug
+          : context.orgSlug;
+        const result = yield* Templates.createFromBrief(
+          {
+            brief,
+            channel,
+            ...(Option.isSome(name) ? { name: name.value } : {}),
+            ...(Option.isSome(galleryTemplate) ? { galleryTemplateId: galleryTemplate.value } : {}),
+            ...(Option.isSome(variantOf) ? { variantOf: variantOf.value } : {}),
+            ...namespaceField(namespace),
+          },
+          { idempotencyKey: key ?? crypto.randomUUID() },
+        ).pipe(
+          client.provide,
+          Effect.mapError((error) =>
+            toCliApiError("Could not create a template from the brief", error),
+          ),
+        );
+        const path =
+          orgSlug === undefined ? null : editorPath(orgSlug, result.template.id, result.ask);
+        const origin = webOriginForApi(context.apiUrl);
+        const editorUrl = path !== null && origin !== null ? `${origin}${path}` : null;
+        if (json)
+          return yield* printJson({
+            template: { id: result.template.id, name: result.template.name },
+            startedFrom: result.startedFrom,
+            alternatives: result.alternatives,
+            recreation: result.recreation,
+            ask: result.ask,
+            editorUrl,
+          });
+        yield* printFields([
+          ["Template", result.template.id],
+          ["Started from", `${result.startedFrom.name} (${result.startedFrom.galleryTemplateId})`],
+          ...(editorUrl !== null
+            ? ([["Editor", editorUrl]] as const)
+            : ([["Ask", result.ask]] as const)),
+        ]);
+        const note = recreationNote(result.recreation, result.startedFrom);
+        if (note !== null) yield* Console.log(note);
+      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );

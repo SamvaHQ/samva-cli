@@ -80,6 +80,12 @@ export const registrationError =
         });
   };
 
+/** The status a registration prints: an approved one a submission has not settled sends nothing. */
+const statusLine = (registration: WireRegistration): string =>
+  registration.status === "approved" && registration.pendingTemplateChannelVariantId !== null
+    ? "approved, sending held until a submission settles (submit again)"
+    : registration.status;
+
 /** The labelled lines one registration prints in human mode. */
 export const registrationFields = (
   registration: WireRegistration,
@@ -87,7 +93,7 @@ export const registrationFields = (
   ["Registration ID", registration.id],
   ["Template ID", registration.templateId],
   ["Publication ID", registration.publicationId],
-  ["Status", registration.status],
+  ["Status", statusLine(registration)],
   [
     "Business account",
     registration.target.provider === "whatsapp" ? registration.target.wabaId : undefined,
@@ -109,7 +115,7 @@ export const registrationSummary = (registrations: ReadonlyArray<WireRegistratio
     : registrations
         .map(
           (registration) =>
-            `${registration.status}${registration.reason === null ? "" : ` (${registration.reason})`}`,
+            `${statusLine(registration)}${registration.reason === null ? "" : ` (${registration.reason})`}`,
         )
         .join("; ");
 

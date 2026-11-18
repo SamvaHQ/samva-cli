@@ -18,6 +18,7 @@ const registration = (overrides: Partial<WireRegistration> = {}): WireRegistrati
   name: "order_shipped",
   language: "en_US",
   status: "submitted",
+  pendingTemplateChannelVariantId: null,
   category: "utility",
   providerCategory: null,
   providerTemplateId: null,
@@ -63,6 +64,17 @@ describe("registrationFields", () => {
 describe("registrationSummary", () => {
   it("says when nothing was submitted", () => {
     expect(registrationSummary([])).toBe("not submitted");
+  });
+
+  it("says an approved registration a submission has not settled sends nothing", () => {
+    const held = registration({ status: "approved", pendingTemplateChannelVariantId: "tvar_b" });
+    expect(registrationSummary([held])).toBe(
+      "approved, sending held until a submission settles (submit again)",
+    );
+    expect(registrationFields(held)).toContainEqual([
+      "Status",
+      "approved, sending held until a submission settles (submit again)",
+    ]);
   });
 
   it("names each status with its reason", () => {

@@ -41,6 +41,7 @@ const template = {
 };
 const suggestion = (id: string, name: string) => ({
   galleryTemplateId: id,
+  channel: "email",
   slug: id,
   name,
   description: `${name} design`,
@@ -133,6 +134,27 @@ const run = (command: string, args: ReadonlyArray<string>, env: Record<string, s
 const posted = (path: string) => requests.filter((request) => request.path === path);
 
 describe("samva templates suggest", () => {
+  it("forwards the selected WhatsApp channel", async () => {
+    const result = await run("suggest", ["Order shipped", "--channel", "whatsapp", "--json"]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(posted("/v1/templates/suggestions")[0]?.body).toEqual({
+      channel: "whatsapp",
+      brief: "Order shipped",
+    });
+  });
+
+  it("names the template a new channel's version is made from", async () => {
+    const result = await run("from-brief", [
+      "Order shipped, on WhatsApp",
+      ...["--channel", "whatsapp", "--variant-of", "tmpl_aaaaaaaaaaaaaaaa", "--json"],
+    ]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(posted("/v1/templates/from-brief")[0]?.body).toMatchObject({
+      channel: "whatsapp",
+      variantOf: "tmpl_aaaaaaaaaaaaaaaa",
+    });
+  });
+
   it("prints each suggestion with its reason and the recreation line", async () => {
     const result = await run("suggest", ["Welcome email for a coffee subscription"]);
     expect(result.code, result.stderr).toBe(0);
@@ -154,6 +176,15 @@ describe("samva templates suggest", () => {
 });
 
 describe("samva templates from-brief", () => {
+  it("forwards the selected WhatsApp channel", async () => {
+    const result = await run("from-brief", ["Order shipped", "--channel", "whatsapp", "--json"]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(posted("/v1/templates/from-brief")[0]?.body).toMatchObject({
+      channel: "whatsapp",
+      brief: "Order shipped",
+    });
+  });
+
   it("sends the brief, name, gallery template, and an idempotency key", async () => {
     const result = await run("from-brief", [
       "Welcome email for a coffee subscription",
@@ -187,7 +218,10 @@ describe("samva templates from-brief", () => {
     );
     expect(result.stdout).toContain(ask);
     expect(typeof posted("/v1/templates/from-brief")[0]?.idempotencyKey).toBe("string");
-    expect(posted("/v1/templates/from-brief")[0]?.body).toEqual({ brief: "An Acme welcome" });
+    expect(posted("/v1/templates/from-brief")[0]?.body).toEqual({
+      brief: "An Acme welcome",
+      channel: "email",
+    });
   });
 
   it("says a kind-differs recreation starts from the company's other recreation", async () => {

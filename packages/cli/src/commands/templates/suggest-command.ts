@@ -1,5 +1,6 @@
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
+import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
@@ -11,7 +12,7 @@ import { getClientProvider } from "../../lib/client";
 import { jsonFlag, printJson } from "../../lib/output";
 
 export const briefArgument = Argument.String("brief").pipe(
-  Argument.withDescription("What the email is for, in a sentence or two"),
+  Argument.withDescription("What the email or WhatsApp message is for, in a sentence or two"),
 );
 
 type Recreation =
@@ -43,8 +44,14 @@ export const recreationNote = (
   }
 };
 
+export const channelFlag = Flag.Literals("channel", ["email", "whatsapp"]).pipe(
+  Flag.withDescription("Template channel"),
+  Flag.withDefault("email"),
+);
+
 export const suggestCommand = Command.make("suggest", {
   brief: briefArgument,
+  channel: channelFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Suggest the gallery designs that fit a brief, best first"),
@@ -58,10 +65,10 @@ export const suggestCommand = Command.make("suggest", {
       description: "Machine-readable suggestions and recreation match",
     },
   ]),
-  Command.withHandler(({ brief, json }) =>
+  Command.withHandler(({ brief, channel, json }) =>
     Effect.gen(function* () {
       const client = yield* getClientProvider;
-      const result = yield* Templates.suggestStarters({ brief }).pipe(
+      const result = yield* Templates.suggestStarters({ brief, channel }).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not suggest templates", error)),
       );

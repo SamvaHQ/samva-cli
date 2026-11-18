@@ -8,6 +8,7 @@ import {
   AgentModuleManifest,
   AgentModuleTool,
 } from "@samva/core/agents/module";
+import { AgentWorkflowExports } from "@samva/core/agents/module-host";
 import { Effect, Predicate, Schema } from "effect";
 import SamvaPackage from "samva/package.json" with { type: "json" };
 
@@ -26,6 +27,7 @@ const declarationSchema = Schema.Struct({
   ),
   events: Schema.Record(Schema.String, handler),
   schedules: Schema.Record(Schema.String, handler),
+  workflows: Schema.optionalKey(AgentWorkflowExports),
 });
 
 export interface AgentProjectDiagnostic {
@@ -60,18 +62,19 @@ export const buildAgent = (dir: string, entry = "agent.ts", out?: string) =>
         "agent_output_overwrites_entry",
         "--out must differ from --entry.",
       );
-    const built = yield* operation("agent_bundle_failed", () =>
+    const build = (plugins: Bun.BunPlugin[] = []) =>
       Bun.build({
         entrypoints: [entryPath],
         target: "browser",
         format: "esm",
         conditions: ["workerd", "worker", "browser"],
-        external: [],
+        external: plugins.length === 0 ? ["cloudflare:workers"] : [],
+        plugins,
         splitting: false,
         minify: true,
         loader: { ".md": "text" },
-      }),
-    );
+      });
+    const built = yield* operation("agent_bundle_failed", () => build());
     if (!built.success)
       return yield* projectError("agent_bundle_failed", built.logs.map(String).join("\n"));
     const artifact = built.outputs[0];
@@ -87,12 +90,44 @@ export const buildAgent = (dir: string, entry = "agent.ts", out?: string) =>
         "agent_bundle_too_large",
         `Bundle is ${sizeBytes} bytes; maximum is ${AGENT_BUNDLE_MAX_BYTES}. Reduce dependencies.`,
       );
+    // Only the manifest pass replaces the native classes. The published bytes still import workerd.
+    const declarationSource = bundle.includes("cloudflare:workers")
+      ? yield* operation("agent_module_load_failed", async () => {
+          const local = await build([
+            {
+              name: "agent-manifest-cloudflare",
+              setup(builder) {
+                builder.onLoad({ filter: /./u, namespace: "file" }, ({ path }) =>
+                  path === entryPath ? { loader: "js", contents: bundle } : undefined,
+                );
+                builder.onResolve({ filter: /^cloudflare:workers$/u }, () => ({
+                  path: "workers",
+                  namespace: "samva-manifest",
+                }));
+                builder.onLoad({ filter: /^workers$/u, namespace: "samva-manifest" }, () => ({
+                  loader: "js",
+                  contents: `
+                  export class DurableObject {}
+                  export class WorkflowEntrypoint {}
+                  export class WorkerEntrypoint {}
+                  export class RpcTarget {}
+                `,
+                }));
+              },
+            },
+          ]);
+          const declaration = local.outputs[0];
+          if (!local.success || declaration === undefined || local.outputs.length !== 1)
+            return Promise.reject("The authoring declaration could not be bundled");
+          return declaration.text();
+        })
+      : bundle;
     // The descriptor requires evaluating the author's declaration, never its handlers.
     const loaded: unknown = yield* operation(
       "agent_module_load_failed",
       () =>
         import(
-          `data:text/javascript;base64,${Buffer.from(`${bundle}\n// ${crypto.randomUUID()}`).toString("base64")}`
+          `data:text/javascript;base64,${Buffer.from(`${declarationSource}\n// ${crypto.randomUUID()}`).toString("base64")}`
         ),
     );
     const definition = Predicate.hasProperty(loaded, "default") ? loaded.default : undefined;

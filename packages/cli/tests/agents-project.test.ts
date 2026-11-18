@@ -28,6 +28,32 @@ async function scaffold(name: string) {
 }
 
 describe("agent module authoring", () => {
+  it("extracts the manifest while retaining native state and Workflow classes in the bundle", async () => {
+    const dir = await scaffold("durable-module");
+    const entry = join(dir, "agent.ts");
+    const source = await readFile(entry, "utf8");
+    await writeFile(
+      entry,
+      `
+      import { DurableObject, WorkflowEntrypoint } from "cloudflare:workers";
+      export class State extends DurableObject {
+        async execute() { return this.ctx.storage.kv.get("value"); }
+      }
+      export class Reminder extends WorkflowEntrypoint {
+        async run() { throw new Error("manifest extraction cannot execute Workflow code"); }
+      }
+      ${source.replace("export default defineAgent({", 'export default defineAgent({ workflows: ["Reminder"],')}
+    `,
+    );
+    const result = await run(["build", dir, "--json"]);
+    expect(result.code, result.stderr).toBe(0);
+    const built = JSON.parse(result.stdout).data;
+    expect(built.manifest.name).toBe("durable-module");
+    const bundle = await readFile(built.output, "utf8");
+    expect(bundle).toContain("cloudflare:workers");
+    expect(bundle).toMatch(/as State\b/u);
+    expect(bundle).toMatch(/as Reminder\b/u);
+  });
   it("scaffolds explicit imports and builds Markdown, tool declarations, and event handlers", async () => {
     const dir = await scaffold("support");
     expect(await readFile(join(dir, "evals/agent.eval.ts"), "utf8")).toContain("assert");

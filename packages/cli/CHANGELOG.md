@@ -1,3 +1,41 @@
+## @samva/cli@0.42.0
+
+### Keep agent state, start Workflows, and schedule runs
+
+Agent modules can export `State` to keep data across calls and publishes. Use
+`ctx.state.agent` for data shared across conversations and `ctx.state.conversation`
+for data scoped to one conversation.
+
+Register a named Workflow in `defineAgent` and start it with `ctx.workflows.start`.
+Running Workflows keep the module version that started them. Add a handler to
+`schedules` with a UTC cron expression to run it from the current published version
+without a model turn.
+
+Publish a module that uses state, Workflows or schedules with `samva agents publish`.
+
+### Author email and WhatsApp templates from a brief
+
+Pass `channel: "email"` or `channel: "whatsapp"` to template suggestions and creation from a
+brief. Suggestions include `channel`; their `slug` can be null, so handle that before using it.
+
+The CLI accepts `--channel email|whatsapp` on `templates suggest` and `templates from-brief`.
+Create brands with `brands create <slug> --name <name>` and select the default with
+`brands default <slug>`. Link independently published channel templates through
+`templates families list`, `get`, `create`, `attach`, and `detach`. Detaching keeps the template.
+
+Pass `variantOf` with an existing template's id to make its other-channel version in one call: the
+new template is created in the source's namespace, mounts a snapshot of the source's current draft
+for the template assistant (with a `variant-source.json` naming the source, its entry and revision),
+and joins the source's family. Retrying with the same idempotency key finishes the same version; the
+key refuses a different source.
+
+Template families now carry `namespaceId`. `createFamily` accepts one, a family from a template
+takes that template's, and a member must share its family's namespace. Namespace-scoped keys can
+use every family endpoint within their own namespace.
+
+Template registrations include `templateChannelVariantId`, the exact content a registration last
+submitted. Pin a journey step or scheduled send with it and the registration `id`.
+
 ## @samva/cli@0.41.0
 
 ### Authoring 0.24.0

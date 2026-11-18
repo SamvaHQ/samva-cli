@@ -347,3 +347,11 @@ through `/v1/agents/{id}/versions`. `--revision <observed-revision>` fences publ
 omitted the CLI reads the current revision once. `--dry-run` builds and validates locally
 without authentication or HTTP calls. Omitting `--dir` preserves draft publication. Local
 agent development against the host is a separate capability.
+
+`samva brands create <slug> --name <name> [--css-file <path>]` creates a named brand;
+`samva brands default <slug>` selects the organization default. `samva templates families`
+provides `list [--limit <n>] [--cursor <cursor>]`, `get <id>`, `create --name <name>`,
+`attach <id> <template-id>`, and `detach <id> <template-id>`. Detach supports `--dry-run`
+and requires `--yes` outside a terminal. Family members publish independently; each WhatsApp
+member needs its own registration and approval. `templates suggest` and `templates from-brief`
+accept `--channel email|whatsapp` (default email). All commands accept `--json`.

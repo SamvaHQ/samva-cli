@@ -96,6 +96,41 @@ const list = Command.make("list", { json: jsonFlag }).pipe(
   ),
 );
 
+const create = Command.make("create", {
+  slug: Argument.String("slug").pipe(Argument.withDescription("Unique brand slug")),
+  name: Flag.String("name").pipe(Flag.withDescription("Brand display name")),
+  cssFile: Flag.String("css-file").pipe(
+    Flag.withDescription("Brand theme CSS file"),
+    Flag.optional,
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Create a named brand; use brands default to make it the default"),
+  Command.withExamples([{ command: 'samva brands create acme --name "Acme" --json' }]),
+  Command.withHandler(({ slug, name, cssFile, json }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const css = Option.isSome(cssFile)
+        ? yield* fs
+            .readFileString(cssFile.value)
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new SamvaCliError({ message: `Could not read brand CSS: ${String(error)}` }),
+              ),
+            )
+        : undefined;
+      const client = yield* getClientProvider;
+      const data = yield* Brands.create({ slug, name, ...(css === undefined ? {} : { css }) }).pipe(
+        client.provide,
+        Effect.mapError(apiFailure("Could not create brand")),
+      );
+      if (json) return yield* printJson(data);
+      yield* Console.log(`Created brand ${data.slug} (${data.name}).`);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 const get = Command.make("get", { slug: slugArgument, json: jsonFlag }).pipe(
   Command.withDescription("Show one brand: its CSS, assets, footer and digest"),
   Command.withExamples([
@@ -365,5 +400,5 @@ export const brandsCommand = Command.make("brands").pipe(
     { command: "samva brands default acme", description: "Make acme the default brand" },
     { command: "samva brands remove promo --yes" },
   ]),
-  Command.withSubcommands([list, get, pull, push, makeDefault, remove]),
+  Command.withSubcommands([list, get, create, pull, push, makeDefault, remove]),
 );
