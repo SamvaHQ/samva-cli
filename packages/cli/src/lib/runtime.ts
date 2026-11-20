@@ -87,9 +87,10 @@ const commandTree = {
     },
     senders: { list: {}, add: {}, check: {}, "set-default": {}, remove: {} },
   },
-  messages: { list: {}, get: {}, events: {}, wait: {} },
+  messages: { list: {}, get: {}, deliveries: {}, events: {}, wait: {} },
   whatsapp: {
     status: {},
+    "set-default": {},
     send: {},
     templates: { list: {}, stats: {}, submit: {}, registrations: {}, registration: {} },
     broadcasts: { create: {}, run: {} },
@@ -107,6 +108,7 @@ const commandTree = {
     message: { status: {} },
   },
   contacts: {
+    "set-consent": {},
     list: {},
     get: {},
     events: {},
@@ -117,6 +119,14 @@ const commandTree = {
   },
   events: { send: {} },
   journeys: {
+    recipes: {},
+    readiness: {},
+    "recipe-preview": {},
+    "recipe-connect": {},
+    "recipe-test-handoff": {},
+    "recipe-test": {},
+    "recipe-test-receipt": {},
+    "recipe-setups": { list: {}, get: {}, save: {}, activate: {} },
     list: {},
     get: {},
     create: {},
@@ -201,7 +211,7 @@ const commandTree = {
     send: {},
     reply: {},
     actions: { list: {}, get: {}, approve: {}, deny: {}, cancel: {}, retry: {} },
-    quarantine: { list: {}, release: {}, discard: {} },
+    spam: { list: {}, discard: {}, empty: {} },
   },
   agents: {
     init: {},
@@ -314,19 +324,13 @@ export const commandNameFromArgv = (argv: ReadonlyArray<string>): string => {
     )
       continue;
     if (token.startsWith("-")) continue;
-    if (path.length === 0) {
-      if (token in tree) {
-        path.push(token);
-        tree = tree[token]!;
-      }
-      continue;
+    const next = tree[token];
+    if (next === undefined) {
+      if (path.length === 0) continue;
+      break;
     }
-    if (token in tree) {
-      path.push(token);
-      tree = tree[token]!;
-      continue;
-    }
-    break;
+    path.push(token);
+    tree = next;
   }
   return path.length === 0 ? "samva" : path.join(".");
 };

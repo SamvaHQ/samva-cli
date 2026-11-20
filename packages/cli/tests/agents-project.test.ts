@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 let home: string;
@@ -102,7 +102,7 @@ describe("agent module authoring", () => {
   it("publishes the bundle to the version endpoint and preserves stale-revision conflicts", async () => {
     const dir = await scaffold("publish-module");
     const requests: Array<{ path: string | undefined; body: unknown }> = [];
-    const server = createServer(async (request, response) => {
+    const server = createTestServer(async (request, response) => {
       let raw = "";
       for await (const chunk of request) raw += String(chunk);
       requests.push({ path: request.url, body: JSON.parse(raw) });

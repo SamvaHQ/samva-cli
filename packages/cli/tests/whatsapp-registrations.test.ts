@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "@effect/vitest";
 import { FlagDisabledError } from "samva/effect";
 
@@ -9,11 +13,14 @@ import {
   submitRegistrationPayload,
   type WireRegistration,
 } from "../src/commands/whatsapp-registrations";
+import { createTestServer } from "./support/http-server";
+import { runCli } from "./support/run-cli";
 
 const registration = (overrides: Partial<WireRegistration> = {}): WireRegistration => ({
   id: "treg_2eqcmea000000000",
   templateId: "tmpl_2eqcmea000000000",
   publicationId: "tpub_2eqcmea000000000",
+  templateChannelVariantId: "tvar_2eqcmea000000000",
   target: { provider: "whatsapp", wabaId: "1234567890" },
   name: "order_shipped",
   language: "en_US",
@@ -45,6 +52,66 @@ describe("submitRegistrationPayload", () => {
       businessAccountId: "waba_x",
     });
   });
+});
+
+it("sends all reviewed registration values and refuses a partial approval locally", async () => {
+  const configHome = await mkdtemp(join(tmpdir(), "samva-cli-whatsapp-registration-"));
+  const submitted = registration();
+  const requests: Array<{ path: string | undefined; body: unknown }> = [];
+  const server = createTestServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    requests.push({ path: request.url, body: JSON.parse(raw) });
+    response.writeHead(201, { "content-type": "application/json" });
+    response.end(JSON.stringify(submitted));
+  });
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Missing test HTTP port");
+    const cli = (args: ReadonlyArray<string>) =>
+      runCli(["whatsapp", "templates", "submit", submitted.templateId, "--json", ...args], {
+        configHome,
+        env: {
+          SAMVA_API_URL: `http://127.0.0.1:${address.port}`,
+          SAMVA_API_KEY: "sk_test_registration",
+        },
+      });
+    const incomplete = await cli(["--publication", submitted.publicationId]);
+    expect(incomplete.code).toBe(2);
+    expect(requests).toEqual([]);
+
+    const businessAccountId = "waba_2eqcmea000000000";
+    const submittedResult = await cli([
+      "--publication",
+      submitted.publicationId,
+      "--business-account",
+      businessAccountId,
+      "--waba-id",
+      "1234567890",
+      "--workspace-revision",
+      "12",
+    ]);
+    expect(submittedResult.code, submittedResult.stderr).toBe(0);
+    expect(JSON.parse(submittedResult.stdout)).toMatchObject({ data: submitted });
+    expect(requests).toEqual([
+      {
+        path: `/v1/templates/${submitted.templateId}/registrations`,
+        body: {
+          provider: "whatsapp",
+          approval: {
+            publicationId: submitted.publicationId,
+            businessAccountId,
+            expectedWabaId: "1234567890",
+            expectedWorkspaceRevision: "12",
+          },
+        },
+      },
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(configHome, { recursive: true });
+  }
 });
 
 describe("registrationFields", () => {

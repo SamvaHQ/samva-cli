@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 it("routes newsletter management and domain commands with header-only idempotency", async () => {
@@ -28,7 +28,7 @@ it("routes newsletter management and domain commands with header-only idempotenc
     body: unknown;
     key: string | string[] | undefined;
   }> = [];
-  const server = createServer(async (request, response) => {
+  const server = createTestServer(async (request, response) => {
     let body = "";
     for await (const chunk of request) body += chunk;
     const url = new URL(request.url ?? "/", "http://localhost");

@@ -13,7 +13,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { type AddressInfo, createServer, type IncomingMessage, type Server } from "node:http";
+import { type AddressInfo, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 import type { MessagesSendData, MessagesSendResponse } from "samva/promises";
 
+import { createTestServer } from "./support/http-server";
 import { runCli as runCliProcess } from "./support/run-cli";
 
 type PackageSendRequest = MessagesSendData["body"];
@@ -145,7 +146,7 @@ const startPackageApi = async (): Promise<{
   const messageRequests: PackageSendRequest[] = [];
   let messageSequence = 0;
   const now = "2026-07-21T00:00:00.000Z";
-  const server: Server = createServer(async (request, response) => {
+  const server: Server = createTestServer(async (request, response) => {
     const path = request.url ?? "/";
     const authorization = request.headers.authorization;
     const apiKey = request.headers["x-api-key"] as string | undefined;

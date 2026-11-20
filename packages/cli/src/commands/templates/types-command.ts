@@ -61,14 +61,16 @@ const readCatalog = Effect.fn("templates.types.readCatalog")(function* () {
     (id) =>
       Templates.getById({ id }).pipe(
         client.provide,
-        Effect.mapError(catalogError),
-        Effect.map((item): TemplateCatalogEntry => ({
-          key: item.slug,
-          templateId: item.id,
-          ...(item.publicationId === null ? {} : { publicationId: item.publicationId }),
-          ...(item.inputContractId === null ? {} : { inputContractId: item.inputContractId }),
-          ...(item.inputSchema === null ? {} : { inputSchema: item.inputSchema }),
-        })),
+        Effect.mapBoth({
+          onSuccess: (item): TemplateCatalogEntry => ({
+            key: item.slug,
+            templateId: item.id,
+            ...(item.publicationId === null ? {} : { publicationId: item.publicationId }),
+            ...(item.inputContractId === null ? {} : { inputContractId: item.inputContractId }),
+            ...(item.inputSchema === null ? {} : { inputSchema: item.inputSchema }),
+          }),
+          onFailure: catalogError,
+        }),
       ),
     { concurrency: CATALOG_READ_CONCURRENCY },
   );
@@ -158,7 +160,7 @@ export const typesCommand = Command.make("types", {
       const generated = renderTemplateTypes({
         entries,
         by,
-        reference: reference as TemplateReferenceKind,
+        reference,
         origin: context.apiUrl,
       });
       if (generated.problems.length > 0) {

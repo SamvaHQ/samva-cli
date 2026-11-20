@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const namespaceId = "ns_1234567890123456";
@@ -28,7 +28,7 @@ let reply: { status: number; body: unknown } = { status: 200, body: {} };
 let pageReplies: Array<{ status: number; body: unknown }> = [];
 let configHome = "";
 let apiUrl = "";
-const server = createServer(async (request, response) => {
+const server = createTestServer(async (request, response) => {
   let body = "";
   for await (const chunk of request) body += chunk;
   requests.push({

@@ -19,7 +19,7 @@ type ChatMessage = Extract<Message, { readonly channel: "whatsapp" | "sms" }>;
 type EmailMessage = Extract<Message, { readonly channel: "email" }>;
 type Summary = Effect.Success<ReturnType<typeof Mailboxes.list>>["items"][number];
 type Action = Effect.Success<ReturnType<typeof Mailboxes.getAction>>;
-type Held = Effect.Success<ReturnType<typeof Mailboxes.releaseMessage>>;
+type Held = Effect.Success<ReturnType<typeof Mailboxes.discardSpamHeld>>;
 type Actor = {
   readonly kind: string;
   readonly id: string;
@@ -102,6 +102,7 @@ export const printThread = (data: Thread) =>
           ? "none"
           : `${present(data.from.displayName)} <${present(data.from.address)}>`,
       ],
+      ["Delivered to", data.deliveredTo],
       ["Preview", data.preview === null ? "none" : JSON.stringify(data.preview)],
       ["Messages", data.messageCount],
       ["Attachments", data.hasAttachments],

@@ -285,10 +285,14 @@ describe("samva api request", () => {
       body: '{"exact":  "bytes"}',
     });
     expect(requests[0]?.headers["content-type"]).toBe("application/json");
+    expect(requests[0]?.headers["content-length"]).toBe(
+      String(Buffer.byteLength('{"exact":  "bytes"}')),
+    );
 
     await api(["x", "--input", "-", "-X", "PUT", "-H", "content-type: text/plain"], "raw text");
     expect(requests[1]).toMatchObject({ method: "PUT", body: "raw text" });
     expect(requests[1]?.headers["content-type"]).toBe("text/plain");
+    expect(requests[1]?.headers["content-length"]).toBe("8");
   });
 
   it("adds request headers, and a header replaces a default of the same name", async () => {

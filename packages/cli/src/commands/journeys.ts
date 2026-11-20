@@ -1,4 +1,28 @@
+import {
+  ConnectionHandoffProvider,
+  ConnectionHandoffQuery,
+  TestHandoffQuery,
+} from "@samva/contracts/integrations/recipe-handoffs";
+import {
+  ActivateRecipeSetup,
+  RecipeSetupId,
+  ReplaceRecipeSetup,
+} from "@samva/contracts/integrations/recipe-setup";
+import {
+  RecipePreviewPayload,
+  RecipeTestPayload,
+  RecipeTestRequestId,
+} from "@samva/contracts/integrations/recipe-tests";
+import { RecipeReadinessQuery } from "@samva/contracts/integrations/recipes";
 import { JourneyDefinition } from "@samva/core/journeys/definition";
+import {
+  EmailSenderId,
+  IntegrationAccountId,
+  MailboxEndpointId,
+  TemplatePublicationId,
+  TemplateRegistrationId,
+  WhatsAppBusinessAccountId,
+} from "@samva/core/shared/base";
 import { Effect, FileSystem, Schema } from "effect";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
@@ -7,6 +31,7 @@ import * as Console from "effect/Console";
 import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
+import * as IntegrationsCatalog from "samva/effect/integrations-catalog";
 import * as Journeys from "samva/effect/journeys";
 
 import { CliUsageError, toCliApiError } from "../errors";
@@ -589,9 +614,365 @@ const runs = Command.make("runs").pipe(
   Command.withSubcommands([runList, runGet]),
 );
 
+const recipes = Command.make("recipes", { json: jsonFlag }).pipe(
+  Command.withDescription("List Shopify journey recipes and discover their event inputs"),
+  Command.withExamples([{ command: "samva journeys recipes --json" }]),
+  Command.withHandler(({ json }) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const catalog = yield* IntegrationsCatalog.recipeCatalog().pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not read Shopify journey recipes", error)),
+      );
+      if (json) return yield* printJson(catalog);
+      for (const recipe of catalog.recipes) {
+        yield* printFields([
+          ["Recipe", recipe.title],
+          ["ID", recipe.id],
+          ["Starts on", recipe.trigger],
+          ["Stops on", recipe.stopEvent],
+          ["Wait", `${recipe.waitDays} days`],
+          ["Channels", recipe.channels.join(", ")],
+        ]);
+      }
+      yield* Console.log("Use --json for event schemas, binding paths, and sample data.");
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+
+const readiness = Command.make("readiness", {
+  channel: Flag.Literals("channel", RecipeReadinessQuery.fields.channel.literals).pipe(
+    Flag.withDescription("Channel for the post-delivery check-in (email or whatsapp)"),
+  ),
+  integrationAccountId: Flag.String("integration-account-id").pipe(
+    Flag.withSchema(IntegrationAccountId),
+    Flag.withDescription("Shopify connection to check"),
+    Flag.optional,
+  ),
+  publicationId: Flag.String("publication-id").pipe(
+    Flag.withSchema(TemplatePublicationId),
+    Flag.withDescription("Exact template publication to check"),
+    Flag.optional,
+  ),
+  senderId: Flag.String("sender-id").pipe(
+    Flag.withSchema(EmailSenderId),
+    Flag.withDescription("Email sender to check instead of the organization default"),
+    Flag.optional,
+  ),
+  whatsappAccountId: Flag.String("whatsapp-account-id").pipe(
+    Flag.withSchema(WhatsAppBusinessAccountId),
+    Flag.withDescription("WhatsApp business account to check instead of the organization default"),
+    Flag.optional,
+  ),
+  registrationId: Flag.String("registration-id").pipe(
+    Flag.withSchema(TemplateRegistrationId),
+    Flag.withDescription("Exact WhatsApp template registration to check"),
+    Flag.optional,
+  ),
+  mailboxEndpointId: Flag.String("mailbox-endpoint-id").pipe(
+    Flag.withSchema(MailboxEndpointId),
+    Flag.withDescription("Mailbox endpoint to check for replies"),
+    Flag.optional,
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Check live prerequisites for the Shopify post-delivery check-in"),
+  Command.withExamples([
+    { command: "samva journeys readiness --channel email" },
+    { command: "samva journeys readiness --channel whatsapp --json" },
+  ]),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeReadiness({
+        channel: input.channel,
+        integrationAccountId: Option.getOrUndefined(input.integrationAccountId),
+        publicationId: Option.getOrUndefined(input.publicationId),
+        senderId: Option.getOrUndefined(input.senderId),
+        whatsappAccountId: Option.getOrUndefined(input.whatsappAccountId),
+        registrationId: Option.getOrUndefined(input.registrationId),
+        mailboxEndpointId: Option.getOrUndefined(input.mailboxEndpointId),
+      }).pipe(
+        client.provide,
+        Effect.mapError((error) =>
+          toCliApiError("Could not check Shopify recipe readiness", error),
+        ),
+      );
+      if (input.json) return yield* printJson(result);
+      yield* printFields([
+        ["Ready", result.ready ? "Yes" : "No"],
+        ["Channel", result.channel],
+        ["Shopify availability", result.availability.shopify ? "Enabled" : "Disabled"],
+        ["Shopify connection", result.shopify?.status ?? "Unavailable"],
+        ["Shop", result.shopify?.shop],
+        ["Journeys availability", result.availability.journeys ? "Enabled" : "Disabled"],
+        ["Plan access", result.availability.plan ?? "Requires organization-wide access"],
+        ["Publication", result.publication?.id ?? "Unavailable"],
+        ...(result.channel === "email"
+          ? ([
+              ["Email sender", result.email?.status ?? "Unavailable"],
+              ["From address", result.email?.address],
+              ["Sending domain ID", result.email?.domainId],
+            ] as const)
+          : ([
+              ["WhatsApp availability", result.availability.whatsapp ? "Enabled" : "Disabled"],
+              ["WhatsApp account", result.whatsapp?.status ?? "Unavailable"],
+              ["Business number", result.whatsapp?.address],
+              ["Registration", result.whatsapp?.registration?.status ?? "Unavailable"],
+            ] as const)),
+        ["Reply route", result.reply?.status ?? "Unavailable"],
+        ["Reply address", result.reply?.address],
+        ["Reply mailbox ID", result.reply?.mailboxId],
+      ]);
+      // What the journey cannot supply to the selected publication, with the server's guidance.
+      const issues = result.publication?.inputIssues ?? [];
+      if (issues.length > 0) {
+        yield* Console.log(
+          ["", "Publication input issues:", ...issues.map((issue) => `  - ${issue}`)].join("\n"),
+        );
+      }
+    }).pipe(quietWhenJson(input.json)),
+  ),
+);
+
+const recipeDataFlag = Flag.String("data").pipe(
+  Flag.withDescription("Request JSON, @file, or - for piped stdin"),
+);
+const readRecipeData = <S extends Schema.ConstraintDecoder<unknown>>(schema: S, source: string) =>
+  readJsonSource("data", source).pipe(
+    Effect.flatMap((value) =>
+      Schema.decodeUnknownEffect(schema, { onExcessProperty: "error", errors: "all" })(value).pipe(
+        Effect.mapError(
+          (error) =>
+            new CliUsageError({
+              code: "recipe_data_invalid",
+              message: `Invalid recipe --data: ${error.message}`,
+            }),
+        ),
+      ),
+    ),
+  );
+
+const recipePreview = Command.make("recipe-preview", { data: recipeDataFlag, json: jsonFlag }).pipe(
+  Command.withDescription("Render an exact publication with a sample order without sending"),
+  Command.withHandler(({ data, json }) =>
+    Effect.gen(function* () {
+      const payload = yield* readRecipeData(RecipePreviewPayload, data);
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipePreview(payload).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not render the recipe sample", error)),
+      );
+      if (json) return yield* printJson(result);
+      if (result.channel === "email")
+        return yield* printFields([
+          ["Sample", result.fixture],
+          ["Subject", result.content.subject],
+          ["Text", result.content.text],
+        ]);
+      return yield* printJson(result.content);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeConnect = Command.make("recipe-connect", {
+  provider: Argument.Literals("provider", ConnectionHandoffProvider.literals),
+  data: recipeDataFlag.pipe(Flag.optional),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Get the organization dashboard link for Shopify or WhatsApp connection"),
+  Command.withHandler(({ provider, data, json }) =>
+    Effect.gen(function* () {
+      const query = Option.isSome(data)
+        ? yield* readRecipeData(ConnectionHandoffQuery, data.value)
+        : {};
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeConnectionHandoff({
+        provider,
+        ...query,
+      }).pipe(
+        client.provide,
+        Effect.mapError((error) =>
+          toCliApiError("Could not prepare the connection handoff", error),
+        ),
+      );
+      return json ? yield* printJson(result) : yield* Console.log(result.url);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeTestHandoff = Command.make("recipe-test-handoff", {
+  data: recipeDataFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Open a verified owner test for the exact selection in the dashboard"),
+  Command.withHandler(({ data, json }) =>
+    Effect.gen(function* () {
+      const query = yield* readRecipeData(TestHandoffQuery, data);
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeTestHandoff(query).pipe(
+        client.provide,
+        Effect.mapError((error) =>
+          toCliApiError("Could not prepare the owner test handoff", error),
+        ),
+      );
+      return json ? yield* printJson(result) : yield* Console.log(result.url);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeTest = Command.make("recipe-test", {
+  data: recipeDataFlag,
+  yes: Flag.Boolean("yes").pipe(
+    Flag.withDescription("Confirm the test send to your verified identity"),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Send a sample order to the signed-in owner's verified identity"),
+  Command.withHandler(({ data, yes, json }) =>
+    Effect.gen(function* () {
+      const payload = yield* readRecipeData(RecipeTestPayload, data);
+      yield* confirmDestructive({
+        yes,
+        json,
+        message: `Send a ${payload.channel === "email" ? "sample email" : "sample WhatsApp message"} to your verified owner destination?`,
+        nonInteractiveMessage:
+          "Confirm the owner test with --yes. Use the same requestId after an uncertain response.",
+      });
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeTest(payload).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not run the owner test", error)),
+      );
+      return json
+        ? yield* printJson(result)
+        : yield* printFields([["Message ID", result.messageId]]);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeTestReceipt = Command.make("recipe-test-receipt", {
+  requestId: Argument.String("request-id").pipe(Argument.withSchema(RecipeTestRequestId)),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Reconcile a test by original request ID without sending again"),
+  Command.withHandler(({ requestId, json }) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeTestReceipt({ requestId }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not read the owner test receipt", error)),
+      );
+      if (json) return yield* printJson(result);
+      if (result === null) return yield* Console.log("No test attempt found for that request ID.");
+      return yield* printFields([
+        ["Message ID", result.messageId],
+        ["Acceptance", result.state],
+      ]);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const setupId = Argument.String("id").pipe(Argument.withSchema(RecipeSetupId));
+const recipeSetupsList = Command.make("list", { json: jsonFlag }).pipe(
+  Command.withDescription("List recent recipe setup selections"),
+  Command.withHandler(({ json }) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeSetupsList().pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not list recipe setups", error)),
+      );
+      if (json) return yield* printJson(result);
+      for (const item of result.items)
+        yield* printFields([
+          ["ID", item.id],
+          ["Revision", item.revision],
+          ["Channel", item.references.channel],
+        ]);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeSetupGet = Command.make("get", { id: setupId, json: jsonFlag }).pipe(
+  Command.withDescription("Read the references and revision of a saved setup"),
+  Command.withHandler(({ id, json }) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeSetupGet({ id }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not read the recipe setup", error)),
+      );
+      return yield* printJson(result);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeSetupReplace = Command.make("save", {
+  id: setupId,
+  data: recipeDataFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Save references with a new UUID and null revision or replace the current revision",
+  ),
+  Command.withHandler(({ id, data, json }) =>
+    Effect.gen(function* () {
+      const payload = yield* readRecipeData(ReplaceRecipeSetup, data);
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeSetupReplace({ id, ...payload }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not save the recipe setup", error)),
+      );
+      return yield* printJson(result);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeSetupActivate = Command.make("activate", {
+  id: setupId,
+  data: recipeDataFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Publish the reviewed selection on the setup's journey"),
+  Command.withExamples([
+    {
+      command:
+        "samva journeys recipe-setups activate <setup-id> --data @reviewed-selection.json --json",
+      description: "Pass the saved revision and reviewed send selection.",
+    },
+  ]),
+  Command.withHandler(({ id, data, json }) =>
+    Effect.gen(function* () {
+      const payload = yield* readRecipeData(ActivateRecipeSetup, data);
+      const client = yield* getClientProvider;
+      const result = yield* IntegrationsCatalog.recipeSetupActivate({ id, ...payload }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not activate the recipe setup", error)),
+      );
+      if (json) return yield* printJson(result);
+      return yield* printFields([
+        ["Journey", result.journey.id],
+        ["Status", result.journey.status],
+        ["Published version", result.journey.publishedVersion],
+        ["Setup revision", result.setup.revision],
+      ]);
+    }).pipe(quietWhenJson(json)),
+  ),
+);
+const recipeSetups = Command.make("recipe-setups").pipe(
+  Command.withDescription("Save, read, and activate Shopify recipe selections"),
+  Command.withSubcommands([
+    recipeSetupsList,
+    recipeSetupGet,
+    recipeSetupReplace,
+    recipeSetupActivate,
+  ]),
+);
+
 export const journeysCommand = Command.make("journeys").pipe(
   Command.withDescription("Create, publish, pause, and observe event-triggered journeys"),
   Command.withSubcommands([
+    recipes,
+    readiness,
+    recipePreview,
+    recipeConnect,
+    recipeTestHandoff,
+    recipeTest,
+    recipeTestReceipt,
+    recipeSetups,
     list,
     get,
     create,

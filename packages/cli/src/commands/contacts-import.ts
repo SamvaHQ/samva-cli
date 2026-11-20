@@ -71,38 +71,41 @@ export const importContacts = Command.make("import", {
         preset,
         topicId: topic,
         ...namespaceField(namespace),
-        files: yield* Effect.forEach(files, (spec) =>
-          Effect.gen(function* () {
-            const separator = spec.indexOf("=");
-            const prefix = separator < 0 ? undefined : spec.slice(0, separator);
-            const declared =
-              prefix === "status"
-                ? { kind: "status_column" as const }
-                : Schema.is(ImportExportScope)(prefix)
-                  ? { kind: "export_scope" as const, scope: prefix }
-                  : undefined;
-            const path = declared === undefined ? spec : spec.slice(separator + 1);
-            if (path.length === 0)
-              return yield* new CliUsageError({
-                code: "import_file_invalid",
-                message:
-                  "Each --file needs PATH or EVIDENCE=PATH, for example readers.csv or unsubscribed=left.csv.",
-              });
-            const csv = yield* fs.readFileString(path).pipe(
-              Effect.mapError(
-                () =>
-                  new CliUsageError({
-                    code: "import_file_unreadable",
-                    message: `Could not read import file ${path}.`,
-                  }),
-              ),
-            );
-            return {
-              name: basename(path),
-              csv,
-              ...(declared === undefined ? {} : { evidence: declared }),
-            };
-          }),
+        files: yield* Effect.forEach(
+          files,
+          (spec) =>
+            Effect.gen(function* () {
+              const separator = spec.indexOf("=");
+              const prefix = separator < 0 ? undefined : spec.slice(0, separator);
+              const declared =
+                prefix === "status"
+                  ? { kind: "status_column" as const }
+                  : Schema.is(ImportExportScope)(prefix)
+                    ? { kind: "export_scope" as const, scope: prefix }
+                    : undefined;
+              const path = declared === undefined ? spec : spec.slice(separator + 1);
+              if (path.length === 0)
+                return yield* new CliUsageError({
+                  code: "import_file_invalid",
+                  message:
+                    "Each --file needs PATH or EVIDENCE=PATH, for example readers.csv or unsubscribed=left.csv.",
+                });
+              const csv = yield* fs.readFileString(path).pipe(
+                Effect.mapError(
+                  () =>
+                    new CliUsageError({
+                      code: "import_file_unreadable",
+                      message: `Could not read import file ${path}.`,
+                    }),
+                ),
+              );
+              return {
+                name: basename(path),
+                csv,
+                ...(declared === undefined ? {} : { evidence: declared }),
+              };
+            }),
+          { concurrency: 1 },
         ),
       }).pipe(
         Effect.mapError(

@@ -85,6 +85,10 @@ const parseKey = (key: string): { path: ReadonlyArray<string>; array: boolean } 
 const isFieldObject = (value: FieldTree | undefined): value is FieldObject =>
   Predicate.isObject(value) && !Array.isArray(value);
 
+const isFieldArray = (
+  value: FieldTree | undefined,
+): value is ReadonlyArray<FieldValue | FieldObject> => Array.isArray(value);
+
 /**
  * Objects are built without a prototype, so a field named `constructor` or `__proto__` is an
  * ordinary key rather than an inherited one.
@@ -157,7 +161,7 @@ export const fieldQueryPairs = (
 ): ReadonlyArray<readonly [string, string]> =>
   Object.entries(object).flatMap(([name, value]): ReadonlyArray<readonly [string, string]> => {
     const key = prefix === undefined ? name : `${prefix}[${name}]`;
-    if (Array.isArray(value)) {
+    if (isFieldArray(value)) {
       return value.flatMap((item) =>
         isFieldObject(item) ? fieldQueryPairs(item, key) : [[key, String(item)] as const],
       );

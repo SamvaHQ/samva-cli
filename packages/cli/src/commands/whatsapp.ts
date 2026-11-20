@@ -1,7 +1,9 @@
+import { WhatsAppBusinessAccountId } from "@samva/core/shared/base";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Option from "effect/Option";
@@ -10,6 +12,7 @@ import * as Schema from "effect/Schema";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
+import { confirmDestructive } from "../lib/confirm";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { waitingLine } from "./messages";
 import { broadcasts, templatesStats } from "./whatsapp-broadcasts";
@@ -39,6 +42,8 @@ const WhatsAppAccountPage = Schema.Struct({
     Schema.Struct({
       id: Schema.String,
       phoneNumber: Schema.String,
+      whatsappBusinessAccountId: Schema.optionalKey(Schema.String),
+      namespaceId: Schema.optionalKey(Schema.NullOr(Schema.String)),
       displayName: Schema.String,
       verificationStatus: Schema.String,
       credentialStatus: Schema.String,
@@ -94,6 +99,8 @@ const status = Command.make("status", {
         yield* printFields([
           ["Account ID", account.id],
           ["Phone number", account.phoneNumber],
+          ["Business account ID", account.whatsappBusinessAccountId],
+          ["Namespace", account.namespaceId],
           ["Display name", account.displayName],
           ["Verification", account.verificationStatus],
           ["Credentials", account.credentialStatus],
@@ -390,9 +397,10 @@ const send = Command.make("send", {
         }
         // The public SDK describes the email channel only, so WhatsApp posts to the same endpoint
         // directly with the CLI's credentials.
+        const secureRandom = yield* SecureRandom.SecureRandom;
         const receipt = yield* postAuthenticatedJson("/v1/messages", {
           body: whatsappContentPayload(to, whatsapp),
-          headers: { "idempotency-key": key ?? crypto.randomUUID() },
+          headers: { "idempotency-key": key ?? (yield* secureRandom.uuidV4()) },
         }).pipe(Effect.mapError(whatsappSendError));
         const projection = yield* Schema.decodeUnknownEffect(WhatsAppReceipt)(receipt).pipe(
           Effect.mapError(
@@ -552,9 +560,46 @@ const message = Command.make("message").pipe(
   Command.withSubcommands([messageStatus]),
 );
 
+const setDefault = Command.make("set-default", {
+  id: Argument.String("account-id").pipe(Argument.withSchema(WhatsAppBusinessAccountId)),
+  yes: Flag.Boolean("yes"),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Set the default for the connected number's organization or namespace"),
+  Command.withHandler(({ id, yes, json }) =>
+    Effect.gen(function* () {
+      yield* confirmDestructive({
+        yes,
+        json,
+        message: `Set ${id} as the default number in its scope?`,
+        nonInteractiveMessage: "Confirm the default-number change with --yes.",
+      });
+      const result = yield* postAuthenticatedJson(
+        `/v1/whatsapp/business-accounts/${encodeURIComponent(id)}/set-default`,
+        { body: undefined },
+      ).pipe(
+        Effect.mapError((error) =>
+          toCliApiError("Could not set the default WhatsApp number", error),
+        ),
+      );
+      if (json) return yield* printJson(result);
+      return yield* printFields([["Default account", id]]);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 export const whatsappCommand = Command.make("whatsapp").pipe(
   Command.withDescription(
     "WhatsApp — `send` delivers text, media, reply buttons, reactions, or any whatsapp object inside the 24-hour customer service window, or an approved template at any time; `templates list` shows each template's Meta review status and `templates stats` how each performed; `broadcasts` sends a template to an audience; `flows` creates, publishes, and registers flows; `setup-links` creates links that connect a customer's number into a namespace. `status` shows connected numbers and their verification, quality, and messaging limits; `message status <id>` reads a message's lifecycle status. Business account connection stays in the dashboard.",
   ),
-  Command.withSubcommands([status, send, templates, broadcasts, flows, setupLinks, message]),
+  Command.withSubcommands([
+    status,
+    setDefault,
+    send,
+    templates,
+    broadcasts,
+    flows,
+    setupLinks,
+    message,
+  ]),
 );

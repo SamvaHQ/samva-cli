@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 
 import { CliAuthError } from "../src/errors";
 import { CLI_VERSION } from "../src/lib/client-attribution";
@@ -23,7 +24,10 @@ describe("CLI client attribution", () => {
         }),
       );
 
-      yield* getText("https://api.test/v1/health/ping");
+      yield* getText("https://api.test/v1/health/ping").pipe(
+        Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+        Effect.provide(FetchHttpClient.layer),
+      );
 
       expect(seen.map((headers) => headers.get("x-samva-client"))).toEqual([`cli/${CLI_VERSION}`]);
     }),

@@ -12,7 +12,7 @@ import { readStdinUtf8 } from "../lib/stdin";
 
 /** The media types a `whatsapp.media` object names (`WhatsAppOutboundMedia`). */
 export const WHATSAPP_MEDIA_TYPES = ["image", "video", "audio", "document", "sticker"] as const;
-export type WhatsAppMediaKind = (typeof WHATSAPP_MEDIA_TYPES)[number];
+type WhatsAppMediaKind = (typeof WHATSAPP_MEDIA_TYPES)[number];
 
 /** Media types that accept a caption; audio and stickers carry none. */
 const CAPTIONED: ReadonlyArray<WhatsAppMediaKind> = ["image", "video", "document"];
@@ -42,7 +42,7 @@ export interface WhatsAppContentFlags {
 
 /** How a flow message opens its flow (`--flow-action`); mirrors `WhatsAppFlowAction`. */
 export const WHATSAPP_FLOW_ACTIONS = ["navigate", "data_exchange"] as const;
-export type WhatsAppFlowAction = (typeof WHATSAPP_FLOW_ACTIONS)[number];
+type WhatsAppFlowAction = (typeof WHATSAPP_FLOW_ACTIONS)[number];
 
 const usage = (code: string, message: string) => new CliUsageError({ code, message });
 
@@ -53,7 +53,7 @@ const isTemplateId = (reference: string): boolean => reference.startsWith("tmpl_
  * The `whatsapp` object of one approved-template send. `flowToken` fills the template's flow
  * button and comes back on the customer's flow response.
  */
-export const whatsappTemplateContent = (
+const whatsappTemplateContent = (
   template: string,
   data: Readonly<Record<string, unknown>> | undefined,
   flowToken?: string | undefined,
@@ -64,7 +64,7 @@ export const whatsappTemplateContent = (
 });
 
 /** The `whatsapp` object of one media message sent by link. */
-export const whatsappMediaContent = (input: {
+const whatsappMediaContent = (input: {
   readonly url: string;
   readonly type: WhatsAppMediaKind;
   readonly caption?: string | undefined;
@@ -96,7 +96,7 @@ export const parseWhatsappButton = (
 };
 
 /** The `whatsapp` object of one reply-button message; the customer's tap returns the button `id`. */
-export const whatsappButtonsContent = (input: {
+const whatsappButtonsContent = (input: {
   readonly body: string;
   readonly footer?: string | undefined;
   readonly buttons: ReadonlyArray<{ readonly id: string; readonly title: string }>;
@@ -110,7 +110,7 @@ export const whatsappButtonsContent = (input: {
 });
 
 /** The `whatsapp` object of one flow message; the customer taps `cta` and fills the flow in WhatsApp. */
-export const whatsappFlowContent = (input: {
+const whatsappFlowContent = (input: {
   readonly flowId: string;
   readonly cta: string;
   readonly body: string;
@@ -134,12 +134,12 @@ export const whatsappFlowContent = (input: {
 });
 
 /** The `whatsapp` object of one reaction to a message in the same chat. */
-export const whatsappReactionContent = (messageId: string, emoji: string) => ({
+const whatsappReactionContent = (messageId: string, emoji: string) => ({
   reaction: { messageId, emoji },
 });
 
 /** Parse `--data`: a JSON object of template variables. */
-export const parseWhatsappTemplateData = (
+const parseWhatsappTemplateData = (
   raw: string | undefined,
 ): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
   if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
@@ -157,7 +157,7 @@ export const parseWhatsappTemplateData = (
 };
 
 /** Parse `--flow-data`: a JSON object the flow's opening screen reads. */
-export const parseWhatsappFlowData = (
+const parseWhatsappFlowData = (
   raw: string | undefined,
 ): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
   if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
@@ -195,7 +195,7 @@ export const parseWhatsappContent = (
 };
 
 /** Read `--content`: inline JSON, `@path` for a file, or `-` for piped stdin. */
-export const readWhatsappContentSource = (
+const readWhatsappContentSource = (
   raw: string,
 ): Effect.Effect<string, CliUsageError | SamvaCliError, FileSystem.FileSystem> => {
   if (raw === "-") return readStdinUtf8;
@@ -392,6 +392,8 @@ export const resolveWhatsappContent = (
         `Reply buttons take 1 to 3 --button id:Title; got ${String(flags.buttons.length)}.`,
       );
     }
-    const buttons = yield* Effect.forEach(flags.buttons, parseWhatsappButton);
+    const buttons = yield* Effect.forEach(flags.buttons, parseWhatsappButton, {
+      concurrency: 1,
+    });
     return whatsappButtonsContent({ body: flags.body, footer: flags.footer, buttons });
   });

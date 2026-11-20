@@ -1,14 +1,16 @@
-import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { BunCrypto, BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun";
 import PackageJson from "@samva/cli/package.json" with { type: "json" };
 import * as CliError from "effect/cli/CliError";
 import * as CliOutput from "effect/cli/CliOutput";
 import * as Command from "effect/cli/Command";
 import * as Console from "effect/Console";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
+import * as HttpClient from "effect/http/HttpClient";
 import * as Logger from "effect/Logger";
 import * as LogLevel from "effect/LogLevel";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
 import { Keyring } from "./config/credential-store";
 import {
@@ -34,7 +36,7 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
     Input,
     ContextInput,
     CommandError,
-    BunServices.BunServices | Keyring.Service
+    BunServices.BunServices | Keyring.Service | HttpClient.HttpClient | SecureRandom.SecureRandom
   >,
 ) => {
   const argv = process.argv.slice(2);
@@ -93,7 +95,7 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
    * so this failure is really a help request — not a diagnostic.
    */
   const isBareHelp = (error: unknown): error is CliError.ShowHelp =>
-    error instanceof CliError.ShowHelp && error.errors.length === 0;
+    Schema.is(CliError.ShowHelp)(error) && error.errors.length === 0;
 
   /**
    * On a parse failure the framework renders a full-width `ERROR` block to stderr
@@ -129,10 +131,12 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
         // Streaming commands write their own lines; only a help request is
         // buffered, and it is one envelope.
         if (helpRequested && state.lines.length === 1) {
-          yield* writeOutput(
-            process.stdout,
-            `${JSON.stringify(resultEnvelope(commandNameFromArgv(argv), JSON.parse(state.lines[0]!)))}\n`,
-          );
+          const [line] = state.lines;
+          if (line !== undefined)
+            yield* writeOutput(
+              process.stdout,
+              `${JSON.stringify(resultEnvelope(commandNameFromArgv(argv), JSON.parse(line)))}\n`,
+            );
         }
         return;
       }
@@ -144,10 +148,11 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
       }
       const data = yield* Effect.try({
         try: () => {
-          if (state.lines.length !== 1) {
+          const [line, ...rest] = state.lines;
+          if (line === undefined || rest.length > 0) {
             return { invalid: true as const, count: state.lines.length };
           }
-          return { invalid: false as const, data: JSON.parse(state.lines[0]!) as unknown };
+          return { invalid: false as const, data: JSON.parse(line) as unknown };
         },
         catch: () => ({ invalid: true as const, count: state.lines.length }),
       });
@@ -230,10 +235,10 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
             if (isBareHelp(error) && outputMode === "human") {
               return writeOutput(process.stdout, `${state.lines.join("\n")}\n`);
             }
-            if (error instanceof CliMessageLifecycleError) {
+            if (Schema.is(CliMessageLifecycleError)(error)) {
               return flushLifecycleResult(state, error);
             }
-            if (error instanceof CliResultError) {
+            if (Schema.is(CliResultError)(error)) {
               return flushFailedResult(state, error);
             }
             return Effect.sync(() => {
@@ -259,7 +264,7 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
         return;
       }
       const message =
-        error instanceof CliError.ShowHelp && error.errors.length > 0
+        Schema.is(CliError.ShowHelp)(error) && error.errors.length > 0
           ? `${error.errors[0]?.message ?? "Invalid command input."}\nTry: ${error.commandPath.join(" ")} --help`
           : messageFor(error);
       if (!machineMode) {
@@ -291,14 +296,14 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
           ),
         )
   ).pipe(
-    Effect.provide(
-      Layer.mergeAll(
-        Logger.layer([cliLogger]),
-        BunServices.layer,
-        CliOutput.layer(formatter),
-        Keyring.layer,
-      ),
-    ),
+    Effect.provide([
+      Logger.layer([cliLogger]),
+      BunServices.layer,
+      BunCrypto.layerSecureRandom,
+      BunHttpClient.layer,
+      CliOutput.layer(formatter),
+      Keyring.layer,
+    ]),
     Effect.matchEffect({
       onFailure: renderFailure,
       onSuccess: () => Effect.void,

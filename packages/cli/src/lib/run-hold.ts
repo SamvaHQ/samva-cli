@@ -1,4 +1,4 @@
-export const WHATSAPP_MESSAGING_LIMIT_HOLD = "whatsapp_messaging_limit";
+const WHATSAPP_MESSAGING_LIMIT_HOLD = "whatsapp_messaging_limit";
 
 interface HeldRun {
   readonly holdReason?: string | null | undefined;

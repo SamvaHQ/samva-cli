@@ -93,9 +93,7 @@ const discoverDirectory = (
   });
 
 /** Discover packages without reading message bytes or following links outside the export. */
-export const discoverMailArchives = Effect.fn("MailImport.discoverArchives")(function* (
-  input: string,
-) {
+const discoverMailArchives = Effect.fn("MailImport.discoverArchives")(function* (input: string) {
   const root = resolve(input);
   const rootInfo = yield* stat(root);
   if (rootInfo.isFile() && rootInfo.size === 0)
@@ -124,6 +122,7 @@ const uploadArchive = Effect.fn("MailImport.uploadArchive")(function* (
 ) {
   const response = yield* Effect.tryPromise({
     try: (signal) =>
+      // @effect-diagnostics-next-line globalFetchInEffect:off -- Bun streams the file with its known length, which the presigned upload requires.
       fetch(url, {
         method: "PUT",
         headers: { "content-type": "application/mbox", "content-length": String(file.sizeBytes) },

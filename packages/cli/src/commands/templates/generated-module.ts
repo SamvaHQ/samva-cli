@@ -25,7 +25,7 @@ export type TemplateReferenceKind = "exact" | "contract-latest";
  * contract reference; `slug` carries the slug alone, which the API resolves to the template's
  * current publication, so the types follow its current input contract.
  */
-export type TemplateKeying = "id" | "slug";
+type TemplateKeying = "id" | "slug";
 
 export interface TemplateCatalogEntry {
   /** The template's slug: the key a caller writes, and the module's own key. */
@@ -91,9 +91,10 @@ const ManifestSchema = Schema.Struct({
   ),
 });
 const decodeManifest = Schema.decodeUnknownOption(Schema.fromJsonString(ManifestSchema));
-const withKeying = (
-  manifest: Schema.Schema.Type<typeof ManifestSchema>,
-): TemplateTypesManifest => ({ ...manifest, by: manifest.by ?? "id" });
+const withKeying = (manifest: typeof ManifestSchema.Type): TemplateTypesManifest => ({
+  ...manifest,
+  by: manifest.by ?? "id",
+});
 
 /**
  * Reads back the manifest a generated module carries; undefined when it has

@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { SamvaCliError } from "../../errors";
 import { AUTHORING_MINOR, minorOf } from "../../lib/authoring-release";
@@ -143,7 +144,7 @@ export const runToolchain = <A>(input: {
         return JSON.parse(stdout) as A;
       },
       catch: (cause) =>
-        cause instanceof SamvaCliError
+        Schema.is(SamvaCliError)(cause)
           ? cause
           : new SamvaCliError({
               message: `${input.action}: ${NODE_MISSING} ${String(cause)}`,

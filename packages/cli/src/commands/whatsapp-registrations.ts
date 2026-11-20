@@ -1,4 +1,7 @@
-import { TemplateRegistration } from "@samva/core/templates/registration";
+import {
+  TemplateRegistration,
+  TemplateRegistrationApproval,
+} from "@samva/core/templates/registration";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -8,7 +11,7 @@ import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 
-import { SamvaCliError, toCliApiError } from "../errors";
+import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 
@@ -39,6 +42,20 @@ const businessAccountFlag = Flag.String("business-account").pipe(
   ),
   Flag.optional,
 );
+const publicationFlag = Flag.String("publication").pipe(
+  Flag.withDescription(
+    "Reviewed publication ID. Requires --business-account, --waba-id and --workspace-revision",
+  ),
+  Flag.optional,
+);
+const wabaIdFlag = Flag.String("waba-id").pipe(
+  Flag.withDescription("Meta business account ID shown on the reviewed connected number"),
+  Flag.optional,
+);
+const workspaceRevisionFlag = Flag.String("workspace-revision").pipe(
+  Flag.withDescription("The workspace revision reviewed for an exact submission"),
+  Flag.optional,
+);
 
 /** The registrations collection of one template. */
 export const registrationsPath = (templateId: string, registrationId?: string): string => {
@@ -54,7 +71,7 @@ export const submitRegistrationPayload = (businessAccountId: string | undefined)
 
 const REGISTRATION_NEXT: Readonly<Record<string, string>> = {
   ConflictError:
-    "Publish the template (`samva templates publish`) if it has no publication, or wait for the review in progress to finish, then retry. A disabled template cannot be resubmitted.",
+    "Review the current publication and account again if they changed. Publish the template (`samva templates publish`) if needed, or wait for a review in progress to finish. A disabled template cannot be resubmitted.",
   ValidationError:
     "Read Meta's reason in the message, fix the template and publish it again, then resubmit. If no WhatsApp number is connected, connect one in the dashboard first.",
   WhatsAppChannelError: "Meta could not be reached or refused the request. Retry shortly.",
@@ -146,10 +163,13 @@ const quiet = <A, E, R>(json: boolean, effect: Effect.Effect<A, E, R>) =>
 const submit = Command.make("submit", {
   id: templateIdArgument,
   businessAccount: businessAccountFlag,
+  publication: publicationFlag,
+  wabaId: wabaIdFlag,
+  workspaceRevision: workspaceRevisionFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Submit the template's current publication to Meta for review. A newer publication resubmits through the same registration.",
+    "Submit the template's current publication to Meta for review. A newer publication resubmits through the same registration. Supply the reviewed publication, number, Meta business account and workspace revision to guard a previously approved submission.",
   ),
   Command.withExamples([
     {
@@ -160,13 +180,39 @@ const submit = Command.make("submit", {
       command: "samva whatsapp templates submit tmpl_abc123 --business-account waba_abc123",
       description: "Register on a specific business account",
     },
+    {
+      command:
+        "samva whatsapp templates submit tmpl_abc123 --publication tpub_abc123 --business-account waba_abc123 --waba-id 1234567890 --workspace-revision 12 --json",
+      description: "Submit the exact content and account reviewed earlier",
+    },
   ]),
-  Command.withHandler(({ id, businessAccount, json }) =>
+  Command.withHandler(({ id, businessAccount, publication, wabaId, workspaceRevision, json }) =>
     quiet(
       json,
       Effect.gen(function* () {
+        const approval =
+          Option.isSome(publication) || Option.isSome(wabaId) || Option.isSome(workspaceRevision)
+            ? yield* Schema.decodeUnknownEffect(Schema.toEncoded(TemplateRegistrationApproval))({
+                publicationId: Option.getOrUndefined(publication),
+                businessAccountId: Option.getOrUndefined(businessAccount),
+                expectedWabaId: Option.getOrUndefined(wabaId),
+                expectedWorkspaceRevision: Option.getOrUndefined(workspaceRevision),
+              }).pipe(
+                Effect.mapError(
+                  () =>
+                    new CliUsageError({
+                      code: "invalid_registration_approval",
+                      message:
+                        "Use valid --publication, --business-account, --waba-id and --workspace-revision values together for a reviewed submission.",
+                    }),
+                ),
+              )
+            : undefined;
         const body = yield* postAuthenticatedJson(registrationsPath(id), {
-          body: submitRegistrationPayload(Option.getOrUndefined(businessAccount)),
+          body:
+            approval === undefined
+              ? submitRegistrationPayload(Option.getOrUndefined(businessAccount))
+              : { provider: "whatsapp", approval },
         }).pipe(Effect.mapError(registrationError("submit the template registration")));
         const registration = yield* decodeRegistration(body);
         if (json) return yield* printJson(registration);

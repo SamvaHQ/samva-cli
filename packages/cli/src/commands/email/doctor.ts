@@ -63,8 +63,10 @@ const orgAccess = check(
     Effect.flatMap((client) =>
       Organizations.get().pipe(
         client.provide,
-        Effect.map((organization) => `${organization.name} (${organization.slug})`),
-        Effect.mapError((error) => toCliApiError("Organization read failed", error)),
+        Effect.mapBoth({
+          onSuccess: (organization) => `${organization.name} (${organization.slug})`,
+          onFailure: (error) => toCliApiError("Organization read failed", error),
+        }),
       ),
     ),
   ),
@@ -147,20 +149,22 @@ const domainVerificationReadback = getClientProvider.pipe(
         }
         return Email.getDomainVerification({ id: domain.id }).pipe(
           client.provide,
-          Effect.map((status): DoctorCheck => {
-            const verification = status.phase;
-            return {
-              name: "Domain verification readback",
-              status:
-                verification === "ready"
-                  ? "passed"
-                  : verification === "failed"
-                    ? "failed"
-                    : "unavailable",
-              detail: `${status.domain}: ${status.phase}`,
-            };
+          Effect.mapBoth({
+            onSuccess: (status): DoctorCheck => {
+              const verification = status.phase;
+              return {
+                name: "Domain verification readback",
+                status:
+                  verification === "ready"
+                    ? "passed"
+                    : verification === "failed"
+                      ? "failed"
+                      : "unavailable",
+                detail: `${status.domain}: ${status.phase}`,
+              };
+            },
+            onFailure: (error) => toCliApiError("Domain verification read failed", error),
           }),
-          Effect.mapError((error) => toCliApiError("Domain verification read failed", error)),
         );
       }),
     ),

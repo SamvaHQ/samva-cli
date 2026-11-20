@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
+import * as Schema from "effect/Schema";
 import * as Namespaces from "samva/effect/namespaces";
 
 import { CliUsageError, toCliApiError } from "../errors";
@@ -52,13 +53,14 @@ const chosenResource = (flags: Record<ResourceKind, Option.Option<string>>) => {
     const id = flags[type];
     return Option.isSome(id) ? [{ type, id: id.value }] : [];
   });
-  if (chosen.length !== 1) {
+  const [only, ...rest] = chosen;
+  if (only === undefined || rest.length > 0) {
     return new CliUsageError({
       code: "resource_flag_required",
       message: `Pass exactly one resource: ${RESOURCE_FLAGS.map((type) => `--${type === "whatsappNumber" ? "whatsapp-number" : type === "smsNumber" ? "sms-number" : type} <id>`).join(", ")}.`,
     });
   }
-  return chosen[0]!;
+  return only;
 };
 
 /** Parse `key=value` pairs; the first `=` separates the key, so a value may contain `=`. */
@@ -341,7 +343,7 @@ const assign = Command.make("assign", {
           whatsappNumber,
           smsNumber,
         });
-        if (resource instanceof CliUsageError) return yield* resource;
+        if (Schema.is(CliUsageError)(resource)) return yield* resource;
         if (dryRun)
           return yield* json
             ? printJson({ dryRun: true, action: "namespaces.assign", id, request: resource })
@@ -388,7 +390,7 @@ const unassign = Command.make("unassign", {
           whatsappNumber,
           smsNumber,
         });
-        if (resource instanceof CliUsageError) return yield* resource;
+        if (Schema.is(CliUsageError)(resource)) return yield* resource;
         if (dryRun)
           return yield* json
             ? printJson({ dryRun: true, action: "namespaces.unassign", id, request: resource })

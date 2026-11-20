@@ -9,6 +9,7 @@ import { WEBHOOK_EVENT_TYPE_VALUES } from "@samva/core/shared/enums";
 import { rootCommands } from "../src/lib/root-commands";
 import { commandNameFromArgv } from "../src/lib/runtime";
 import { emailDomainFixture } from "./support/fixtures";
+import { createTestServer } from "./support/http-server";
 import {
   type CliOptions,
   type CliResult,
@@ -1425,6 +1426,15 @@ describe("--json stdout purity", () => {
 });
 
 describe("scheduled and campaign subprocess contracts", () => {
+  it("reports an empty resume time as invalid with --send-now", async () => {
+    const result = await runCli(
+      ["scheduled-messages", "resume", "sched_1234567890abcdefgh", "--send-now", "--at", ""],
+      { env: { SAMVA_API_KEY: "samva_sk_test_x" } },
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("--at must be an absolute ISO 8601 instant");
+  });
+
   it("executes scheduled create/list/get/cancel with JSON-only output", async () => {
     const api = await startApi();
     const env = { SAMVA_API_URL: api.url, SAMVA_API_KEY: "samva_sk_test_x" };
@@ -1719,6 +1729,7 @@ describe("stream separation (human mode)", () => {
       { env: { SAMVA_API_KEY: "samva_sk_test_x" } },
     );
     expect(stdout).toContain("Subject");
+    expect(stdout).toContain("a@b.com");
     expect(stdout).not.toContain("Dry run — no API request sent.");
     expect(stderr).toBe("");
   });
@@ -2276,7 +2287,7 @@ describe("email launch mutation contracts", () => {
 
   it("receiving update sends one atomic nullable destination patch", async () => {
     const requests: unknown[] = [];
-    const server = createServer(async (req, res) => {
+    const server = createTestServer(async (req, res) => {
       let body = "";
       for await (const chunk of req) body += chunk;
       requests.push({ method: req.method, url: req.url, body: JSON.parse(body) });

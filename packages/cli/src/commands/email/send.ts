@@ -138,6 +138,14 @@ type SendRequestBody = Omit<EmailSendInput, "to"> & {
 
 type BodySource = "html" | "text" | "stdin" | "template";
 
+/** A recipient as the dry run prints it: the address, or the contact the send names. */
+const recipientLabel = (recipient: SendRequestBody["to"][number]): string => {
+  if (typeof recipient === "string") return recipient;
+  if ("email" in recipient) return recipient.email;
+  if ("contactId" in recipient) return recipient.contactId;
+  return recipient.id;
+};
+
 const bodySourceName = (input: {
   readonly templateRefValue: string | undefined;
   readonly resolvedHtml: string | undefined;
@@ -479,7 +487,7 @@ export const send = Command.make("send", {
           yield* Console.log("");
           yield* printFields([
             ...(request.from ? [["From", request.from.email] as const] : []),
-            ["To", request.to.join(", ")],
+            ["To", request.to.map(recipientLabel).join(", ")],
             ...(ccValue ? [["Cc", ccValue] as const] : []),
             ...(bccValue ? [["Bcc", bccValue] as const] : []),
             ["Subject", request.subject],

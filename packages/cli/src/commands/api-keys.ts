@@ -164,7 +164,7 @@ const accessFromFlags = (
     const resources: Partial<Record<ApiKeyLevelResource, GrantLevel>> = {};
     for (const raw of grants) {
       const grant = parseGrant(raw);
-      if (grant instanceof CliUsageError) return yield* grant;
+      if (Schema.is(CliUsageError)(grant)) return yield* grant;
       if (resources[grant.resource] !== undefined) {
         return yield* new CliUsageError({
           code: "invalid_grant",

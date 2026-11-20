@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { type AddressInfo, createServer, type IncomingMessage, type Server } from "node:http";
+import { type AddressInfo, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
+
+import { createTestServer } from "./support/http-server";
 
 // Never called: puts the spawned entry in this file's import graph for `vitest --changed`.
 void (() => import("../src/bin.ts"));
@@ -162,7 +164,7 @@ const data = <T>(stdout: string): T => (JSON.parse(stdout) as { readonly data: T
 beforeAll(async () => {
   configHome = await mkdtemp(join(tmpdir(), "samva-ws-config-"));
   workspace = await mkdtemp(join(tmpdir(), "samva-ws-project-"));
-  server = createServer(async (request, response) => {
+  server = createTestServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const path = url.pathname;
     calls.push(`${request.method} ${path}`);
@@ -195,11 +197,12 @@ beforeAll(async () => {
     if (path === `/v1/templates/${TEMPLATE_ID}/workspace` && request.method === "POST")
       return send(200, view());
     if (path === `/v1/templates/${TEMPLATE_ID}/workspace` && request.method === "PATCH") {
-      if (stale(payload["expectedRevision"]))
+      const expectedRevision = payload["expectedRevision"];
+      if (stale(expectedRevision))
         return send(
           409,
           conflict(
-            `Template workspace revision is ${revision}, not ${payload["expectedRevision"]}.`,
+            `Template workspace revision is ${revision}, not ${typeof expectedRevision === "string" ? expectedRevision : JSON.stringify(expectedRevision)}.`,
           ),
         );
       const patches: unknown = payload["patches"];

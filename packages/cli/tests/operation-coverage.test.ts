@@ -17,13 +17,18 @@ interface CommandNode {
   readonly subcommands: ReadonlyArray<{ readonly commands: ReadonlyArray<CommandNode> }>;
 }
 
-const leafPaths = (node: CommandNode, prefix: ReadonlyArray<string>): Array<string> => {
+// The legacy thread-list command still runs directly and also hosts the delete subcommand.
+const RUNNABLE_GROUPS = new Set(["mailboxes threads"]);
+
+const runnablePaths = (node: CommandNode, prefix: ReadonlyArray<string>): Array<string> => {
   const path = [...prefix, node.name];
   const children = node.subcommands.flatMap((group) => group.commands);
-  return children.length === 0 ? [path.join(" ")] : children.flatMap((c) => leafPaths(c, path));
+  const joined = path.join(" ");
+  const runnable = children.length === 0 || RUNNABLE_GROUPS.has(joined) ? [joined] : [];
+  return [...runnable, ...children.flatMap((child) => runnablePaths(child, path))];
 };
 const commandPaths = new Set(
-  (rootCommands as ReadonlyArray<CommandNode>).flatMap((command) => leafPaths(command, [])),
+  (rootCommands as ReadonlyArray<CommandNode>).flatMap((command) => runnablePaths(command, [])),
 );
 
 const sdkOperations = new Map<string, Array<string>>();
@@ -70,10 +75,9 @@ describe("CLI operation coverage", () => {
     const missing = Object.entries(OPERATION_COVERAGE).filter(
       ([, command]) => command !== "api" && !commandPaths.has(command),
     );
-    expect(
-      missing,
-      "A covering command must be a leaf path in the command tree, such as `email domains list`.",
-    ).toEqual([]);
+    expect(missing, "A covering command must be runnable, such as `email domains list`.").toEqual(
+      [],
+    );
   });
 
   it("marks no operation api that a command calls through the SDK", () => {

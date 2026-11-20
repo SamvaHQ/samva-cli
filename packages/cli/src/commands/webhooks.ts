@@ -37,7 +37,7 @@ const decodePayload = <A>(raw: string, flag: string, schema: Schema.Codec<A, unk
       Schema.decodeEffect(schema)(input, { onExcessProperty: "error", errors: "all" }),
     ),
     Effect.mapError((error) =>
-      error instanceof SamvaCliError
+      Schema.is(SamvaCliError)(error)
         ? error
         : new SamvaCliError({ message: `${flag} does not match the API schema: ${String(error)}` }),
     ),
@@ -320,7 +320,7 @@ const test = Command.make("test", {
                 Schema.decodeUnknownEffect(Webhooks.TestPayload)({ data: value }),
               ),
               Effect.mapError((error) =>
-                error instanceof CliUsageError || error instanceof SamvaCliError
+                Schema.is(CliUsageError)(error) || Schema.is(SamvaCliError)(error)
                   ? error
                   : new SamvaCliError({
                       message: `--data does not match the API schema: ${String(error)}`,

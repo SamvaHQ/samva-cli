@@ -26,7 +26,7 @@ is no built-in filter.
 `samva api-keys` manages the organization's keys: `list`, `get`, `create`, `update`, `rotate`, and
 `revoke`. `create` takes `--name` and either `--full-access` or restricted access built from repeatable
 `--grant <resource>=read|write` and mailbox access: repeatable `--mailbox-permission
-read|update|send|quarantine.read`, optionally narrowed to repeatable `--mailbox <id>` (default:
+read|update|send|spam.read`, optionally narrowed to repeatable `--mailbox <id>` (default:
 every shared mailbox the owner reaches; personal mailboxes require an explicit ID).
 `--namespace <id>` confines a restricted key to one namespace.
 Passing no access, or both

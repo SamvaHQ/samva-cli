@@ -4,6 +4,7 @@ import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { SamvaCliError } from "../../errors";
 import { dirFlag } from "./flags";
@@ -80,7 +81,7 @@ const runDevServer = (input: {
         }
       },
       catch: (cause) =>
-        cause instanceof SamvaCliError
+        Schema.is(SamvaCliError)(cause)
           ? cause
           : new SamvaCliError({
               message: `Could not start the template editor. Install Node.js 22+: ${String(cause)}`,

@@ -2,6 +2,7 @@ import { TemplateId } from "@samva/core/shared/base";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Option from "effect/Option";
@@ -76,6 +77,7 @@ export const fromBriefCommand = Command.make("from-brief", {
             message: "--idempotency-key must contain between 1 and 255 characters.",
           });
         const client = yield* getClientProvider;
+        const secureRandom = yield* SecureRandom.SecureRandom;
         const context = yield* resolveExecutionContext;
         // Resolve the organization slug before the write so a failure leaves nothing created.
         const orgSlug = context.apiKey
@@ -95,7 +97,7 @@ export const fromBriefCommand = Command.make("from-brief", {
             ...(Option.isSome(variantOf) ? { variantOf: variantOf.value } : {}),
             ...namespaceField(namespace),
           },
-          { idempotencyKey: key ?? crypto.randomUUID() },
+          { idempotencyKey: key ?? (yield* secureRandom.uuidV4()) },
         ).pipe(
           client.provide,
           Effect.mapError((error) =>

@@ -297,7 +297,7 @@ export const waitForMessage = <Initial extends MessageObservation>(
     }).pipe(
       Effect.retry({
         schedule: Schedule.spaced("1 second"),
-        while: (error) => error instanceof MessageStillPending,
+        while: (error) => Schema.is(MessageStillPending)(error),
       }),
     );
 
@@ -542,8 +542,52 @@ const wait = Command.make("wait", {
   ),
 );
 
+const deliveries = Command.make("deliveries", { id: Argument.String("id"), json: jsonFlag }).pipe(
+  Command.withDescription(
+    "Read delivery timestamps, failures, skipped eligibility, and observed replies",
+  ),
+  Command.withHandler(({ id, json }) =>
+    Effect.gen(function* () {
+      const client = yield* getClientProvider;
+      const data = yield* Messages.listDeliveries({ id }).pipe(
+        client.provide,
+        Effect.mapError(apiError("Could not read message delivery")),
+      );
+      if (json) return yield* printJson(data);
+      yield* printFields([
+        ["Message ID", data.id],
+        ["Status", data.status],
+        ["Skipped recipients", skippedRecipientsLine(data)],
+      ]);
+      for (const item of data.items) {
+        yield* printFields([
+          ["Recipient", item.recipient],
+          ["Status", item.status],
+          ["Queued", item.queuedAt],
+          ["Provider accepted", item.sentAt],
+          ["Delivered", item.deliveredAt],
+          ["Read", item.readAt],
+          ["Failed", item.failedAt],
+          ["Failure", item.error?.message],
+        ]);
+      }
+      for (const endpoint of data.reply.endpoints)
+        yield* printFields([
+          ["Reply to", endpoint.address],
+          ["Mailbox ID", endpoint.mailboxId],
+        ]);
+      if (data.reply.received !== null)
+        yield* printFields([
+          ["Reply received", data.reply.received.receivedAt],
+          ["Reply message ID", data.reply.received.messageId],
+          ["Mailbox thread ID", data.reply.received.thread?.threadId],
+        ]);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 export const messagesCommand = Command.make("messages").pipe(
   Command.withDescription("Inspect messages and their lifecycle"),
   Command.withExamples([{ command: "samva messages list --channel email --json" }]),
-  Command.withSubcommands([list, get, events, wait]),
+  Command.withSubcommands([list, get, deliveries, events, wait]),
 );

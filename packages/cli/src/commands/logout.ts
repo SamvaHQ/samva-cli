@@ -1,5 +1,6 @@
 import * as Command from "effect/cli/Command";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { clearCredentials, readCredentials, resolveApiUrl } from "../config/store";
 import { CliConfigError } from "../errors";
@@ -14,7 +15,7 @@ export const logoutCommand = Command.make("logout").pipe(
       const credentials = yield* readCredentials.pipe(
         Effect.catchIf(
           (error): error is CliConfigError =>
-            error instanceof CliConfigError && error.code === "invalid_credential_record",
+            Schema.is(CliConfigError)(error) && error.code === "invalid_credential_record",
           () => Effect.void,
         ),
       );

@@ -1,4 +1,6 @@
 import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Client from "samva/effect/client";
@@ -103,30 +105,28 @@ export const getAuthenticatedJsonForContext = Effect.fn("CliClient.getAuthentica
       ...requestAuthHeaders(config),
     };
     const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
-    const response = yield* Effect.tryPromise({
-      try: (signal) =>
-        fetch(
-          url,
-          request === undefined
-            ? { headers, signal }
-            : {
-                method: request.method ?? "POST",
-                headers,
-                body: JSON.stringify(request.body),
-                signal,
-              },
-        ),
-      catch: (cause) =>
-        new SamvaCliError({ message: `Request to ${url} failed: ${String(cause)}` }),
-    });
-    const body = yield* Effect.tryPromise({
-      try: (): Promise<unknown> => response.json(),
-      catch: (cause) =>
-        new SamvaCliError({
-          message: `Request to ${url} failed: HTTP ${response.status}, unreadable body: ${String(cause)}`,
-        }),
-    });
-    if (response.ok) return body;
+    const httpRequest =
+      request === undefined
+        ? HttpClientRequest.get(url)
+        : HttpClientRequest.make(request.method ?? "POST")(url).pipe(
+            HttpClientRequest.bodyText(JSON.stringify(request.body)),
+          );
+    const response = yield* HttpClient.execute(
+      httpRequest.pipe(HttpClientRequest.setHeaders(headers)),
+    ).pipe(
+      Effect.mapError(
+        (cause) => new SamvaCliError({ message: `Request to ${url} failed: ${String(cause)}` }),
+      ),
+    );
+    const body = yield* response.json.pipe(
+      Effect.mapError(
+        (cause) =>
+          new SamvaCliError({
+            message: `Request to ${url} failed: HTTP ${response.status}, unreadable body: ${String(cause)}`,
+          }),
+      ),
+    );
+    if (response.status >= 200 && response.status < 300) return body;
     // A tagged API error keeps its message, status, and recovery fields.
     return yield* Predicate.isObject(body) && typeof body._tag === "string"
       ? toCliApiError(`Request to ${url} failed`, body)

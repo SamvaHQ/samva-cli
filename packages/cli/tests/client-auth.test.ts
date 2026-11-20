@@ -39,7 +39,10 @@ describe("authenticated API requests outside the SDK", () => {
           }),
         );
 
-        yield* getAuthenticatedJsonForContext(context, "/v1/starters/");
+        yield* getAuthenticatedJsonForContext(context, "/v1/starters/").pipe(
+          Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+          Effect.provide(FetchHttpClient.layer),
+        );
         const client = yield* getClientProviderForContext(context);
         yield* Templates.list({}).pipe(
           client.provide,
@@ -77,7 +80,12 @@ describe("authenticated API requests outside the SDK", () => {
       );
       vi.stubGlobal("fetch", fetch);
 
-      const error = yield* Effect.flip(getAuthenticatedJsonForContext(context, "/v1/starters/"));
+      const error = yield* Effect.flip(
+        getAuthenticatedJsonForContext(context, "/v1/starters/").pipe(
+          Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+          Effect.provide(FetchHttpClient.layer),
+        ),
+      );
       expect(fetch).toHaveBeenCalledOnce();
       expect(processErrorCode(error)).toBe(4);
     }),
@@ -102,7 +110,12 @@ describe("authenticated API requests outside the SDK", () => {
         ),
       );
 
-      const error = yield* Effect.flip(getAuthenticatedJsonForContext(context, "/v1/starters/"));
+      const error = yield* Effect.flip(
+        getAuthenticatedJsonForContext(context, "/v1/starters/").pipe(
+          Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+          Effect.provide(FetchHttpClient.layer),
+        ),
+      );
       expect(error.message).toBe("This API key has expired.");
       expect(processErrorReason(error)).toBe("UnauthorizedError");
       expect(processErrorCode(error)).toBe(4);

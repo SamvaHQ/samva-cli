@@ -1,8 +1,9 @@
 import { MailboxId } from "@samva/core/shared/base";
-import { Config, Effect, Option, Stream } from "effect";
+import { Effect, Option, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 import * as Mailboxes from "samva/effect/mailboxes";
 
+import { eventsUrlConfig } from "../config/events";
 import { apiErrorGuidance, CliUsageError, SamvaCliError } from "../errors";
 import { getClientProvider } from "../lib/client";
 import { printJsonLine, warningEnvelope, writeOutput } from "../lib/output";
@@ -31,7 +32,10 @@ const refusalNext = (failure: StreamFailure): string => {
     case "MethodNotAllowedError":
     case "UpgradeRequiredError":
       return "Check SAMVA_EVENTS_URL points at the Samva events origin.";
-    default:
+    case "StreamDisconnectedError":
+    case "StreamClientError":
+    case "StreamProtocolError":
+    case "StreamRefusedError":
       return `Reconnect${failure.cursor === undefined ? "" : ` with --cursor ${failure.cursor}`}; if it still fails, run samva feedback send and name the command.`;
   }
 };
@@ -41,7 +45,7 @@ const refusalNext = (failure: StreamFailure): string => {
  * that tag, its status, and its public fields into the JSON envelope, so 401 and 403 exit 4 as for
  * any API call.
  */
-export const streamError = (failure: StreamFailure): StreamError => {
+const streamError = (failure: StreamFailure): StreamError => {
   const resume = failure.cursor === undefined ? "" : ` with --cursor ${failure.cursor}`;
   if (failure._tag === "StreamClientError") {
     return new CliUsageError({
@@ -176,10 +180,10 @@ const reconnectNotice = (
  * cursor, so events can repeat but are not lost. With `reconnect: false` the drop ends the command
  * with the last cursor, for a scripted caller that decides itself.
  */
-export const tailEvents = (options: TailEventsOptions) =>
+const tailEvents = (options: TailEventsOptions) =>
   Effect.gen(function* () {
     const provider = yield* getClientProvider;
-    const override = yield* Config.option(Config.String("SAMVA_EVENTS_URL"));
+    const override = yield* eventsUrlConfig;
     const eventsUrl = Option.getOrUndefined(override);
     yield* untilInterrupted((interrupted) =>
       provider.provide(

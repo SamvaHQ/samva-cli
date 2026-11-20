@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url";
 
 import { samvaBrandPlugin, type EmailBrand } from "@samva/markup/brand";
 import { parseBrandSpecifier, projectBrandSpecifier } from "@samva/markup/compiler";
-import type { EmailDiagnostic } from "@samva/markup/diagnostics";
 import type { BrandResolver } from "@samva/vite/project";
 
 type ProjectFiles = Parameters<BrandResolver["resolve"]>[0];
@@ -40,7 +39,7 @@ const LIVE_TIMEOUT_MS = 15_000;
 const RESOLUTION_TTL_MS = 30_000;
 
 /** A brand as a build compiles it, with the digest the API knows its content by. */
-export interface ResolvedBrand extends EmailBrand {
+interface ResolvedBrand extends EmailBrand {
   readonly digest: string;
 }
 
@@ -55,7 +54,7 @@ export interface BrandSnapshot extends ResolvedBrand {
 
 type BrandWarningCode = "brand-snapshot-stale" | "brand-offline";
 
-export interface BrandWarning {
+interface BrandWarning {
   readonly code: BrandWarningCode;
   readonly message: string;
 }
@@ -106,8 +105,8 @@ const asBrand = (value: unknown): Omit<BrandSnapshot, "version" | "pulledAt"> | 
     isDefault,
     css,
     digest,
-    ...(assets === undefined ? {} : { assets: assets as EmailBrand["assets"] }),
-    ...(footer === undefined ? {} : { footer: footer as EmailBrand["footer"] }),
+    ...(assets === undefined ? {} : { assets }),
+    ...(footer === undefined ? {} : { footer }),
   };
 };
 
@@ -387,6 +386,9 @@ export const resolveProjectBrand = async (
  * The environment a local build resolves the brand with: the process
  * environment plus the project's `.env` files, as the editor's dev server
  * reads them, so `SAMVA_API_KEY` in `.env` reaches `check` and `export` too.
+ *
+ * @public — `loadSamvaBrandResolver` in `toolchain.ts` reads it from the transpiled module for the
+ * Bun watch session, which knip cannot follow through the text import.
  */
 export const loadBrandEnv = async (
   root: string,
@@ -402,21 +404,13 @@ export const loadBrandEnv = async (
   return vite.loadEnv("development", root, "");
 };
 
-/** The resolution as build findings: warnings stay warnings, a failure is an error. */
-export const brandDiagnostics = (resolution: BrandResolution): EmailDiagnostic[] =>
-  resolution.ok
-    ? resolution.warnings.map((warning) => ({
-        code: warning.code,
-        severity: "warning",
-        message: warning.message,
-        origins: [],
-      }))
-    : [{ code: "brand-unavailable", severity: "error", message: resolution.message, origins: [] }];
-
 /**
  * One resolver per watch session. A resolution is reused for a short while per
  * specifier, so saving a file does not ask the API each time while a brand
  * edited elsewhere still arrives within the window.
+ *
+ * @public — `loadSamvaBrandResolver` in `toolchain.ts` reads it from the transpiled module for the
+ * Bun watch session, which knip cannot follow through the text import.
  */
 export const createBrandResolver = (options: {
   readonly root: string;

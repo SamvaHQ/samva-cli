@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/v
 import { DEFAULT_AGENT_DEFINITION } from "@samva/core/agents/definition";
 import { generateAgentModule } from "@samva/core/agents/module";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "agt_1234567890123456";
@@ -33,7 +33,7 @@ let status = 200;
 let getBody: unknown = agent;
 let responseBody: unknown = agent;
 let requests: Array<{ method: string; path: string; body: unknown }> = [];
-const server = createServer(async (request, response) => {
+const server = createTestServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
   requests.push({

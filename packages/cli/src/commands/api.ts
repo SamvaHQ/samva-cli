@@ -3,6 +3,11 @@ import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpBody from "effect/http/HttpBody";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
@@ -141,33 +146,42 @@ const send = (
             : `${typeof init.body === "string" ? init.body : `<${init.body.byteLength} bytes>`}\n`),
       );
     }
+    const requestFailed = (cause: unknown) =>
+      new SamvaCliError({ message: `Request to ${url.origin} failed: ${String(cause)}` });
+    const request = yield* Effect.try({
+      try: () =>
+        HttpClientRequest.fromWeb(new Request(url, { method: init.method, headers: init.headers })),
+      catch: requestFailed,
+    });
+    const withBody =
+      init.body === undefined
+        ? request
+        : HttpClientRequest.setBody(request, HttpBody.raw(init.body));
     // Redirects are not followed: a followed redirect could carry the API key to another origin.
-    const response = yield* Effect.tryPromise({
-      try: (signal) =>
-        fetch(url, {
-          method: init.method,
-          headers: init.headers,
-          body: (init.body as BodyInit | undefined) ?? null,
-          redirect: "manual",
-          signal,
-        }),
-      catch: (cause) =>
-        new SamvaCliError({ message: `Request to ${url.origin} failed: ${String(cause)}` }),
-    });
-    const bytes = yield* Effect.tryPromise({
-      try: async () => new Uint8Array(await response.arrayBuffer()),
-      catch: (cause) =>
-        new SamvaCliError({
-          message: `Request to ${url.origin} failed: unreadable body: ${String(cause)}`,
-        }),
-    });
+    const response = yield* HttpClient.execute(
+      HttpClientRequest.setHeaders(withBody, init.headers),
+    ).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+      Effect.mapError(requestFailed),
+    );
+    const web = Option.getOrThrow(HttpClientResponse.toWeb(response));
+    const bytes = yield* response.arrayBuffer.pipe(
+      Effect.mapBoth({
+        onSuccess: (body) => new Uint8Array(body),
+        onFailure: (cause) =>
+          new SamvaCliError({
+            message: `Request to ${url.origin} failed: unreadable body: ${String(cause)}`,
+          }),
+      }),
+    );
     if (verbose) {
       yield* writeOutput(
         process.stderr,
-        traceHead("<", `HTTP ${response.status} ${response.statusText}`.trim(), response.headers),
+        traceHead("<", `HTTP ${web.status} ${web.statusText}`.trim(), web.headers),
       );
     }
-    return { response, bytes };
+    return { response: web, bytes };
   });
 
 const api = Command.make("api", {

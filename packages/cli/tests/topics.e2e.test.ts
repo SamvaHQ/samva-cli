@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const ID = "tpc_1234567890abcdef";
@@ -36,7 +36,7 @@ afterEach(async () => {
 
 const startApi = async () => {
   const requests: Array<{ method: string; path: string; body: unknown }> = [];
-  const server = createServer(async (req, res) => {
+  const server = createTestServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const path = req.url ?? "/";

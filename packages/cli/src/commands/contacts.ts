@@ -1,3 +1,5 @@
+import { SetContactConsent } from "@samva/core/contacts/consent";
+import { ContactId, ContactIdentityId } from "@samva/core/shared/base";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -302,8 +304,63 @@ const merge = Command.make("merge", {
   ),
 );
 
+const consent = Command.make("set-consent", {
+  id: Argument.String("contact-id").pipe(Argument.withSchema(ContactId)),
+  identityId: Argument.String("identity-id").pipe(Argument.withSchema(ContactIdentityId)),
+  channel: Flag.Literals("channel", ["email", "whatsapp", "sms"]),
+  status: Flag.Literals("status", SetContactConsent.fields.status.literals),
+  source: Flag.String("source").pipe(Flag.withSchema(SetContactConsent.fields.source)),
+  capturedAt: Flag.String("captured-at").pipe(
+    Flag.withSchema(SetContactConsent.fields.capturedAt),
+    Flag.withDescription("ISO 8601 time at which the contact gave or withdrew consent"),
+  ),
+  yes: Flag.Boolean("yes"),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Record a contact's explicit consent decision on one identity and channel",
+  ),
+  Command.withHandler(({ id, identityId, channel, status, source, capturedAt, yes, json }) =>
+    Effect.gen(function* () {
+      yield* confirmDestructive({
+        yes,
+        json,
+        message: `Record ${status} for contact ${id}, identity ${identityId}, on ${channel}?`,
+        nonInteractiveMessage: "Confirm the explicit consent change with --yes.",
+      });
+      const client = yield* getClientProvider;
+      const result = yield* Contacts.setConsent({
+        id,
+        identityId,
+        channel,
+        status,
+        source,
+        capturedAt: capturedAt.toISOString(),
+      }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not record contact consent", error)),
+      );
+      if (json) return yield* printJson(result);
+      return yield* printFields([
+        ["Contact ID", id],
+        ["Identity ID", identityId],
+        ["Consent", status],
+      ]);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
 export const contactsCommand = Command.make("contacts").pipe(
   Command.withDescription("List, inspect, and import contacts"),
   Command.withExamples([{ command: "samva contacts list --search ada --json" }]),
-  Command.withSubcommands([list, get, events, merge, importContacts, importStatus, resumeImport]),
+  Command.withSubcommands([
+    list,
+    get,
+    events,
+    merge,
+    consent,
+    importContacts,
+    importStatus,
+    resumeImport,
+  ]),
 );

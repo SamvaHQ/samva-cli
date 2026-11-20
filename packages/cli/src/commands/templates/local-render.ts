@@ -51,7 +51,7 @@ ${brandResolverPrelude()} const { channel, ...rest } = options; const result = c
   });
 
 /** The page a snapshot screenshots, or the findings that stopped it. */
-export type SnapshotPage =
+type SnapshotPage =
   | {
       readonly ok: true;
       readonly template: string;

@@ -91,7 +91,7 @@ const decodePayload = <A>(raw: string, flag: string, schema: Schema.Codec<A, unk
       Schema.decodeEffect(schema)(input, { onExcessProperty: "error", errors: "all" }),
     ),
     Effect.mapError((error) =>
-      error instanceof SamvaCliError
+      Schema.is(SamvaCliError)(error)
         ? error
         : new SamvaCliError({ message: `${flag} does not match the API schema: ${String(error)}` }),
     ),
@@ -222,7 +222,7 @@ const typecheckProject = (tsconfig: string): Effect.Effect<TypeScriptCheckResult
       return { version: typescriptManifest.version ?? "unknown", diagnostics };
     },
     catch: (cause) =>
-      cause instanceof SamvaCliError
+      Schema.is(SamvaCliError)(cause)
         ? cause
         : new SamvaCliError({
             message: `Could not type-check ${tsconfig} with this project's TypeScript installation: ${String(cause)}`,
@@ -239,7 +239,7 @@ const validateTemplatesDir = (dir: string): Effect.Effect<void, SamvaCliError> =
       await access(dir, constants.R_OK);
     },
     catch: (cause) => {
-      if (cause instanceof SamvaCliError) return cause;
+      if (Schema.is(SamvaCliError)(cause)) return cause;
       const code = (cause as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
         return new SamvaCliError({ message: `Template directory ${dir} does not exist.` });

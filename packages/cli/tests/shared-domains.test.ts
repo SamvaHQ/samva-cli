@@ -1,6 +1,5 @@
 // Sharing flags must survive real CLI parsing and the generated SDK's HTTP serialization.
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +7,14 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 
 import { emailDomainFixture } from "./support/fixtures";
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "dom_1234567890abcdefgh";
 const requests: Array<{ method: string; path: string; body: unknown }> = [];
 let home = "";
 let apiUrl = "";
-const server = createServer(async (req, res) => {
+const server = createTestServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   requests.push({ method: req.method!, path: req.url!, body: raw ? JSON.parse(raw) : undefined });

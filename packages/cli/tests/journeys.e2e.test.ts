@@ -1,14 +1,72 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "jrny_7q2xk9mvt4znw8rh";
 const AT = "2026-10-13T00:00:00.000Z";
+const recipeCatalogPath = "/v1/integrations/catalog/recipes";
+const recipeReadinessPath = `${recipeCatalogPath}/post-delivery-check-in/readiness`;
+const setupId = "2ba59ac9-2673-49fd-a67a-2579d98429b7";
+const setupActivatePath = `${recipeCatalogPath}/post-delivery-check-in/setups/${setupId}/activate`;
+const activation = {
+  revision: "c21d852b-a28c-4ef8-abee-5ddb94a754d7",
+  selection: { channel: "email", publicationId: "tpub_aaaaaaaaaaaaaaaa" },
+};
+const activated = {
+  setup: {
+    id: setupId,
+    revision: "0c0df2a3-18e0-45cf-8e5b-ae5f87fb99c5",
+    references: { ...activation.selection, journeyId: id },
+    updatedAt: AT,
+  },
+  journey: { id, status: "active", publishedVersion: 1 },
+};
+const catalog = {
+  recipes: [
+    {
+      id: "post-delivery-check-in",
+      title: "Post-delivery check-in",
+      trigger: "shopify.order_delivered",
+      stopEvent: "shopify.refund_created",
+      waitDays: 3,
+      channels: ["email", "whatsapp"],
+    },
+  ],
+  events: [],
+};
+const readiness = {
+  ready: false,
+  channel: "whatsapp",
+  availability: { shopify: true, journeys: true, whatsapp: false, plan: "denied" },
+  shopify: null,
+  publication: null,
+  email: null,
+  whatsapp: null,
+  reply: null,
+};
+const inputIssue = "Delivered order: storeName: is required";
+const emailReadiness = {
+  ready: false,
+  channel: "email",
+  availability: { shopify: true, journeys: true, whatsapp: true, plan: "granted" },
+  shopify: null,
+  publication: {
+    id: "tpub_aaaaaaaaaaaaaaaa",
+    templateId: "tmpl_aaaaaaaaaaaaaaaa",
+    inputIssues: [
+      inputIssue,
+      "Ask the template assistant to read these from the order event or write fixed text.",
+    ],
+  },
+  email: null,
+  whatsapp: null,
+  reply: null,
+};
 const definition = {
   trigger: { type: "contact.created" },
   rootNodeId: "done",
@@ -48,7 +106,7 @@ let requests: Array<{ method: string; url: URL; body: unknown }>;
 beforeEach(async () => {
   configHome = await mkdtemp(join(tmpdir(), "samva-cli-journeys-"));
   requests = [];
-  const server = createServer(async (req, res) => {
+  const server = createTestServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     let source = "";
     for await (const chunk of req) source += chunk;
@@ -57,6 +115,10 @@ beforeEach(async () => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
+    if (url.pathname === setupActivatePath && req.method === "POST") return reply(200, activated);
+    if (url.pathname === recipeCatalogPath && req.method === "GET") return reply(200, catalog);
+    if (url.pathname === recipeReadinessPath && req.method === "GET")
+      return reply(200, url.searchParams.get("channel") === "email" ? emailReadiness : readiness);
     if (url.pathname === `/v1/journeys/${id}/publish`)
       return source.includes("stale")
         ? reply(409, { _tag: "ConflictError", message: "Revision is stale", resource: "Journey" })
@@ -93,6 +155,105 @@ const cli = (args: string[], stdin?: string) =>
   });
 
 describe("journeys CLI HTTP boundary", () => {
+  it("activates the exact reviewed setup revision and send selection", async () => {
+    const result = await cli([
+      "journeys",
+      "recipe-setups",
+      "activate",
+      setupId,
+      "--data",
+      JSON.stringify(activation),
+      "--json",
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: "journeys.recipe-setups.activate",
+      data: activated,
+    });
+    expect(requests.map(({ method, url, body }) => [method, url.pathname, body])).toEqual([
+      ["POST", setupActivatePath, activation],
+    ]);
+  });
+  it("reads the Shopify recipe catalog without requiring a configured journey", async () => {
+    const result = await cli(["journeys", "recipes", "--json"]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({ command: "journeys.recipes", data: catalog });
+    expect(
+      requests.map(({ method, url, body }) => [method, url.pathname, url.search, body]),
+    ).toEqual([["GET", recipeCatalogPath, "", null]]);
+  });
+
+  it("checks readiness for the selected WhatsApp resources and returns the blocked state", async () => {
+    const result = await cli([
+      "journeys",
+      "readiness",
+      "--channel",
+      "whatsapp",
+      "--publication-id",
+      "tpub_aaaaaaaaaaaaaaaa",
+      "--whatsapp-account-id",
+      "waba_aaaaaaaaaaaaaaaa",
+      "--registration-id",
+      "treg_aaaaaaaaaaaaaaaa",
+      "--json",
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: "journeys.readiness",
+      data: readiness,
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ method: "GET", body: null });
+    expect(requests[0]?.url.pathname).toBe(recipeReadinessPath);
+    expect(Object.fromEntries(requests[0]?.url.searchParams ?? [])).toEqual({
+      channel: "whatsapp",
+      publicationId: "tpub_aaaaaaaaaaaaaaaa",
+      whatsappAccountId: "waba_aaaaaaaaaaaaaaaa",
+      registrationId: "treg_aaaaaaaaaaaaaaaa",
+    });
+  });
+
+  it("names the publication's input issues in human output and keeps them in JSON", async () => {
+    const args = ["journeys", "readiness", "--channel", "email"];
+    const human = await cli([...args, "--publication-id", "tpub_aaaaaaaaaaaaaaaa"]);
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("Publication input issues:");
+    expect(human.stdout).toContain(`  - ${inputIssue}`);
+    expect(human.stdout).toContain("Ask the template assistant to read these");
+
+    const json = await cli([...args, "--json"]);
+    expect(json.code).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      command: "journeys.readiness",
+      data: emailReadiness,
+    });
+  });
+
+  it("documents readiness flags and refuses an invalid channel before any request", async () => {
+    const help = await cli(["journeys", "readiness", "--help"]);
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain("--mailbox-endpoint-id");
+    expect(help.stdout).toContain("samva journeys readiness --channel whatsapp --json");
+
+    const refused = await cli(["journeys", "readiness", "--channel", "sms", "--json"]);
+    expect(refused.code).not.toBe(0);
+    expect(refused.stdout).toBe("");
+    expect(requests).toEqual([]);
+  });
+
+  it.each([
+    ["{", "--data must be valid JSON"],
+    ["{}", "Invalid recipe --data"],
+  ])("rejects recipe preview data %s before making a request", async (data, message) => {
+    const result = await cli(["journeys", "recipe-preview", "--data", data, "--json"]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain(message);
+    expect(requests).toEqual([]);
+  });
+
   it.each(["inline", "file", "stdin"])("creates a journey from %s definition", async (mode) => {
     const file = join(configHome, "journey.json");
     await writeFile(file, JSON.stringify(definition));

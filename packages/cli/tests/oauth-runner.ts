@@ -1,5 +1,5 @@
 /** Test-only entry point: the released root with a keyring that holds an OAuth session. */
-import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { BunCrypto, BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect, Predicate } from "effect";
 import { Command } from "effect/cli";
 
@@ -12,7 +12,7 @@ import { outputModeFromArgv, validateProcessArgs } from "../src/lib/runtime";
 BunRuntime.runMain(
   validateProcessArgs(process.argv.slice(2)).pipe(
     Effect.andThen(Command.run(cli, { version: "test" })),
-    Effect.provide(BunServices.layer),
+    Effect.provide([BunServices.layer, BunCrypto.layerSecureRandom, BunHttpClient.layer]),
     Effect.provideService(Keyring.Service, {
       read: () =>
         Effect.succeed(

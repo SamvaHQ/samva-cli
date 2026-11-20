@@ -21,7 +21,7 @@ import * as Templates from "samva/effect/templates";
 import { SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, getClientProvider, postAuthenticatedJson } from "../lib/client";
 import { jsonFlag, printFields, printJson } from "../lib/output";
-import { gitConfig, listProjectTemplates, runGit } from "./templates/project";
+import { firstProjectTemplate, gitConfig, runGit } from "./templates/project";
 
 /**
  * `samva whatsapp flows create | list | get | publish | register | registrations | endpoint |
@@ -357,9 +357,8 @@ const publish = Command.make("publish", {
           ),
         );
         // The git and workspace endpoints address a template; any one of the project's names it.
-        const templates = yield* listProjectTemplates(flow.projectId);
+        const first = yield* firstProjectTemplate(flow.projectId);
         const client = yield* getClientProvider;
-        const first = templates[0]!;
         const [repository, workspace] = yield* Effect.all(
           [
             Templates.getGitRepository({ id: first.id }).pipe(client.provide),

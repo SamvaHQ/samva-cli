@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { type AddressInfo, createServer, type IncomingMessage, type Server } from "node:http";
+import { type AddressInfo, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 // The project keeps entries under both roots, `templates/` and the older `emails/`.
@@ -165,7 +166,7 @@ beforeAll(async () => {
   git(["config", "--local", "samva.projectId", PROJECT_ID], clone);
   head = git(["rev-parse", "HEAD"], clone);
 
-  server = createServer(async (request, response) => {
+  server = createTestServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const text = await body(request);
     const payload = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {};

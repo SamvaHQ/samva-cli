@@ -904,6 +904,76 @@ const remove = Command.make("remove", {
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
+const trashFlags = {
+  mailbox: mailboxIdArgument,
+  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+  json: jsonFlag,
+};
+
+const deleteThread = Command.make("delete", {
+  ...trashFlags,
+  threadId: Argument.String("thread-id").pipe(Argument.withSchema(MailboxThreadId)),
+}).pipe(
+  Command.withDescription("Permanently delete a mailbox thread from Trash or Spam"),
+  Command.withHandler(({ mailbox: id, threadId, dryRun, yes, json }) =>
+    Effect.gen(function* () {
+      if (dryRun)
+        return yield* json
+          ? printJson({ dryRun: true, action: "mailboxes.threads.delete", id, threadId })
+          : Console.log(
+              `[dry-run] Would permanently delete thread ${threadId} from mailbox ${id}.`,
+            );
+      yield* confirmDestructive({
+        yes,
+        json,
+        message: `Permanently delete thread ${threadId} from mailbox ${id}?`,
+        nonInteractiveMessage:
+          "Permanent thread deletion requires --yes in non-interactive mode. Preview with --dry-run.",
+      });
+      const client = yield* getClientProvider;
+      yield* Mailboxes.deleteThread({ id, threadId }).pipe(
+        client.provide,
+        Effect.mapError((error) => mailboxApiError("Could not delete thread", error)),
+      );
+      yield* json
+        ? printJson({ deleted: true, threadId })
+        : Console.log(`Deleted thread ${threadId}.`);
+    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  ),
+);
+
+const emptyFolder = (folder: "trash" | "spam") => {
+  const label = folder === "spam" ? "Spam" : "Trash";
+  return Command.make("empty", trashFlags).pipe(
+    Command.withDescription(`Permanently delete all threads in a mailbox's ${label}`),
+    Command.withHandler(({ mailbox: id, dryRun, yes, json }) =>
+      Effect.gen(function* () {
+        if (dryRun)
+          return yield* json
+            ? printJson({ dryRun: true, action: `mailboxes.${folder}.empty`, id })
+            : Console.log(`[dry-run] Would empty ${label} for mailbox ${id}.`);
+        yield* confirmDestructive({
+          yes,
+          json,
+          message: `Permanently delete every thread in ${label} for mailbox ${id}?`,
+          nonInteractiveMessage: `Empty ${label} requires --yes in non-interactive mode. Preview with --dry-run.`,
+        });
+        const client = yield* getClientProvider;
+        const result = yield* (folder === "spam" ? Mailboxes.emptySpam : Mailboxes.emptyTrash)({
+          id,
+        }).pipe(
+          client.provide,
+          Effect.mapError((error) => mailboxApiError(`Could not empty ${label}`, error)),
+        );
+        yield* json
+          ? printJson(result)
+          : printFields([["Threads queued for deletion", result.count]]);
+      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+    ),
+  );
+};
+
 const threads = Command.make("threads", {
   mailbox: mailboxIdArgument,
   state: Flag.Literals("state", ["active", "done"]).pipe(Flag.optional),
@@ -1247,10 +1317,11 @@ const messageChannel = (mailbox: MailboxId, messageId: MessageId) =>
   getMailboxJson("Could not read message", `/v1/mailboxes/${mailbox}/messages/${messageId}`).pipe(
     Effect.flatMap((raw) =>
       Schema.decodeUnknownEffect(Schema.Struct({ channel: channelSchema }))(raw).pipe(
-        Effect.map(({ channel }): Channel => channel),
-        Effect.mapError(
-          () => new SamvaCliError({ message: "The API answered with an unreadable message." }),
-        ),
+        Effect.mapBoth({
+          onSuccess: ({ channel }): Channel => channel,
+          onFailure: () =>
+            new SamvaCliError({ message: "The API answered with an unreadable message." }),
+        }),
       ),
     ),
   );
@@ -1401,8 +1472,8 @@ const quarantineList = Command.make("list", {
 }).pipe(
   Command.withDescription("List held messages without their bodies"),
   Command.withExamples([
-    { command: "samva mailboxes quarantine list mbx_1234567890123456 --json" },
-    { command: "samva mailboxes quarantine list mbx_1234567890123456 --all --jsonl" },
+    { command: "samva mailboxes spam list mbx_1234567890123456 --json" },
+    { command: "samva mailboxes spam list mbx_1234567890123456 --all --jsonl" },
   ]),
   Command.withHandler(({ mailbox, limit, cursor, all, after, before, json }) =>
     Effect.gen(function* () {
@@ -1412,7 +1483,7 @@ const quarantineList = Command.make("list", {
         json,
         cursor,
         page: (pageCursor) =>
-          Mailboxes.listQuarantine({
+          Mailboxes.listSpamHeld({
             id: mailbox,
             cursor: pageCursor,
             limit: Option.getOrUndefined(limit),
@@ -1420,36 +1491,11 @@ const quarantineList = Command.make("list", {
             before: Option.getOrUndefined(before),
           }).pipe(
             client.provide,
-            Effect.mapError((e) => mailboxApiError("Could not list quarantine", e)),
+            Effect.mapError((e) => mailboxApiError("Could not list held mail", e)),
           ),
-        empty: "No quarantined messages found.",
+        empty: "No messages held for malware.",
         human: printHeldMessage,
       });
-    }),
-  ),
-);
-const release = Command.make("release", {
-  mailbox: mailboxIdArgument,
-  messageId: messageIdArgument,
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Release a held message as a person signed in with samva login"),
-  Command.withExamples([
-    {
-      command: "samva mailboxes quarantine release mbx_1234567890123456 msg_1234567890123456",
-    },
-  ]),
-  Command.withHandler(({ messageId, mailbox, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Mailboxes.releaseMessage({ id: mailbox, messageId }).pipe(
-        client.provide,
-        Effect.mapError((e) =>
-          mailboxApiError("Could not release message", e, { personOnly: "release" }),
-        ),
-      );
-      if (json) return yield* printJson(data);
-      yield* printHeldMessage(data);
     }),
   ),
 );
@@ -1463,7 +1509,7 @@ const discard = Command.make("discard", {
   Command.withDescription("Discard a held message for good as a person signed in with samva login"),
   Command.withExamples([
     {
-      command: "samva mailboxes quarantine discard mbx_1234567890123456 msg_1234567890123456",
+      command: "samva mailboxes spam discard mbx_1234567890123456 msg_1234567890123456",
     },
   ]),
   Command.withHandler(({ messageId, mailbox, dryRun, yes, json }) =>
@@ -1472,7 +1518,7 @@ const discard = Command.make("discard", {
         return yield* json
           ? printJson({
               dryRun: true,
-              action: "mailboxes.quarantine.discard",
+              action: "mailboxes.spam.discard",
               id: mailbox,
               messageId,
             })
@@ -1485,7 +1531,7 @@ const discard = Command.make("discard", {
           "Discarding held mail requires --yes in non-interactive mode. Preview with --dry-run.",
       });
       const client = yield* getClientProvider;
-      const data = yield* Mailboxes.discardMessage({ id: mailbox, messageId }).pipe(
+      const data = yield* Mailboxes.discardSpamHeld({ id: mailbox, messageId }).pipe(
         client.provide,
         Effect.mapError((e) =>
           mailboxApiError("Could not discard message", e, { personOnly: "discard" }),
@@ -1522,13 +1568,16 @@ export const mailboxesCommand = Command.make("mailboxes").pipe(
       ]),
     ),
     remove,
-    threads,
+    threads.pipe(Command.withSubcommands([deleteThread])),
+    Command.make("trash").pipe(Command.withSubcommands([emptyFolder("trash")])),
     allThreads,
     needsYou,
     threadUpdate,
     read,
     send,
     reply,
-    Command.make("quarantine").pipe(Command.withSubcommands([quarantineList, release, discard])),
+    Command.make("spam").pipe(
+      Command.withSubcommands([quarantineList, discard, emptyFolder("spam")]),
+    ),
   ]),
 );

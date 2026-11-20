@@ -2,6 +2,7 @@ import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
 import { apiErrorGuidance, processErrorNext, processErrorReason, SamvaCliError } from "../errors";
 import { commandNameFromArgv, isJsonLinesRequested, isJsonRequested } from "./runtime";
@@ -91,7 +92,7 @@ const errorEnvelope = (error: unknown, command: string, message: string): CliErr
   reason: processErrorReason(error),
   status: apiErrorGuidance(error)?.status,
   details:
-    error instanceof SamvaCliError && error.details !== undefined
+    Schema.is(SamvaCliError)(error) && error.details !== undefined
       ? { ...apiErrorGuidance(error)?.details, ...error.details }
       : apiErrorGuidance(error)?.details,
   message,
@@ -170,7 +171,7 @@ export const printJsonLine = (value: unknown) =>
  */
 export const withoutSeries = <Row>(row: Row): Omit<Row, "series"> => {
   const { series: _series, ...rest } = row as Row & { series?: unknown };
-  return rest as Omit<Row, "series">;
+  return rest;
 };
 
 export const printResult = (value: unknown, human: string) =>
@@ -278,7 +279,7 @@ const rowsOf = (
     if (Predicate.isObject(item)) {
       if (explicit && Object.keys(item).length === 0) return [[name, "{}"]];
       return depth < MAX_ROW_DEPTH
-        ? rowsOf(item as Record<string, unknown>, explicit, name, depth + 1)
+        ? rowsOf(item, explicit, name, depth + 1)
         : [[name, JSON.stringify(item)]];
     }
     if (explicit && item === null) return [[name, "null"]];

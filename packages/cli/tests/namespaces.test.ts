@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const nsId = "ns_1234567890123456";
@@ -29,7 +29,7 @@ let apiUrl = "";
 let home = "";
 const requests: Array<Recorded> = [];
 let reply: { status: number; body: unknown } = { status: 200, body: {} };
-const server = createServer(async (req, res) => {
+const server = createTestServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   requests.push({ method: req.method!, path: req.url!, body: raw ? JSON.parse(raw) : undefined });

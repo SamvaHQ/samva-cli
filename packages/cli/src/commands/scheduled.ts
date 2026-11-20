@@ -581,9 +581,9 @@ const resume = Command.make("resume", {
       }
       const client = yield* getClientProvider;
       const data = yield* ScheduledMessages.resume(
-        sendNow
+        atValue === undefined
           ? { id, choice: "send_now" }
-          : { id, choice: "new_time", scheduledFor: new Date(atValue!) },
+          : { id, choice: "new_time", scheduledFor: new Date(atValue) },
       ).pipe(
         client.provide,
         Effect.mapError((error) => toCliApiError("Could not resume scheduled message", error)),

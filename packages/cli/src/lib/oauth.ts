@@ -196,7 +196,7 @@ export const pollForToken = (
       >(),
       Schedule.while(
         ({ input }) =>
-          input instanceof DeviceAuthorizationPending || input instanceof DevicePollUnavailable,
+          Schema.is(DeviceAuthorizationPending)(input) || Schema.is(DevicePollUnavailable)(input),
       ),
       Schedule.modifyDelay(() => Ref.get(interval)),
     );
@@ -250,13 +250,17 @@ export const openBrowser = (url: string): Effect.Effect<void> => {
   const launch = browserLaunchCommand(url, process.platform);
   if (launch === undefined) return Effect.void;
   const [command, args] = launch;
-  return Effect.tryPromise(async () => {
-    const { spawn } = await import("node:child_process");
-    const child = spawn(command, [...args], { stdio: "ignore", detached: true });
-    // Swallow async spawn errors (e.g. no browser); the caller printed the URL.
-    child.on("error", () => undefined);
-    child.unref();
-  }).pipe(Effect.catchTag("UnknownError", () => Effect.void));
+  return Effect.tryPromise({
+    try: async () => {
+      const { spawn } = await import("node:child_process");
+      const child = spawn(command, [...args], { stdio: "ignore", detached: true });
+      // Swallow async spawn errors (e.g. no browser); the caller printed the URL.
+      child.on("error", () => undefined);
+      child.unref();
+    },
+    catch: (cause) =>
+      new SamvaCliError({ message: `Could not open the browser: ${String(cause)}` }),
+  }).pipe(Effect.catchTag("SamvaCliError", () => Effect.void));
 };
 
 /** Best-effort server-side session revoke on logout (Better Auth `/sign-out`). */

@@ -1,3 +1,58 @@
+## @samva/cli-darwin-arm64@0.43.0
+
+### Prepare and test Shopify post-delivery check-ins
+
+Read the recipe and its sample inputs, check connected resources, and save your setup to resume
+later. Preview an exact publication, then run a test to the signed-in owner's verified email or
+WhatsApp. Delivery details include skipped recipients and observed replies. WhatsApp template
+submission also accepts an exact publication and business account for reviewed submissions.
+
+### See what a check-in's message needs before you activate
+
+Recipe readiness reports `publication.inputIssues` when a journey cannot supply an input the
+selected email publication requires, and `samva journeys readiness` lists each issue with how to
+fix it. Publishing a journey refuses that publication with the same issues.
+
+Activate a reviewed check-in with `samva journeys recipe-setups activate` or the SDK's
+`integrationCatalog.recipeSetupActivate` operation. Retrying with the same revision and selection
+reuses the setup's published journey. Readiness returns the selected publication's input
+parameters, including those of the pinned approved WhatsApp registration.
+
+### Report empty template projects in the CLI
+
+`samva templates clone` and `samva whatsapp flows publish` now report when a template project has
+no templates.
+
+### Permanently delete mail from Trash
+
+Use the SDK's `mailboxes.deleteThread` or `samva mailboxes threads delete` to permanently delete a
+thread in Trash. To delete every thread currently in a mailbox's Trash, use `mailboxes.emptyTrash`
+or `samva mailboxes trash empty`. Empty Trash returns the number selected for deletion.
+
+Subscribe to `mailbox.thread.deleted` to receive deletion events for individual deletes, Empty Trash,
+and automatic expiry after 30 days in Trash.
+
+### Read and organize Spam
+
+**Breaking:** Use `mailboxes.listThreads({ id, folder: "spam" })` or
+`samva mailboxes threads MAILBOX_ID --folder spam` to find screened email. To mark a thread
+Not spam, set its folder to `inbox` with `mailboxes.updateThread` or
+`samva mailboxes thread-update MAILBOX_ID THREAD_ID --data '{"folder":"inbox"}'`.
+The quarantine release operation and command have been removed.
+
+For held malware metadata, replace `mailboxes.listQuarantine` with `mailboxes.listSpamHeld`
+and `samva mailboxes quarantine list` with `samva mailboxes spam list`. Use
+`mailboxes.discardSpamHeld` or `samva mailboxes spam discard` to discard held malware.
+The grants for these operations are `spam.read` and `spam.discard`.
+
+Replace the `mailbox.message.quarantined` subscription with `mailbox.message.spam`
+for screening metadata. Replace handlers for `mailbox.message.released` with
+`mailbox.message.received` handlers. That event also covers ordinary inbox arrivals.
+
+Use `mailboxes.emptySpam` or `samva mailboxes spam empty` to permanently delete the
+threads currently in Spam. Individual Spam threads support Delete forever and expire
+after 30 days in Spam.
+
 ## @samva/cli-darwin-arm64@0.42.0
 
 ### Keep agent state, start Workflows, and schedule runs

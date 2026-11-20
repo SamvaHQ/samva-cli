@@ -56,7 +56,7 @@ export const runGit = (
       return stdout.trim();
     },
     catch: (cause) =>
-      cause instanceof SamvaCliError
+      Schema.is(SamvaCliError)(cause)
         ? cause
         : new SamvaCliError({
             message: `Git operation failed: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -124,7 +124,7 @@ type TemplateRecord = Effect.Success<ReturnType<typeof Templates.list>>["items"]
 const PROJECT_PAGE_SIZE = 100;
 
 /** Every template registered in one project, active or not, ordered by entry path. */
-export const listProjectTemplates = Effect.fn("Templates.listProjectTemplates")(function* (
+const listProjectTemplates = Effect.fn("Templates.listProjectTemplates")(function* (
   projectId: string,
 ) {
   const client = yield* getClientProvider;
@@ -151,6 +151,18 @@ export const listProjectTemplates = Effect.fn("Templates.listProjectTemplates")(
   return templates.sort((left, right) => left.entryPath.localeCompare(right.entryPath));
 });
 
+/** The template a project-level endpoint addresses; any one of the project's names it. */
+export const firstProjectTemplate = Effect.fn("Templates.firstProjectTemplate")(function* (
+  projectId: string,
+) {
+  const [first] = yield* listProjectTemplates(projectId);
+  if (first === undefined)
+    return yield* new SamvaCliError({
+      message: `Template project ${projectId} was not found or has no templates.`,
+    });
+  return first;
+});
+
 const cloneProject = Effect.fn("Templates.cloneProject")(function* (input: {
   readonly id: string;
   readonly dir: string;
@@ -158,7 +170,7 @@ const cloneProject = Effect.fn("Templates.cloneProject")(function* (input: {
   const client = yield* getClientProvider;
   // A project id clones through any of its templates: the repository is the project's.
   const cloneTemplateId = input.id.startsWith("tproj_")
-    ? (yield* listProjectTemplates(input.id))[0]!.id
+    ? (yield* firstProjectTemplate(input.id)).id
     : input.id;
   const [template, repository] = yield* Effect.all(
     [
@@ -660,19 +672,21 @@ const publishTargets = Effect.fn("Templates.publishTargets")(function* (input: {
 }) {
   const entries = input.templates;
   if (input.all) {
-    if (entries.length > 0) return entries;
+    const [first, ...rest] = entries;
+    if (first !== undefined) return { first, targets: [first, ...rest] };
     return yield* new SamvaCliError({
       message: `Project ${input.project} has no templates.`,
     });
   }
   if (input.reference !== undefined) {
     const template = findEntry(input.templates, input.reference);
-    if (template !== undefined) return [template];
+    if (template !== undefined) return { first: template, targets: [template] };
     return yield* new SamvaCliError({
       message: `${input.reference} is not a template in project ${input.project}. Register it with \`samva templates add ${input.reference}\`.`,
     });
   }
-  if (entries.length === 1) return entries;
+  const [first, ...rest] = entries;
+  if (first !== undefined && rest.length === 0) return { first, targets: [first] };
   return yield* new SamvaCliError({
     message: `Project ${input.project} has ${entries.length} templates. Pass an entry path or --all.`,
   });
@@ -724,9 +738,8 @@ export const publish = Command.make("publish", {
       const commitSha = yield* runGit(["rev-parse", `${commit}^{commit}`]);
       yield* runGit(["fetch", "--quiet", "origin"]);
       const templates = yield* listProjectTemplates(project);
-      const targets = yield* publishTargets({ all, reference, project, templates });
+      const { first, targets } = yield* publishTargets({ all, reference, project, templates });
       const client = yield* getClientProvider;
-      const first = targets[0]!;
       const [repository, workspace] = yield* Effect.all(
         [
           Templates.getGitRepository({ id: first.id }).pipe(client.provide),
@@ -751,33 +764,36 @@ export const publish = Command.make("publish", {
       );
       // Each entry publishes independently; an exact (template, commit, entry) repeat
       // returns its existing receipt, so rerunning after a partial failure is safe.
-      const results = yield* Effect.forEach(targets, (template) =>
-        Templates.publish({
-          id: template.id,
-          projectId: project,
-          commitSha,
-          entryPath: template.entryPath,
-          expectedWorkspaceRevision: workspace.workspace.revision,
-        }).pipe(
-          client.provide,
-          Effect.match({
-            onSuccess: (publication) => ({
-              templateId: template.id,
-              slug: template.slug,
-              entryPath: template.entryPath,
-              ok: true as const,
-              publicationId: publication.id,
-              status: publication.status,
+      const results = yield* Effect.forEach(
+        targets,
+        (template) =>
+          Templates.publish({
+            id: template.id,
+            projectId: project,
+            commitSha,
+            entryPath: template.entryPath,
+            expectedWorkspaceRevision: workspace.workspace.revision,
+          }).pipe(
+            client.provide,
+            Effect.match({
+              onSuccess: (publication) => ({
+                templateId: template.id,
+                slug: template.slug,
+                entryPath: template.entryPath,
+                ok: true as const,
+                publicationId: publication.id,
+                status: publication.status,
+              }),
+              onFailure: (error) => ({
+                templateId: template.id,
+                slug: template.slug,
+                entryPath: template.entryPath,
+                ok: false as const,
+                error: formatApiError("Could not publish", error),
+              }),
             }),
-            onFailure: (error) => ({
-              templateId: template.id,
-              slug: template.slug,
-              entryPath: template.entryPath,
-              ok: false as const,
-              error: formatApiError("Could not publish", error),
-            }),
-          }),
-        ),
+          ),
+        { concurrency: 1 },
       );
       const unregistered = all ? yield* unregisteredEntries(commitSha, templates) : [];
       const result = {

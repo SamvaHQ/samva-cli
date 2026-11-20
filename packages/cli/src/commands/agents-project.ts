@@ -1,6 +1,7 @@
 import { AgentName } from "@samva/core/agents/definition";
 import { Console, Effect } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
+import * as Schema from "effect/Schema";
 
 import { CliResultError, SamvaCliError } from "../errors";
 import { buildAgent, initAgent } from "../lib/agent-project";
@@ -71,14 +72,14 @@ const info = Command.make("info", projectFlags).pipe(
       const inspected = yield* buildAgent(dir, entry).pipe(Effect.result);
       if (inspected._tag === "Failure") {
         const error = inspected.failure;
+        const code =
+          (Schema.is(SamvaCliError)(error) ? error.details?.code : undefined) ??
+          "agent_project_failed";
         const result = {
           entry,
           diagnostics: [
             {
-              code:
-                error instanceof SamvaCliError
-                  ? (error.details?.code ?? "agent_project_failed")
-                  : "agent_project_failed",
+              code,
               message: error.message,
             },
           ],
@@ -87,9 +88,7 @@ const info = Command.make("info", projectFlags).pipe(
           code: "agent_project_invalid",
           message: "Agent project has diagnostics.",
           result,
-          human: result.diagnostics
-            .map((diagnostic) => `[${diagnostic.code}] ${diagnostic.message}`)
-            .join("\n"),
+          human: `[${typeof code === "string" ? code : "agent_project_failed"}] ${error.message}`,
         });
       }
       const { bundle: _bundle, ...result } = inspected.success;

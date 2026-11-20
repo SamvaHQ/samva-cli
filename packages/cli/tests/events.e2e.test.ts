@@ -1,10 +1,10 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "contact_7q2xk9mvt4znw8rh";
@@ -31,7 +31,7 @@ beforeEach(async () => {
   configHome = await mkdtemp(join(tmpdir(), "samva-cli-events-"));
   requests = [];
   failSecond = false;
-  const server = createServer(async (req, res) => {
+  const server = createTestServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     let source = "";
     for await (const chunk of req) source += chunk;

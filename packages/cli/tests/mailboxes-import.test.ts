@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const mailboxId = "mbx_1234567890123456";
@@ -63,7 +63,7 @@ beforeEach(async () => {
   rejectSecondArchive = false;
   rejectStart = false;
   rejectProgress = false;
-  const server = createServer(async (req, res) => {
+  const server = createTestServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += String(chunk);
     const path = req.url ?? "";

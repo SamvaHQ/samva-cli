@@ -94,6 +94,6 @@ const server = Bun.serve({
 });
 console.log(server.url.origin);
 process.on("SIGTERM", () => {
-  server.stop(true);
+  void server.stop(true);
   process.exit(0);
 });

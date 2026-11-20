@@ -30,7 +30,7 @@ import { jsonFlag, printFields, printJson } from "../lib/output";
 const WireSetupLink = Schema.toEncoded(WhatsAppSetupLink);
 export type WireSetupLink = typeof WireSetupLink.Type;
 const WireCreatedSetupLink = Schema.toEncoded(CreatedWhatsAppSetupLink);
-export type WireCreatedSetupLink = typeof WireCreatedSetupLink.Type;
+type WireCreatedSetupLink = typeof WireCreatedSetupLink.Type;
 const WireSetupLinkPage = Schema.Struct({
   items: Schema.Array(WireSetupLink),
   nextCursor: Schema.NullOr(Schema.String),

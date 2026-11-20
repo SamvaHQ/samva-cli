@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { IMPORT_REQUEST_MAX_BYTES } from "@samva/core/contacts/import-job";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const topic = "tpc_7q2xk9mvt4znw8rh";
@@ -62,7 +62,7 @@ beforeEach(async () => {
   await writeFile(join(directory, "cleaned.csv"), "Email Address\nbounce@example.test\n");
   requests = [];
   refuse = false;
-  const server = createServer(async (req, res) => {
+  const server = createTestServer(async (req, res) => {
     let source = "";
     for await (const chunk of req) source += String(chunk);
     const path = req.url ?? "";

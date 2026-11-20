@@ -75,30 +75,30 @@ export class CliMessageLifecycleError extends Schema.TaggedError<CliMessageLifec
 export const processErrorCode = (error: unknown): number => {
   if ([401, 403].includes(apiErrorGuidance(error)?.status ?? 0)) return 4;
   if (CliError.isCliError(error)) return 2;
-  if (error instanceof CliUsageError || error instanceof CliConfigError) return 2;
-  if (error instanceof CliAuthError) return 4;
-  if (error instanceof CliTimeoutError) return 124;
-  if (error instanceof CliResultError) return 1;
-  if (error instanceof CliMessageLifecycleError)
+  if (Schema.is(CliUsageError)(error) || Schema.is(CliConfigError)(error)) return 2;
+  if (Schema.is(CliAuthError)(error)) return 4;
+  if (Schema.is(CliTimeoutError)(error)) return 124;
+  if (Schema.is(CliResultError)(error)) return 1;
+  if (Schema.is(CliMessageLifecycleError)(error))
     return error.code === "message_wait_timeout" ? 124 : 1;
   return 1;
 };
 
 export const processErrorReason = (error: unknown): string => {
   if (CliError.isCliError(error)) return "usage_error";
-  if (error instanceof CliUsageError) return error.code;
-  if (error instanceof CliConfigError) return error.code;
-  if (error instanceof CliAuthError) return error.code;
-  if (error instanceof CliTimeoutError) return error.code;
-  if (error instanceof CliResultError) return error.code;
-  if (error instanceof CliMessageLifecycleError)
+  if (Schema.is(CliUsageError)(error)) return error.code;
+  if (Schema.is(CliConfigError)(error)) return error.code;
+  if (Schema.is(CliAuthError)(error)) return error.code;
+  if (Schema.is(CliTimeoutError)(error)) return error.code;
+  if (Schema.is(CliResultError)(error)) return error.code;
+  if (Schema.is(CliMessageLifecycleError)(error))
     return apiErrorGuidance(error)?.reason ?? error.code;
   return apiErrorGuidance(error)?.reason ?? "operational_failure";
 };
 
 export const processErrorNext = (error: unknown): string | undefined =>
   apiErrorGuidance(error)?.next ??
-  (error instanceof CliMessageLifecycleError ? error.next : undefined);
+  (Schema.is(CliMessageLifecycleError)(error) ? error.next : undefined);
 
 const apiStatuses: Readonly<Record<string, number>> = {
   ValidationError: 422,
@@ -146,7 +146,7 @@ export type ApiErrorGuidance = typeof ApiErrorGuidanceSchema.Type;
 
 export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined => {
   if (
-    (error instanceof SamvaCliError || error instanceof CliMessageLifecycleError) &&
+    (Schema.is(SamvaCliError)(error) || Schema.is(CliMessageLifecycleError)(error)) &&
     error.api !== undefined
   ) {
     return error.api;
@@ -329,4 +329,4 @@ export const formatErrorDetails = (error: unknown): string => {
 };
 
 export const getConflictError = (error: unknown): ConflictError | undefined =>
-  error instanceof ConflictError ? error : undefined;
+  Schema.is(ConflictError)(error) ? error : undefined;

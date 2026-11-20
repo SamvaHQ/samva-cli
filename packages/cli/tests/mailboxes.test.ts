@@ -1,5 +1,4 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 import { Cursor } from "@samva/core/shared/cursor";
 import { Predicate, Schema } from "effect";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 // Never called: puts the spawned entry in this file's import graph for `vitest --changed`.
@@ -93,6 +93,7 @@ const thread = {
   id: threadId,
   channel: "email",
   endpointId: endpoint.id,
+  deliveredTo: "support+billing@example.test",
   subject: "Invoice",
   preview: "New text",
   from: { address: "sender@example.com", displayName: null },
@@ -410,20 +411,12 @@ const scenarios = [
     human: "complaint",
   },
   {
-    args: ["quarantine", "list", mailboxId],
+    args: ["spam", "list", mailboxId],
     response: { items: [held], nextCursor: null },
     status: 200,
     method: "GET",
-    path: `/v1/mailboxes/${mailboxId}/quarantine`,
+    path: `/v1/mailboxes/${mailboxId}/spam/held`,
     human: "quarantined",
-  },
-  {
-    args: ["quarantine", "release", mailboxId, messageId],
-    response: held,
-    status: 200,
-    method: "POST",
-    path: `/v1/mailboxes/${mailboxId}/messages/${messageId}/release`,
-    human: threadId,
   },
 ];
 interface RequestRecord {
@@ -440,7 +433,7 @@ let peeks = 0;
 const repliedMessagePath = `/v1/mailboxes/${mailboxId}/messages/${messageId}`;
 let home: string;
 let apiUrl: string;
-const server = createServer(async (req, res) => {
+const server = createTestServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   if (repliedMessage !== undefined && req.method === "GET" && req.url === repliedMessagePath) {
@@ -508,6 +501,32 @@ const assertRequest = (method: string, path: string, oauth = false) => {
   }
 };
 describe("mailbox command HTTP contracts", () => {
+  it("requires confirmation and sends one request for permanent Trash and Spam operations", async () => {
+    const remove = ["threads", "delete", mailboxId, threadId];
+    const empty = ["trash", "empty", mailboxId];
+    const emptySpam = ["spam", "empty", mailboxId];
+    for (const args of [remove, empty, emptySpam]) {
+      const refused = await run([...args, "--json"], undefined);
+      expect(refused.code).not.toBe(0);
+      expect(refused.stderr).toContain("--yes");
+      expect(requests).toEqual([]);
+      const preview = await run([...args, "--dry-run", "--json"], undefined);
+      expect(preview.code, preview.stderr).toBe(0);
+      expect(requests).toEqual([]);
+    }
+    const deleted = await run([...remove, "--yes", "--json"], { success: true });
+    expect(deleted.code, deleted.stderr).toBe(0);
+    assertRequest("DELETE", `/v1/mailboxes/${mailboxId}/threads/${threadId}`);
+    const emptied = await run([...empty, "--yes", "--json"], { count: 3 }, 202);
+    expect(emptied.code, emptied.stderr).toBe(0);
+    expect(JSON.parse(emptied.stdout)).toEqual({ count: 3 });
+    assertRequest("POST", `/v1/mailboxes/${mailboxId}/trash/empty`);
+    const cleared = await run([...emptySpam, "--yes", "--json"], { count: 1 }, 202);
+    expect(cleared.code, cleared.stderr).toBe(0);
+    expect(JSON.parse(cleared.stdout)).toEqual({ count: 1 });
+    assertRequest("POST", `/v1/mailboxes/${mailboxId}/spam/empty`);
+  });
+
   for (const verb of ["approve", "deny"]) {
     for (const invalid of [
       [],
@@ -994,7 +1013,7 @@ describe("mailbox command HTTP contracts", () => {
   for (const args of [
     ["actions", "approve", mailboxId, actionId, "--review-round", String(reviewRound)],
     ["actions", "deny", mailboxId, actionId, "--review-round", String(reviewRound)],
-    ["quarantine", "discard", mailboxId, messageId],
+    ["spam", "discard", mailboxId, messageId],
   ]) {
     it(`requires confirmation for ${args.slice(0, 2).join(" ")}`, async () => {
       const result = await run([...args, "--json"], undefined);
@@ -1053,6 +1072,7 @@ describe("mailbox command HTTP contracts", () => {
       "true",
       "Read",
       "false",
+      thread.deliveredTo,
       date,
       cursorAt(threadId),
     ])
@@ -1130,7 +1150,7 @@ describe("mailbox command HTTP contracts", () => {
   }
   it("keeps quarantine metadata and terminal result times in human output", async () => {
     const result = await run(
-      ["quarantine", "discard", mailboxId, messageId, "--yes"],
+      ["spam", "discard", mailboxId, messageId, "--yes"],
       discarded,
       200,
       true,
@@ -1426,7 +1446,16 @@ describe("mailbox command HTTP contracts", () => {
 
     it(`lists API null thread fields in ${json ? "JSON" : "human"} output`, async () => {
       const data = {
-        items: [{ ...thread, endpointId: null, subject: null, preview: null, from: null }],
+        items: [
+          {
+            ...thread,
+            endpointId: null,
+            deliveredTo: null,
+            subject: null,
+            preview: null,
+            from: null,
+          },
+        ],
         nextCursor: null,
       };
       const result = await run(["threads", mailboxId, ...(json ? ["--json"] : [])], data);
@@ -1565,7 +1594,7 @@ describe("mailbox command HTTP contracts", () => {
     const response = { items: [held], nextCursor: cursorAt(messageId) };
     const result = await run(
       [
-        "quarantine",
+        "spam",
         "list",
         mailboxId,
         "--limit",
@@ -1581,21 +1610,11 @@ describe("mailbox command HTTP contracts", () => {
     expect(result.code, result.stderr).toBe(0);
     assertRequest(
       "GET",
-      `/v1/mailboxes/${mailboxId}/quarantine?limit=5&cursor=${cursorAt(messageId)}&after=2026-10-01T00%3A00%3A00.000Z`,
+      `/v1/mailboxes/${mailboxId}/spam/held?limit=5&cursor=${cursorAt(messageId)}&after=2026-10-01T00%3A00%3A00.000Z`,
     );
     expect(JSON.parse(result.stdout)).toEqual(response);
   });
-  it("releases with OAuth and leaves authorization to the API", async () => {
-    const result = await run(
-      ["quarantine", "release", mailboxId, messageId, "--json"],
-      held,
-      200,
-      true,
-    );
-    expect(result.code, result.stderr).toBe(0);
-    assertRequest("POST", `/v1/mailboxes/${mailboxId}/messages/${messageId}/release`, true);
-    expect(JSON.parse(result.stdout)).toEqual(held);
-  });
+
   const envelope = (stderr: string) => JSON.parse(stderr);
   it("preserves the encoded accepted receipt when cancellation loses", async () => {
     const accepted = receipt("accepted");
@@ -1635,44 +1654,26 @@ describe("mailbox command HTTP contracts", () => {
       expect(result.stdout).toBe("");
     });
   }
-  it("tells an API key holder that release needs a person", async () => {
-    const result = await run(
-      ["quarantine", "release", mailboxId, messageId, "--json"],
-      { _tag: "ForbiddenError", message: "API keys cannot release" },
-      403,
-    );
-    expect(result.code, result.stderr).toBe(4);
-    assertRequest("POST", `/v1/mailboxes/${mailboxId}/messages/${messageId}/release`);
-    const error = envelope(result.stderr);
-    expect(error).toMatchObject({
-      type: "error",
-      reason: "ForbiddenError",
-      status: 403,
-      message: "API keys cannot release",
-    });
-    expect(error.next).toContain("samva login");
-    expect(error.next).toContain("API key");
-    expect(result.stdout).toBe("");
-  });
+
   it("discards with OAuth and leaves authorization to the API", async () => {
     const result = await run(
-      ["quarantine", "discard", mailboxId, messageId, "--yes", "--json"],
+      ["spam", "discard", mailboxId, messageId, "--yes", "--json"],
       discarded,
       200,
       true,
     );
     expect(result.code, result.stderr).toBe(0);
-    assertRequest("POST", `/v1/mailboxes/${mailboxId}/messages/${messageId}/discard`, true);
+    assertRequest("POST", `/v1/mailboxes/${mailboxId}/spam/held/${messageId}/discard`, true);
     expect(JSON.parse(result.stdout)).toEqual(discarded);
   });
   it("tells an API key that only a person can discard", async () => {
     const result = await run(
-      ["quarantine", "discard", mailboxId, messageId, "--yes", "--json"],
+      ["spam", "discard", mailboxId, messageId, "--yes", "--json"],
       { _tag: "ForbiddenError", message: "API keys cannot discard" },
       403,
     );
     expect(result.code, result.stderr).toBe(4);
-    assertRequest("POST", `/v1/mailboxes/${mailboxId}/messages/${messageId}/discard`);
+    assertRequest("POST", `/v1/mailboxes/${mailboxId}/spam/held/${messageId}/discard`);
     const error = envelope(result.stderr);
     expect(error).toMatchObject({ reason: "ForbiddenError", status: 403 });
     expect(error.next).toContain("samva login");
@@ -1841,7 +1842,7 @@ describe("mailbox command HTTP contracts", () => {
   });
   it("streams every quarantine page with --all", async () => {
     const result = await stream(
-      ["quarantine", "list", mailboxId, "--all"],
+      ["spam", "list", mailboxId, "--all"],
       [
         { items: [held], nextCursor: cursorAt(messageId) },
         { items: [held], nextCursor: null },
@@ -1850,12 +1851,12 @@ describe("mailbox command HTTP contracts", () => {
     expect(result.code, result.stderr).toBe(0);
     expect(result.items).toEqual([held, held]);
     expect(requests.map((request) => request.path)).toEqual([
-      `/v1/mailboxes/${mailboxId}/quarantine`,
-      `/v1/mailboxes/${mailboxId}/quarantine?cursor=${cursorAt(messageId)}`,
+      `/v1/mailboxes/${mailboxId}/spam/held`,
+      `/v1/mailboxes/${mailboxId}/spam/held?cursor=${cursorAt(messageId)}`,
     ]);
   });
   it("requires JSONL before unbounded quarantine traversal", async () => {
-    const result = await run(["quarantine", "list", mailboxId, "--all"], {});
+    const result = await run(["spam", "list", mailboxId, "--all"], {});
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("all_requires_jsonl");
     expect(requests).toHaveLength(0);
@@ -2031,7 +2032,7 @@ describe("mailbox commands on phone channels", () => {
   });
   it("lists a WhatsApp thread with its channel", async () => {
     const result = await run(["threads", mailboxId], {
-      items: [{ ...thread, channel: "whatsapp", subject: null }],
+      items: [{ ...thread, channel: "whatsapp", deliveredTo: null, subject: null }],
       nextCursor: null,
     });
     expect(result.code, result.stderr).toBe(0);

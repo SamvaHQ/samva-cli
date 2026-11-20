@@ -4,6 +4,9 @@ import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Predicate from "effect/Predicate";
 import * as Organizations from "samva/effect/organizations";
 
@@ -25,20 +28,26 @@ const uploadBytes = Effect.fn("OrgAvatar.uploadBytes")(function* (
   contentType: string,
 ) {
   const config = yield* getClientConfig;
-  const response = yield* Effect.tryPromise({
-    try: (signal) =>
-      fetch(uploadUrl, {
-        method: "PUT",
-        headers: { ...requestAuthHeaders(config), "Content-Type": contentType },
-        body: bytes as BodyInit,
-        // A followed redirect could carry the credential to another origin.
-        redirect: "manual",
-        signal,
-      }),
-    catch: (cause) => new SamvaCliError({ message: `Avatar upload failed: ${String(cause)}` }),
-  });
-  const body: unknown = yield* Effect.promise(() => response.json().catch(() => undefined));
-  if (response.ok && Predicate.isObject(body) && typeof body.src === "string") return body.src;
+  const response = yield* HttpClient.execute(
+    HttpClientRequest.put(uploadUrl).pipe(
+      HttpClientRequest.setHeaders(requestAuthHeaders(config)),
+      HttpClientRequest.bodyUint8Array(bytes, contentType),
+    ),
+  ).pipe(
+    // A followed redirect could carry the credential to another origin.
+    Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+    Effect.mapError(
+      (cause) => new SamvaCliError({ message: `Avatar upload failed: ${String(cause)}` }),
+    ),
+  );
+  const body: unknown = yield* response.json.pipe(Effect.catch(() => Effect.undefined));
+  if (
+    response.status >= 200 &&
+    response.status < 300 &&
+    Predicate.isObject(body) &&
+    typeof body.src === "string"
+  )
+    return body.src;
   return yield* Predicate.isObject(body) && typeof body._tag === "string"
     ? toCliApiError("Avatar upload failed", body)
     : new SamvaCliError({ message: `Avatar upload failed: HTTP ${response.status}` });

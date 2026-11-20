@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@effect/vitest";
 import { DEFAULT_AGENT_DEFINITION } from "@samva/core/agents/definition";
 
+import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "agt_1234567890123456";
@@ -23,7 +23,7 @@ const result = {
 let home = "";
 let apiUrl = "";
 let requests: Array<{ method: string; path: string; body: unknown }> = [];
-const server = createServer(async (request, response) => {
+const server = createTestServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
   requests.push({

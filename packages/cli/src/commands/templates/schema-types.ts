@@ -196,7 +196,9 @@ export const printType = (doc: TypeDoc, indent: number, column: number, suffix =
         ? `readonly (${body}\n${pad(indent)})[]`
         : `readonly (${body})[]`;
     }
-    default:
+    case "text":
+    case "tuple":
+    case "record":
       return flat(doc);
   }
 };

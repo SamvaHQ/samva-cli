@@ -30,7 +30,7 @@ const declarationSchema = Schema.Struct({
   workflows: Schema.optionalKey(AgentWorkflowExports),
 });
 
-export interface AgentProjectDiagnostic {
+interface AgentProjectDiagnostic {
   readonly code: string;
   readonly message: string;
 }

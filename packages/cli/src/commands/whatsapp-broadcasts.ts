@@ -38,7 +38,7 @@ const CONTACT_FIELDS = [
   "jobTitle",
 ] as const;
 
-export type WhatsAppBinding =
+type WhatsAppBinding =
   | { readonly contact: (typeof CONTACT_FIELDS)[number] }
   | { readonly customField: string };
 

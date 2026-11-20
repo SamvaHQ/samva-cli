@@ -48,7 +48,7 @@ const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".zip": "application/zip",
 };
 
-export const contentTypeForPath = (path: string): string =>
+const contentTypeForPath = (path: string): string =>
   CONTENT_TYPE_BY_EXTENSION[extname(path).toLowerCase()] ?? "application/octet-stream";
 
 const attachmentError = (code: string, message: string) => new CliUsageError({ code, message });
@@ -96,23 +96,29 @@ export const readAttachments = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<ReadonlyArray<LocalAttachment>, CliUsageError> =>
   Effect.gen(function* () {
-    const sizes = yield* Effect.forEach(paths, (path) =>
-      Effect.tryPromise({
-        try: async () => ({ path, size: (await stat(path)).size }),
-        catch: unreadable(path),
-      }),
+    const sizes = yield* Effect.forEach(
+      paths,
+      (path) =>
+        Effect.tryPromise({
+          try: async () => ({ path, size: (await stat(path)).size }),
+          catch: unreadable(path),
+        }),
+      { concurrency: 1 },
     );
     yield* checkAttachmentBudget(sizes);
-    const files = yield* Effect.forEach(paths, (path) =>
-      Effect.tryPromise({
-        try: async (): Promise<LocalAttachment> => ({
-          path,
-          filename: basename(path),
-          contentType: contentTypeForPath(path),
-          bytes: await readFile(path),
+    const files = yield* Effect.forEach(
+      paths,
+      (path) =>
+        Effect.tryPromise({
+          try: async (): Promise<LocalAttachment> => ({
+            path,
+            filename: basename(path),
+            contentType: contentTypeForPath(path),
+            bytes: await readFile(path),
+          }),
+          catch: unreadable(path),
         }),
-        catch: unreadable(path),
-      }),
+      { concurrency: 1 },
     );
     yield* checkAttachmentBudget(
       files.map((file) => ({ path: file.path, size: file.bytes.length })),
