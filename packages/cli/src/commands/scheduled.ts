@@ -4,19 +4,15 @@ import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
-import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import * as References from "effect/References";
 import type { JsonValue } from "samva/effect";
 import * as ScheduledMessages from "samva/effect/scheduled-messages";
 
-import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
+import { SamvaCliError } from "../errors";
+import { deriveOverride } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
-import { jsonFlag, printFields, printJson, printJsonLine, truncateForDisplay } from "../lib/output";
-import { isJsonLinesRequested } from "../lib/runtime";
+import { jsonFlag, printFields, truncateForDisplay } from "../lib/output";
 import {
   inputContractIdFlag,
   publicationIdFlag,
@@ -205,7 +201,7 @@ const allFlag = Flag.Boolean("all").pipe(
   Flag.withDefault(false),
 );
 
-const create = Command.make("create", {
+const createFlags = {
   namespace: namespaceFlag("create"),
   to: toFlag,
   cc: ccFlag,
@@ -232,6 +228,128 @@ const create = Command.make("create", {
   trackClicks: trackClicksFlag,
   dryRun: dryRunFlag,
   json: jsonFlag,
+};
+
+const create = deriveOverride("create", createFlags, {
+  prepare: (input) =>
+    Effect.gen(function* () {
+      const htmlValue = Option.getOrUndefined(input.html);
+      const textValue = Option.getOrUndefined(input.text);
+      const templateIdValue = Option.getOrUndefined(input.templateId);
+      const reference = yield* resolveTemplateReference({
+        templateId: templateIdValue,
+        publicationId: Option.getOrUndefined(input.publicationId),
+        inputContractId: Option.getOrUndefined(input.inputContractId),
+      });
+      const templateSlugValue = Option.getOrUndefined(input.templateSlug);
+      const templateDataValue = yield* parseTemplateData(input.templateData);
+      const fromValue = Option.getOrUndefined(input.from);
+      const fromNameValue = Option.getOrUndefined(input.fromName);
+      if (fromValue === undefined && fromNameValue !== undefined) {
+        return yield* new SamvaCliError({ message: "--from-name applies with --from." });
+      }
+
+      if (templateIdValue && templateSlugValue) {
+        return yield* new SamvaCliError({
+          message: "Use either --template-id or --template-slug, not both.",
+        });
+      }
+      const templateRefValue = templateSlugValue ?? templateIdValue;
+
+      if (templateRefValue && (Option.isSome(input.subject) || htmlValue || textValue)) {
+        return yield* new SamvaCliError({
+          message:
+            "Choose one content source: a template, or inline --subject with --html (and optional --text).",
+        });
+      }
+      if (!templateRefValue && Option.isNone(input.subject)) {
+        return yield* new SamvaCliError({
+          message: "Provide --subject with inline --html, or reference a published template.",
+        });
+      }
+      if (!templateRefValue && !htmlValue) {
+        return yield* new SamvaCliError({
+          message:
+            "Provide --html for inline email; --text is an optional fallback, not a body source.",
+        });
+      }
+
+      if (!isAbsoluteInstant(input.at)) {
+        return yield* new SamvaCliError({
+          message:
+            "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-08-01T09:00:00Z.",
+        });
+      }
+
+      return assembleScheduledEmailPayload({
+        ...namespaceField(input.namespace),
+        to: [...input.to],
+        subject: Option.getOrUndefined(input.subject),
+        html: htmlValue,
+        text: textValue,
+        topicId: Option.getOrUndefined(input.topicId),
+        templateId: templateIdValue,
+        publicationId: reference.publicationId,
+        inputContractId: reference.inputContractId,
+        templateSlug: templateSlugValue,
+        templateData: templateDataValue,
+        cc: Option.getOrUndefined(input.cc),
+        bcc: Option.getOrUndefined(input.bcc),
+        ...(fromValue === undefined
+          ? {}
+          : {
+              from: {
+                email: fromValue,
+                ...(fromNameValue === undefined ? {} : { name: fromNameValue }),
+              },
+            }),
+        scheduledFor: new Date(input.at),
+        timezone: Option.getOrUndefined(input.timezone),
+        referenceId: Option.getOrUndefined(input.referenceId),
+        tracking:
+          Option.isSome(input.trackOpens) || Option.isSome(input.trackClicks)
+            ? {
+                ...(Option.isSome(input.trackOpens)
+                  ? { opens: input.trackOpens.value === "on" }
+                  : {}),
+                ...(Option.isSome(input.trackClicks)
+                  ? { clicks: input.trackClicks.value === "on" }
+                  : {}),
+              }
+            : undefined,
+      });
+    }),
+  call: (request, input) =>
+    ScheduledMessages.create(request, {
+      idempotencyKey: Option.getOrUndefined(input.idempotencyKey),
+    }),
+  failure: "Failed to schedule message",
+  preview: {
+    data: (request) => ({ dryRun: true, request }),
+    render: (request, input) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Dry run — no schedule created.\n");
+        yield* printFields([
+          ["To", [...input.to].join(", ")],
+          ["Subject", Option.getOrUndefined(input.subject)],
+          ["Send at", input.at],
+          ["Timezone", Option.getOrUndefined(input.timezone)],
+        ]);
+        yield* Console.log(`\nPayload:\n${truncateForDisplay(JSON.stringify(request, null, 2))}`);
+      }),
+  },
+  render: (data) =>
+    Effect.gen(function* () {
+      yield* Effect.logInfo("Message scheduled.\n");
+      yield* printFields([
+        ["ID", data.id],
+        ["Status", data.status],
+        ["Namespace", data.namespaceId ?? "organization"],
+        ["Send at", data.scheduledFor],
+        ["Timezone", data.timezone],
+      ]);
+      yield* Effect.logInfo(`\nInspect it:  samva scheduled-messages get ${data.id}`);
+    }),
 }).pipe(
   Command.withDescription("Schedule an email to send at a future time"),
   Command.withExamples([
@@ -256,158 +374,53 @@ const create = Command.make("create", {
       description: "Validate and print the payload without scheduling",
     },
   ]),
-  Command.withHandler(
-    ({
-      namespace,
-      to,
-      cc,
-      bcc,
-      from,
-      fromName,
-      subject,
-      html,
-      text,
-      topicId,
-      templateId,
-      publicationId,
-      inputContractId,
-      templateSlug,
-      templateData,
-      at,
-      timezone,
-      idempotencyKey,
-      referenceId,
-      trackOpens,
-      trackClicks,
-      dryRun,
-      json,
-    }) =>
-      Effect.gen(function* () {
-        const htmlValue = Option.getOrUndefined(html);
-        const textValue = Option.getOrUndefined(text);
-        const templateIdValue = Option.getOrUndefined(templateId);
-        const reference = yield* resolveTemplateReference({
-          templateId: templateIdValue,
-          publicationId: Option.getOrUndefined(publicationId),
-          inputContractId: Option.getOrUndefined(inputContractId),
-        });
-        const templateSlugValue = Option.getOrUndefined(templateSlug);
-        const templateDataValue = yield* parseTemplateData(templateData);
-        const fromValue = Option.getOrUndefined(from);
-        const fromNameValue = Option.getOrUndefined(fromName);
-        if (fromValue === undefined && fromNameValue !== undefined) {
-          return yield* new SamvaCliError({ message: "--from-name applies with --from." });
-        }
-
-        if (templateIdValue && templateSlugValue) {
-          return yield* new SamvaCliError({
-            message: "Use either --template-id or --template-slug, not both.",
-          });
-        }
-        const templateRefValue = templateSlugValue ?? templateIdValue;
-
-        if (templateRefValue && (Option.isSome(subject) || htmlValue || textValue)) {
-          return yield* new SamvaCliError({
-            message:
-              "Choose one content source: a template, or inline --subject with --html (and optional --text).",
-          });
-        }
-        if (!templateRefValue && Option.isNone(subject)) {
-          return yield* new SamvaCliError({
-            message: "Provide --subject with inline --html, or reference a published template.",
-          });
-        }
-        if (!templateRefValue && !htmlValue) {
-          return yield* new SamvaCliError({
-            message:
-              "Provide --html for inline email; --text is an optional fallback, not a body source.",
-          });
-        }
-
-        if (!isAbsoluteInstant(at)) {
-          return yield* new SamvaCliError({
-            message:
-              "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-08-01T09:00:00Z.",
-          });
-        }
-
-        const payload = assembleScheduledEmailPayload({
-          ...namespaceField(namespace),
-          to: [...to],
-          subject: Option.getOrUndefined(subject),
-          html: htmlValue,
-          text: textValue,
-          topicId: Option.getOrUndefined(topicId),
-          templateId: templateIdValue,
-          publicationId: reference.publicationId,
-          inputContractId: reference.inputContractId,
-          templateSlug: templateSlugValue,
-          templateData: templateDataValue,
-          cc: Option.getOrUndefined(cc),
-          bcc: Option.getOrUndefined(bcc),
-          ...(fromValue === undefined
-            ? {}
-            : {
-                from: {
-                  email: fromValue,
-                  ...(fromNameValue === undefined ? {} : { name: fromNameValue }),
-                },
-              }),
-          scheduledFor: new Date(at),
-          timezone: Option.getOrUndefined(timezone),
-          referenceId: Option.getOrUndefined(referenceId),
-          tracking:
-            Option.isSome(trackOpens) || Option.isSome(trackClicks)
-              ? {
-                  ...(Option.isSome(trackOpens) ? { opens: trackOpens.value === "on" } : {}),
-                  ...(Option.isSome(trackClicks) ? { clicks: trackClicks.value === "on" } : {}),
-                }
-              : undefined,
-        });
-
-        if (dryRun) {
-          if (json) return yield* printJson({ dryRun: true, request: payload });
-          yield* Effect.logInfo("Dry run — no schedule created.\n");
-          yield* printFields([
-            ["To", [...to].join(", ")],
-            ["Subject", Option.getOrUndefined(subject)],
-            ["Send at", at],
-            ["Timezone", Option.getOrUndefined(timezone)],
-          ]);
-          return yield* Console.log(
-            `\nPayload:\n${truncateForDisplay(JSON.stringify(payload, null, 2))}`,
-          );
-        }
-
-        const client = yield* getClientProvider;
-        const data = yield* ScheduledMessages.create(payload, {
-          idempotencyKey: Option.getOrUndefined(idempotencyKey),
-        }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Failed to schedule message", error)),
-        );
-        if (json) return yield* printJson(data);
-        yield* Effect.logInfo("Message scheduled.\n");
-        yield* printFields([
-          ["ID", data.id],
-          ["Status", data.status],
-          ["Namespace", data.namespaceId ?? "organization"],
-          ["Send at", data.scheduledFor],
-          ["Timezone", data.timezone],
-        ]);
-        yield* Effect.logInfo(`\nInspect it:  samva scheduled-messages get ${data.id}`);
-      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const list = Command.make("list", {
-  namespace: namespaceFlag("list"),
-  status: statusFlag,
-  cursor: cursorFlag,
-  limit: limitFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
+const list = deriveOverride(
+  "list",
+  {
+    namespace: namespaceFlag("list"),
+    status: statusFlag,
+    cursor: cursorFlag,
+    limit: limitFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({
+      ...namespaceField(input.namespace),
+      status: Option.getOrUndefined(input.status),
+      cursor: Option.getOrUndefined(input.cursor),
+      limit: Option.getOrUndefined(input.limit),
+    }),
+    call: (request) => ScheduledMessages.list(request),
+    failure: "Could not list scheduled messages",
+    paginate: {
+      start: (request) => request.cursor,
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) {
+          return yield* Console.log(
+            "No scheduled messages. Create one with `samva scheduled-messages create`.",
+          );
+        }
+        for (const item of data.items) {
+          yield* printFields([
+            ["ID", item.id],
+            ["Status", item.status],
+            ["Namespace", item.namespaceId ?? "organization"],
+            ["Channel", item.send.channel],
+            ["Send at", item.scheduledFor],
+            ["Timezone", item.timezone],
+          ]);
+          yield* Console.log("");
+        }
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List scheduled messages"),
   Command.withExamples([
     { command: "samva scheduled-messages list", description: "List all scheduled messages" },
@@ -421,77 +434,17 @@ const list = Command.make("list", {
       description: "Stream every page as JSONL",
     },
   ]),
-  Command.withHandler(({ namespace, status, cursor, limit, all, json }) =>
-    Effect.gen(function* () {
-      if (all && !isJsonLinesRequested()) {
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      }
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const client = yield* getClientProvider;
-      const query = {
-        ...namespaceField(namespace),
-        status: Option.getOrUndefined(status),
-        cursor: cursorValue,
-        limit: limitValue,
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* ScheduledMessages.list({ ...query, cursor: nextCursor }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list scheduled messages", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(item);
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* ScheduledMessages.list(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list scheduled messages", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(item);
-        return;
-      }
-      if (json) return yield* printJson(data);
-      if (data.items.length === 0) {
-        return yield* Console.log(
-          "No scheduled messages. Create one with `samva scheduled-messages create`.",
-        );
-      }
-      for (const item of data.items) {
-        yield* printFields([
-          ["ID", item.id],
-          ["Status", item.status],
-          ["Namespace", item.namespaceId ?? "organization"],
-          ["Channel", item.send.channel],
-          ["Send at", item.scheduledFor],
-          ["Timezone", item.timezone],
-        ]);
-        yield* Console.log("");
-      }
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).pipe(
-  Command.withDescription("Show a scheduled message by id"),
-  Command.withExamples([{ command: "samva scheduled-messages get sched_abc123" }]),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* ScheduledMessages.get({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch scheduled message", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
+const get = deriveOverride(
+  "get",
+  { id: Argument.String("id"), json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => ScheduledMessages.get(request),
+    failure: "Could not fetch scheduled message",
+    render: (data) =>
+      printFields([
         ["ID", data.id],
         ["Status", data.status],
         ["Namespace", data.namespaceId ?? "organization"],
@@ -501,63 +454,95 @@ const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).p
         ["Message ID", data.messageId],
         ["Reference", data.referenceId],
         ["Failure", data.failureReason],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
+      ]),
+  },
+).pipe(
+  Command.withDescription("Show a scheduled message by id"),
+  Command.withExamples([{ command: "samva scheduled-messages get sched_abc123" }]),
 );
 
-const cancel = Command.make("cancel", {
-  id: Argument.String("id"),
-  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
-  json: jsonFlag,
-}).pipe(
+const cancel = deriveOverride(
+  "cancel",
+  {
+    id: Argument.String("id"),
+    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => ScheduledMessages.cancel(request),
+    failure: "Could not cancel scheduled message",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "scheduled.cancel", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would cancel scheduled message ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Cancel scheduled message ${request.id}?`,
+      nonInteractiveMessage:
+        "Scheduled message cancellation requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Scheduled message cancelled.\n");
+        yield* printFields([
+          ["ID", data.item.id],
+          ["Status", data.item.status],
+        ]);
+      }),
+  },
+).pipe(
   Command.withDescription("Cancel a pending scheduled message"),
   Command.withExamples([
     { command: "samva scheduled-messages cancel sched_abc123 --dry-run" },
     { command: "samva scheduled-messages cancel sched_abc123 --yes" },
   ]),
-  Command.withHandler(({ id, dryRun, yes, json }) =>
-    Effect.gen(function* () {
-      if (dryRun) {
-        return yield* json
-          ? printJson({ dryRun: true, action: "scheduled.cancel", id })
-          : Console.log(`[dry-run] Would cancel scheduled message ${id}.`);
-      }
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Cancel scheduled message ${id}?`,
-        nonInteractiveMessage:
-          "Scheduled message cancellation requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      const data = yield* ScheduledMessages.cancel({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not cancel scheduled message", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Scheduled message cancelled.\n");
-      yield* printFields([
-        ["ID", data.item.id],
-        ["Status", data.item.status],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const resume = Command.make("resume", {
-  id: Argument.String("id"),
-  sendNow: Flag.Boolean("send-now").pipe(
-    Flag.withDescription("Send immediately after review clearance"),
-    Flag.withDefault(false),
-  ),
-  at: Flag.String("at").pipe(
-    Flag.withDescription("New absolute future send instant"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+const resume = deriveOverride(
+  "resume",
+  {
+    id: Argument.String("id"),
+    sendNow: Flag.Boolean("send-now").pipe(
+      Flag.withDescription("Send immediately after review clearance"),
+      Flag.withDefault(false),
+    ),
+    at: Flag.String("at").pipe(
+      Flag.withDescription("New absolute future send instant"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: (input) =>
+      Effect.gen(function* () {
+        const atValue = Option.getOrUndefined(input.at);
+        if (input.sendNow === Boolean(atValue)) {
+          return yield* new SamvaCliError({
+            message: "Choose exactly one of --send-now or --at.",
+          });
+        }
+        if (atValue !== undefined && !isAbsoluteInstant(atValue)) {
+          return yield* new SamvaCliError({
+            message:
+              "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-10-01T09:00:00Z.",
+          });
+        }
+        return atValue === undefined
+          ? { id: input.id, choice: "send_now" as const }
+          : { id: input.id, choice: "new_time" as const, scheduledFor: new Date(atValue) };
+      }),
+    call: (request) => ScheduledMessages.resume(request),
+    failure: "Could not resume scheduled message",
+    render: (data) =>
+      printFields([
+        ["ID", data.id],
+        ["Status", data.status],
+        ["Namespace", data.namespaceId ?? "organization"],
+        ["Send at", data.scheduledFor],
+      ]),
+  },
+).pipe(
   Command.withDescription("Resume a scheduled message paused by email review"),
   Command.withExamples([
     { command: "samva scheduled-messages resume sched_abc123 --send-now" },
@@ -565,38 +550,6 @@ const resume = Command.make("resume", {
       command: "samva scheduled-messages resume sched_abc123 --at 2026-10-01T09:00:00Z --json",
     },
   ]),
-  Command.withHandler(({ id, sendNow, at, json }) =>
-    Effect.gen(function* () {
-      const atValue = Option.getOrUndefined(at);
-      if (sendNow === Boolean(atValue)) {
-        return yield* new SamvaCliError({
-          message: "Choose exactly one of --send-now or --at.",
-        });
-      }
-      if (atValue !== undefined && !isAbsoluteInstant(atValue)) {
-        return yield* new SamvaCliError({
-          message:
-            "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-10-01T09:00:00Z.",
-        });
-      }
-      const client = yield* getClientProvider;
-      const data = yield* ScheduledMessages.resume(
-        atValue === undefined
-          ? { id, choice: "send_now" }
-          : { id, choice: "new_time", scheduledFor: new Date(atValue) },
-      ).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not resume scheduled message", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["ID", data.id],
-        ["Status", data.status],
-        ["Namespace", data.namespaceId ?? "organization"],
-        ["Send at", data.scheduledFor],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 export const scheduledMessagesCommand = Command.make("scheduled-messages").pipe(

@@ -3,9 +3,7 @@ import {
   WhatsAppFlow,
   WhatsAppFlowEncryptionKey,
   WhatsAppFlowEndpointSettings,
-  WhatsAppFlowList,
   WhatsAppFlowRegistration,
-  WhatsAppFlowRegistrationList,
   WhatsAppFlowVersion,
 } from "@samva/core/whatsapp/flow";
 import * as Argument from "effect/cli/Argument";
@@ -14,12 +12,15 @@ import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as Templates from "samva/effect/templates";
+import * as WhatsAppFlows from "samva/effect/whatsapp-flows";
 
 import { SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, getClientProvider, postAuthenticatedJson } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { firstProjectTemplate, gitConfig, runGit } from "./templates/project";
 
@@ -37,12 +38,10 @@ import { firstProjectTemplate, gitConfig, runGit } from "./templates/project";
 /** Flows as the API wire carries them: dates stay ISO strings. */
 const WireFlow = Schema.toEncoded(WhatsAppFlow);
 export type WireFlow = typeof WireFlow.Type;
-const WireFlowList = Schema.toEncoded(WhatsAppFlowList);
 const WireVersion = Schema.toEncoded(WhatsAppFlowVersion);
 export type WireFlowVersion = typeof WireVersion.Type;
 const WireFlowRegistration = Schema.toEncoded(WhatsAppFlowRegistration);
 export type WireFlowRegistration = typeof WireFlowRegistration.Type;
-const WireFlowRegistrationList = Schema.toEncoded(WhatsAppFlowRegistrationList);
 const WireEndpointSettings = Schema.toEncoded(WhatsAppFlowEndpointSettings);
 export type WireFlowEndpointSettings = typeof WireEndpointSettings.Type;
 const WireEncryptionKey = Schema.toEncoded(WhatsAppFlowEncryptionKey);
@@ -212,22 +211,15 @@ const readFlow = (flowId: string) =>
     Effect.flatMap(decodeFlow),
   );
 
-const list = Command.make("list", { json: jsonFlag }).pipe(
-  Command.withDescription("List the organization's WhatsApp flows, newest first"),
-  Command.withExamples([
-    { command: "samva whatsapp flows list", description: "See each flow and its current version" },
-  ]),
-  Command.withHandler(({ json }) =>
-    quiet(
-      json,
+const list = deriveOverride(
+  "list",
+  { json: jsonFlag },
+  {
+    mapInput: () => ({}),
+    call: () => WhatsAppFlows.list(),
+    failure: flowError("list flows"),
+    render: (flows) =>
       Effect.gen(function* () {
-        const body = yield* getAuthenticatedJson(flowsPath()).pipe(
-          Effect.mapError(flowError("list flows")),
-        );
-        const flows = yield* Schema.decodeUnknownEffect(WireFlowList)(body).pipe(
-          Effect.mapError(unreadable("list")),
-        );
-        if (json) return yield* printJson(flows);
         if (flows.data.length === 0) {
           yield* Effect.logInfo(
             "No flows. Create one with `samva whatsapp flows create --project <id> --handle <handle> --category <CATEGORY>`.",
@@ -239,46 +231,72 @@ const list = Command.make("list", { json: jsonFlag }).pipe(
           yield* Console.log("");
         }
       }),
-    ),
-  ),
+  },
+).pipe(
+  Command.withDescription("List the organization's WhatsApp flows, newest first"),
+  Command.withExamples([
+    { command: "samva whatsapp flows list", description: "See each flow and its current version" },
+  ]),
 );
 
-const get = Command.make("get", { id: flowIdArgument, json: jsonFlag }).pipe(
-  Command.withDescription("Get one flow with its current version"),
-  Command.withExamples([
-    { command: "samva whatsapp flows get waflow_abc123", description: "Read a flow" },
-  ]),
-  Command.withHandler(({ id, json }) =>
-    quiet(
-      json,
+const get = deriveOverride(
+  "get",
+  { id: flowIdArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => WhatsAppFlows.get(request),
+    failure: flowError("get the flow"),
+    render: (flow) =>
       Effect.gen(function* () {
-        const flow = yield* readFlow(id);
-        if (json) return yield* printJson(flow);
         yield* printFields(flowFields(flow));
         if (flow.currentVersion !== null) {
           yield* Console.log("");
           yield* printFields(flowVersionFields(flow.currentVersion));
         }
       }),
-    ),
-  ),
+  },
+).pipe(
+  Command.withDescription("Get one flow with its current version"),
+  Command.withExamples([
+    { command: "samva whatsapp flows get waflow_abc123", description: "Read a flow" },
+  ]),
 );
 
-const create = Command.make("create", {
-  project: Flag.String("project").pipe(
-    Flag.withDescription("Template project (tproj_…) whose flows/<handle>.json holds the flow"),
-  ),
-  handle: Flag.String("handle").pipe(
-    Flag.withDescription("Lowercase kebab-case name, unique in the organization"),
-  ),
-  category: Flag.Literals("category", WHATSAPP_FLOW_CATEGORY_VALUES).pipe(
-    Flag.withDescription(
-      `Meta flow category (repeatable): ${WHATSAPP_FLOW_CATEGORY_VALUES.join(", ")}`,
+const create = deriveOverride(
+  "create",
+  {
+    project: Flag.String("project").pipe(
+      Flag.withDescription("Template project (tproj_…) whose flows/<handle>.json holds the flow"),
     ),
-    Flag.atLeast(1),
-  ),
-  json: jsonFlag,
-}).pipe(
+    handle: Flag.String("handle").pipe(
+      Flag.withDescription("Lowercase kebab-case name, unique in the organization"),
+    ),
+    category: Flag.Literals("category", WHATSAPP_FLOW_CATEGORY_VALUES).pipe(
+      Flag.withDescription(
+        `Meta flow category (repeatable): ${WHATSAPP_FLOW_CATEGORY_VALUES.join(", ")}`,
+      ),
+      Flag.atLeast(1),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ project, handle, category }) => ({
+      projectId: project,
+      handle,
+      categories: category,
+    }),
+    call: (request) => WhatsAppFlows.create(request),
+    failure: flowError("create the flow"),
+    render: (flow) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Flow created.\n");
+        yield* printFields(flowFields(flow));
+        yield* Console.log(
+          `\nCommit ${flow.path} to the project, push it, then run \`samva whatsapp flows publish ${flow.id}\`.`,
+        );
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Create a flow whose versions read flows/<handle>.json in a template project",
   ),
@@ -289,23 +307,6 @@ const create = Command.make("create", {
       description: "Create the flow, then commit flows/appointment.json and publish it",
     },
   ]),
-  Command.withHandler(({ project, handle, category, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* postAuthenticatedJson(flowsPath(), {
-          body: createFlowPayload(project, handle, category),
-        }).pipe(Effect.mapError(flowError("create the flow")));
-        const flow = yield* decodeFlow(body);
-        if (json) return yield* printJson(flow);
-        yield* Effect.logInfo("Flow created.\n");
-        yield* printFields(flowFields(flow));
-        yield* Console.log(
-          `\nCommit ${flow.path} to the project, push it, then run \`samva whatsapp flows publish ${flow.id}\`.`,
-        );
-      }),
-    ),
-  ),
 );
 
 const publish = Command.make("publish", {
@@ -396,16 +397,32 @@ const publish = Command.make("publish", {
   ),
 );
 
-const register = Command.make("register", {
-  id: flowIdArgument,
-  number: Flag.String("number").pipe(
-    Flag.withDescription(
-      "Samva id (waba_…) of the connected number whose business account the flow registers on; the default number's when omitted",
+const register = deriveOverride(
+  "register",
+  {
+    id: flowIdArgument,
+    number: Flag.String("number").pipe(
+      Flag.withDescription(
+        "Samva id (waba_…) of the connected number whose business account the flow registers on; the default number's when omitted",
+      ),
+      Flag.optional,
     ),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, number }) => ({
+      id,
+      ...(Option.isSome(number) ? { businessAccountId: number.value } : {}),
+    }),
+    call: (request) => WhatsAppFlows.register(request),
+    failure: flowError("register the flow"),
+    render: (registration) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Flow registered.\n");
+        yield* printFields(flowRegistrationFields(registration));
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Create the flow's current version as a Meta flow and publish it. Meta never changes a published flow, so each version registers as its own Meta flow.",
   ),
@@ -419,45 +436,17 @@ const register = Command.make("register", {
       description: "Register on the business account of a specific connected number",
     },
   ]),
-  Command.withHandler(({ id, number, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* postAuthenticatedJson(flowsPath(id, "registrations"), {
-          body: registerFlowPayload(Option.getOrUndefined(number)),
-        }).pipe(Effect.mapError(flowError("register the flow")));
-        const registration = yield* Schema.decodeUnknownEffect(WireFlowRegistration)(body).pipe(
-          Effect.mapError(unreadable("registration")),
-        );
-        if (json) return yield* printJson(registration);
-        yield* Effect.logInfo("Flow registered.\n");
-        yield* printFields(flowRegistrationFields(registration));
-      }),
-    ),
-  ),
 );
 
-const registrations = Command.make("registrations", { id: flowIdArgument, json: jsonFlag }).pipe(
-  Command.withDescription(
-    "List the Meta flows a flow's versions registered as, newest version first, with each status",
-  ),
-  Command.withExamples([
-    {
-      command: "samva whatsapp flows registrations waflow_abc123 --json",
-      description: "Read each registration's status and Meta's validation findings",
-    },
-  ]),
-  Command.withHandler(({ id, json }) =>
-    quiet(
-      json,
+const registrations = deriveOverride(
+  "registrations",
+  { id: flowIdArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => WhatsAppFlows.listRegistrations(request),
+    failure: flowError("list flow registrations"),
+    render: (page) =>
       Effect.gen(function* () {
-        const body = yield* getAuthenticatedJson(flowsPath(id, "registrations")).pipe(
-          Effect.mapError(flowError("list flow registrations")),
-        );
-        const page = yield* Schema.decodeUnknownEffect(WireFlowRegistrationList)(body).pipe(
-          Effect.mapError(unreadable("list")),
-        );
-        if (json) return yield* printJson(page);
         if (page.data.length === 0) {
           yield* Effect.logInfo(
             "No registrations. Register one with `samva whatsapp flows register <flow-id>`.",
@@ -469,8 +458,17 @@ const registrations = Command.make("registrations", { id: flowIdArgument, json: 
           yield* Console.log("");
         }
       }),
-    ),
+  },
+).pipe(
+  Command.withDescription(
+    "List the Meta flows a flow's versions registered as, newest version first, with each status",
   ),
+  Command.withExamples([
+    {
+      command: "samva whatsapp flows registrations waflow_abc123 --json",
+      description: "Read each registration's status and Meta's validation findings",
+    },
+  ]),
 );
 
 const secretNotice = (secret: string) =>
@@ -478,26 +476,44 @@ const secretNotice = (secret: string) =>
     `\nSigning secret (shown once, store it now): ${secret}\nVerify each request's webhook-signature header with it, as for a webhook delivery.`,
   );
 
-const printEndpoint = (settings: WireFlowEndpointSettings, json: boolean) =>
+const unwrapEndpoint = (settings: {
+  readonly url: string;
+  readonly updatedAt: string;
+  readonly secret?: Redacted.Redacted<string> | undefined;
+}): WireFlowEndpointSettings => ({
+  url: settings.url,
+  updatedAt: settings.updatedAt,
+  ...(settings.secret === undefined ? {} : { secret: Redacted.value(settings.secret) }),
+});
+
+const printEndpoint = (settings: WireFlowEndpointSettings) =>
   Effect.gen(function* () {
-    if (json) return yield* printJson(settings);
     const { secret, ...shown } = settings;
     yield* printFields(flowEndpointFields(shown));
     if (secret !== undefined) yield* secretNotice(secret);
   });
 
-const decodeEndpoint = (body: unknown) =>
-  Schema.decodeUnknownEffect(WireEndpointSettings)(body).pipe(
-    Effect.mapError(unreadable("endpoint")),
-  );
-
-const endpointSet = Command.make("set", {
-  id: flowIdArgument,
-  url: Flag.String("url").pipe(
-    Flag.withDescription("HTTPS URL Samva forwards the flow's data-exchange requests to"),
-  ),
-  json: jsonFlag,
-}).pipe(
+const endpointSet = deriveOverride(
+  "set",
+  {
+    id: flowIdArgument,
+    url: Flag.String("url").pipe(
+      Flag.withDescription("HTTPS URL Samva forwards the flow's data-exchange requests to"),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, url }) => ({ id, url }),
+    call: (request) => WhatsAppFlows.setEndpoint(request),
+    failure: flowError("set the flow endpoint"),
+    mapOutput: (settings) => unwrapEndpoint(settings),
+    render: (settings) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Flow endpoint set.\n");
+        yield* printEndpoint(unwrapEndpoint(settings));
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Set the HTTPS endpoint a data-exchange flow calls. Samva signs each request like a webhook delivery. The flow's first endpoint is issued a signing secret, printed once; changing the URL keeps the secret.",
   ),
@@ -507,26 +523,26 @@ const endpointSet = Command.make("set", {
       description: "Point the flow at your endpoint and capture the signing secret",
     },
   ]),
-  Command.withHandler(({ id, url, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* postAuthenticatedJson(flowsPath(id, "endpoint"), {
-          method: "PUT",
-          body: setEndpointPayload(url),
-        }).pipe(Effect.mapError(flowError("set the flow endpoint")));
-        const settings = yield* decodeEndpoint(body);
-        if (!json) yield* Effect.logInfo("Flow endpoint set.\n");
-        yield* printEndpoint(settings, json);
-      }),
-    ),
-  ),
 );
 
-const endpointRotateSecret = Command.make("rotate-secret", {
-  id: flowIdArgument,
-  json: jsonFlag,
-}).pipe(
+const endpointRotateSecret = deriveOverride(
+  "rotate-secret",
+  {
+    id: flowIdArgument,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => WhatsAppFlows.rotateEndpointSecret(request),
+    failure: flowError("rotate the endpoint secret"),
+    mapOutput: (settings) => unwrapEndpoint(settings),
+    render: (settings) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Endpoint secret rotated.\n");
+        yield* printEndpoint(unwrapEndpoint(settings));
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Issue a new signing secret for the flow's endpoint, printed once. The old secret keeps working for 24 hours so you can deploy the new one.",
   ),
@@ -536,19 +552,6 @@ const endpointRotateSecret = Command.make("rotate-secret", {
       description: "Rotate the secret, then deploy it to your endpoint within a day",
     },
   ]),
-  Command.withHandler(({ id, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* postAuthenticatedJson(flowsPath(id, "endpoint/rotate-secret"), {
-          body: {},
-        }).pipe(Effect.mapError(flowError("rotate the endpoint secret")));
-        const settings = yield* decodeEndpoint(body);
-        if (!json) yield* Effect.logInfo("Endpoint secret rotated.\n");
-        yield* printEndpoint(settings, json);
-      }),
-    ),
-  ),
 );
 
 const endpoint = Command.make("endpoint").pipe(
@@ -556,15 +559,30 @@ const endpoint = Command.make("endpoint").pipe(
   Command.withSubcommands([endpointSet, endpointRotateSecret]),
 );
 
-const encryptionKeyRotate = Command.make("rotate", {
-  number: Flag.String("number").pipe(
-    Flag.withDescription(
-      "Samva id (waba_…) of the connected number whose business account rotates; the default number's when omitted",
+const encryptionKeyRotate = deriveOverride(
+  "rotate",
+  {
+    number: Flag.String("number").pipe(
+      Flag.withDescription(
+        "Samva id (waba_…) of the connected number whose business account rotates; the default number's when omitted",
+      ),
+      Flag.optional,
     ),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ number }) => ({
+      ...(Option.isSome(number) ? { businessAccountId: number.value } : {}),
+    }),
+    call: (request) => WhatsAppFlows.rotateEncryptionKey(request),
+    failure: flowError("rotate the flow encryption key"),
+    render: (key) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Flow encryption key rotated.\n");
+        yield* printFields(flowEncryptionKeyFields(key));
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Replace the key Meta encrypts a business account's flow requests with. Samva holds the private half and uploads the public key to each of the account's numbers; the retired key keeps working for 24 hours.",
   ),
@@ -578,22 +596,6 @@ const encryptionKeyRotate = Command.make("rotate", {
       description: "Rotate a specific business account's key and read the result as JSON",
     },
   ]),
-  Command.withHandler(({ number, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* postAuthenticatedJson(ENCRYPTION_KEY_ROTATE_PATH, {
-          body: rotateEncryptionKeyPayload(Option.getOrUndefined(number)),
-        }).pipe(Effect.mapError(flowError("rotate the flow encryption key")));
-        const key = yield* Schema.decodeUnknownEffect(WireEncryptionKey)(body).pipe(
-          Effect.mapError(unreadable("encryption key")),
-        );
-        if (json) return yield* printJson(key);
-        yield* Effect.logInfo("Flow encryption key rotated.\n");
-        yield* printFields(flowEncryptionKeyFields(key));
-      }),
-    ),
-  ),
 );
 
 const encryptionKey = Command.make("encryption-key").pipe(

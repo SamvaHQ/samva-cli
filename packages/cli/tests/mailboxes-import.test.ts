@@ -1,13 +1,19 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
+import { maxArchiveSizeBytes, maxImportSizeBytes } from "@samva/core/mailboxes/history-import";
 
 import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const mailboxId = "mbx_1234567890123456";
+const importPath = `/v1/mailboxes/${mailboxId}/imports/mimport_aaaaaaaaaaaaaaa1`;
+const archiveId = (index: number) => `e329e0f7-82f7-4656-9410-${String(index).padStart(12, "0")}`;
+const archivePath = (index: number) => `${importPath}/uploads/${archiveId(index)}`;
+const partPath = (index: number, partNumber: number) =>
+  `/archive/${index}/${partNumber}?signature=synthetic-private-token`;
 const now = "2026-11-15T00:00:00.000Z";
 const mime =
   "From sender@example.test Sat Nov 14 12:00:00 2026\nMessage-ID: <fixture@example.test>\nFrom: sender@example.test\nTo: owner@example.test\nX-Gmail-Labels: Inbox,Unread,Clients\nSubject: History fixture\n\nHello.\n";
@@ -27,9 +33,13 @@ let rejectUpload: boolean;
 let reads: number;
 let pendingReads: number;
 let uploadedArchives: number;
+let partSizeBytes: number;
+let rejectFirstPartAttempt: boolean;
 let rejectSecondArchive: boolean;
 let rejectStart: boolean;
 let rejectProgress: boolean;
+/** The 1-based registration the fake API refuses for lack of mailbox storage. */
+let refuseStorageAt: number | undefined;
 const job = (id: string, status: string) => ({
   id,
   mailboxId,
@@ -60,9 +70,12 @@ beforeEach(async () => {
   reads = 0;
   pendingReads = 0;
   uploadedArchives = 0;
+  partSizeBytes = mime.length;
+  rejectFirstPartAttempt = false;
   rejectSecondArchive = false;
   rejectStart = false;
   rejectProgress = false;
+  refuseStorageAt = undefined;
   const server = createTestServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += String(chunk);
@@ -76,18 +89,53 @@ beforeEach(async () => {
       contentLength: req.headers["content-length"],
     });
     res.setHeader("content-type", "application/json");
-    if (path.endsWith("/uploads")) {
+    if (path.endsWith("/uploads") && uploadedArchives + 1 === refuseStorageAt) {
+      res.statusCode = 402;
+      res.end(
+        JSON.stringify({
+          _tag: "PaymentRequiredError",
+          message:
+            "This import needs about 1.5 GB of free mailbox storage and your organization has 400 MB left. Free storage by deleting mail, or change your plan in your dashboard's Settings > Billing (/dashboard/<orgSlug>/settings/billing).",
+          resource: "mailbox_storage",
+          currentUsage: 600,
+          limit: 1000,
+        }),
+      );
+    } else if (req.method === "DELETE") {
+      res.end(JSON.stringify({ success: true }));
+    } else if (path.endsWith("/uploads")) {
       uploadedArchives++;
       res.end(
         JSON.stringify({
           id: "mimport_aaaaaaaaaaaaaaa1",
-          uploadUrl: `${apiUrl}/archive/${uploadedArchives}?signature=synthetic-private-token`,
+          archiveId: archiveId(uploadedArchives),
+          partSizeBytes,
+        }),
+      );
+    } else if (path.endsWith("/parts")) {
+      const { partNumbers } = JSON.parse(body);
+      const archive = Number(path.split("/")[7]?.split("-").at(-1));
+      res.end(
+        JSON.stringify({
+          parts: partNumbers.map((partNumber: number) => ({
+            partNumber,
+            sizeBytes: Math.min(partSizeBytes, mime.length - (partNumber - 1) * partSizeBytes),
+            uploadUrl: `${apiUrl}${partPath(archive, partNumber)}`,
+          })),
         }),
       );
     } else if (path.startsWith("/archive/")) {
-      res.statusCode =
-        rejectUpload || (rejectSecondArchive && path.startsWith("/archive/2?")) ? 403 : 200;
+      const failOnce =
+        rejectFirstPartAttempt && requests.filter(({ method }) => method === "PUT").length === 1;
+      res.statusCode = failOnce
+        ? 503
+        : rejectUpload || (rejectSecondArchive && path.startsWith("/archive/2/"))
+          ? 403
+          : 200;
+      res.setHeader("etag", `"part-${path.split("/")[3]?.split("?")[0]}"`);
       res.end("{}");
+    } else if (path.endsWith("/complete")) {
+      res.end(JSON.stringify({ success: true }));
     } else {
       const id = path.split("/")[5] ?? "mimport_aaaaaaaaaaaaaaa1";
       if (
@@ -249,7 +297,9 @@ describe("mail history import CLI", () => {
     ]);
     expect(requests.map(({ method, path }) => [method, path])).toEqual([
       ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
-      ["PUT", "/archive/1?signature=synthetic-private-token"],
+      ["POST", `${archivePath(1)}/parts`],
+      ["PUT", partPath(1, 1)],
+      ["POST", `${archivePath(1)}/complete`],
       ["POST", `/v1/mailboxes/${mailboxId}/imports/mimport_aaaaaaaaaaaaaaa1/start`],
       ["GET", `/v1/mailboxes/${mailboxId}/imports/mimport_aaaaaaaaaaaaaaa1`],
     ]);
@@ -258,7 +308,7 @@ describe("mail history import CLI", () => {
       format: "mbox",
       sizeBytes: mime.length,
     });
-    expect(requests[1]).toMatchObject({
+    expect(requests[2]).toMatchObject({
       body: mime,
       key: undefined,
       authorization: undefined,
@@ -266,7 +316,31 @@ describe("mail history import CLI", () => {
     });
     expect(reads).toBe(1);
   });
-  it("uploads all Apple packages into one job before starting and polling once", async () => {
+  it("retries a part with a fresh URL and completes with all ETags before starting", async () => {
+    partSizeBytes = mime.length - 3;
+    rejectFirstPartAttempt = true;
+    const result = await cli(["import", mailboxId, join(directory, "mail.mbox"), "--json"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(
+      requests.filter(({ path }) => path.endsWith("/parts")).map(({ body }) => JSON.parse(body)),
+    ).toEqual([{ partNumbers: [1] }, { partNumbers: [1] }, { partNumbers: [2] }]);
+    const sent = requests.filter(({ method }) => method === "PUT");
+    expect(sent.map(({ body, contentLength }) => [body, contentLength])).toEqual([
+      [mime.slice(0, -3), String(partSizeBytes)],
+      [mime.slice(0, -3), String(partSizeBytes)],
+      [mime.slice(-3), "3"],
+    ]);
+    const completion = requests.find(({ path }) => path.endsWith("/complete"));
+    expect(JSON.parse(completion?.body ?? "null")).toEqual({
+      parts: [
+        { partNumber: 1, etag: '"part-1"' },
+        { partNumber: 2, etag: '"part-2"' },
+      ],
+    });
+    expect(requests.at(-2)?.path).toBe(`${importPath}/start`);
+    expect(requests.at(-3)?.path).toBe(`${archivePath(1)}/complete`);
+  });
+  it("uploads all Apple packages into one job after registering them, then starts and polls once", async () => {
     await apple("Export/Sent Messages.mbox");
     await apple("Export/Clients.mbox/Invoices.mbox");
     const result = await cli(["import", mailboxId, join(directory, "Export"), "--json"]);
@@ -286,9 +360,13 @@ describe("mail history import CLI", () => {
     expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(2);
     expect(requests.map(({ method, path }) => [method, path])).toEqual([
       ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
-      ["PUT", "/archive/1?signature=synthetic-private-token"],
       ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
-      ["PUT", "/archive/2?signature=synthetic-private-token"],
+      ["POST", `${archivePath(1)}/parts`],
+      ["PUT", partPath(1, 1)],
+      ["POST", `${archivePath(1)}/complete`],
+      ["POST", `${archivePath(2)}/parts`],
+      ["PUT", partPath(2, 1)],
+      ["POST", `${archivePath(2)}/complete`],
       ["POST", `/v1/mailboxes/${mailboxId}/imports/mimport_aaaaaaaaaaaaaaa1/start`],
       ["GET", `/v1/mailboxes/${mailboxId}/imports/mimport_aaaaaaaaaaaaaaa1`],
     ]);
@@ -331,7 +409,7 @@ describe("mail history import CLI", () => {
     rejectSecondArchive = true;
     const result = await cli(["import", mailboxId, join(directory, "Export"), "--json"]);
     expect(result.code).toBe(1);
-    expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(2);
+    expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(4);
     expect(requests.some(({ path }) => path.endsWith("/start"))).toBe(false);
     expect(reads).toBe(0);
   });
@@ -381,6 +459,73 @@ describe("mail history import CLI", () => {
     });
     expect(requests.some(({ path }) => path.endsWith("/start"))).toBe(false);
   });
+  it("reports a storage refusal before uploading any bytes", async () => {
+    refuseStorageAt = 1;
+    const human = await cli(["import", mailboxId, join(directory, "mail.mbox")]);
+    expect(human.code).not.toBe(0);
+    expect(human.stderr).toContain("free mailbox storage");
+    expect(human.stderr).toContain("change your plan");
+    expect(human.stderr).not.toContain("import-status");
+
+    requests = [];
+    const result = await cli(["import", mailboxId, join(directory, "mail.mbox"), "--json"]);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      reason: "PaymentRequiredError",
+      status: 402,
+      details: { resource: "mailbox_storage", currentUsage: 600, limit: 1000 },
+    });
+    expect(requests.map(({ method, path }) => [method, path])).toEqual([
+      ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
+    ]);
+  });
+
+  it("discards the registered archives when a later archive is refused for storage", async () => {
+    await apple("Export/Inbox.mbox");
+    await apple("Export/Projects.mbox");
+    refuseStorageAt = 2;
+    const result = await cli(["import", mailboxId, join(directory, "Export"), "--json"]);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      reason: "PaymentRequiredError",
+      status: 402,
+    });
+    expect(JSON.parse(result.stderr).details).not.toHaveProperty("importId");
+    expect(requests.map(({ method, path }) => [method, path])).toEqual([
+      ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
+      ["POST", `/v1/mailboxes/${mailboxId}/imports/uploads`],
+      ["DELETE", importPath],
+    ]);
+  });
+
+  it("rejects a later oversized archive before creating any uploads", async () => {
+    await apple("Export/Inbox.mbox");
+    const archive = await apple("Export/Projects.mbox");
+    await truncate(join(archive, "mbox"), maxArchiveSizeBytes + 1);
+
+    const result = await cli(["import", mailboxId, join(directory, "Export"), "--json"]);
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      reason: "mail_import_too_large",
+      message: expect.stringContaining("Projects.mbox"),
+    });
+    expect(requests).toEqual([]);
+  });
+
+  it("rejects an oversized combined export before creating any uploads", async () => {
+    await apple("Export/Inbox.mbox");
+    for (let index = 0; index < maxImportSizeBytes / maxArchiveSizeBytes; index++) {
+      const archive = await apple(`Export/Folder-${index}.mbox`);
+      await truncate(join(archive, "mbox"), maxArchiveSizeBytes);
+    }
+
+    const result = await cli(["import", mailboxId, join(directory, "Export"), "--json"]);
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      reason: "mail_import_too_large",
+      message: expect.stringContaining("Combined archive size"),
+    });
+    expect(requests).toEqual([]);
+  });
+
   it("rejects missing exports and empty trees without API requests", async () => {
     const result = await cli(["import", mailboxId, join(directory, "missing"), "--json"]);
     expect(result.code).toBe(2);

@@ -16,7 +16,7 @@ import * as Brands from "samva/effect/brands";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
+import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson, truncateForDisplay } from "../lib/output";
 
 /**
@@ -69,66 +69,67 @@ const fetchBrand = (slug: string | undefined) =>
     return brand;
   });
 
-const list = Command.make("list", { json: jsonFlag }).pipe(
+const list = deriveOverride(
+  "list",
+  { json: jsonFlag },
+  {
+    call: () => Brands.list(),
+    failure: "Could not list brands",
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) return yield* Console.log("No brands found.");
+        yield* Console.log(
+          data.items
+            .map(
+              (brand) =>
+                `${brand.isDefault ? "* " : "  "}${brand.slug}  ${brand.name}  ${brand.digest.slice(0, 12)}`,
+            )
+            .join("\n"),
+        );
+      }),
+  },
+).pipe(
   Command.withDescription("List the organization's brands, the default brand first"),
   Command.withExamples([
     { command: "samva brands list" },
     { command: "samva brands list --json", description: "Machine-readable brand list" },
   ]),
-  Command.withHandler(({ json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Brands.list().pipe(
-        client.provide,
-        Effect.mapError(apiFailure("Could not list brands")),
-      );
-      if (json) return yield* printJson(data);
-      if (data.items.length === 0) return yield* Console.log("No brands found.");
-      yield* Console.log(
-        data.items
-          .map(
-            (brand) =>
-              `${brand.isDefault ? "* " : "  "}${brand.slug}  ${brand.name}  ${brand.digest.slice(0, 12)}`,
-          )
-          .join("\n"),
-      );
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const create = Command.make("create", {
-  slug: Argument.String("slug").pipe(Argument.withDescription("Unique brand slug")),
-  name: Flag.String("name").pipe(Flag.withDescription("Brand display name")),
-  cssFile: Flag.String("css-file").pipe(
-    Flag.withDescription("Brand theme CSS file"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+const create = deriveOverride(
+  "create",
+  {
+    slug: Argument.String("slug").pipe(Argument.withDescription("Unique brand slug")),
+    name: Flag.String("name").pipe(Flag.withDescription("Brand display name")),
+    cssFile: Flag.String("css-file").pipe(
+      Flag.withDescription("Brand theme CSS file"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ slug, name, cssFile }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const css = Option.isSome(cssFile)
+          ? yield* fs
+              .readFileString(cssFile.value)
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new SamvaCliError({ message: `Could not read brand CSS: ${String(error)}` }),
+                ),
+              )
+          : undefined;
+        return { slug, name, ...(css === undefined ? {} : { css }) };
+      }),
+    call: (request) => Brands.create(request),
+    failure: "Could not create brand",
+    render: (data) => Console.log(`Created brand ${data.slug} (${data.name}).`),
+  },
+).pipe(
   Command.withDescription("Create a named brand; use brands default to make it the default"),
   Command.withExamples([{ command: 'samva brands create acme --name "Acme" --json' }]),
-  Command.withHandler(({ slug, name, cssFile, json }) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const css = Option.isSome(cssFile)
-        ? yield* fs
-            .readFileString(cssFile.value)
-            .pipe(
-              Effect.mapError(
-                (error) =>
-                  new SamvaCliError({ message: `Could not read brand CSS: ${String(error)}` }),
-              ),
-            )
-        : undefined;
-      const client = yield* getClientProvider;
-      const data = yield* Brands.create({ slug, name, ...(css === undefined ? {} : { css }) }).pipe(
-        client.provide,
-        Effect.mapError(apiFailure("Could not create brand")),
-      );
-      if (json) return yield* printJson(data);
-      yield* Console.log(`Created brand ${data.slug} (${data.name}).`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const get = Command.make("get", { slug: slugArgument, json: jsonFlag }).pipe(
@@ -316,11 +317,31 @@ const yesFlag = Flag.Boolean("yes").pipe(
   Flag.withDefault(false),
 );
 
-const makeDefault = Command.make("default", {
-  slug: requiredSlugArgument,
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+const makeDefault = deriveOverride(
+  "default",
+  {
+    slug: requiredSlugArgument,
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ slug }) => ({ slug }),
+    call: (request) => Brands.setDefault(request),
+    failure: (error, request) =>
+      toCliApiError(`Could not make brand ${request.slug} the default`, error),
+    preview: {
+      data: (request) => ({ dryRun: true, action: "brands.default", slug: request.slug }),
+      render: (request) => Console.log(`[dry-run] Would make brand ${request.slug} the default.`),
+    },
+    mapOutput: (brand) => ({
+      action: "brands.default",
+      slug: brand.slug,
+      name: brand.name,
+      isDefault: brand.isDefault,
+    }),
+    render: (brand) => Console.log(`Brand ${brand.slug} (${brand.name}) is now the default.`),
+  },
+).pipe(
   Command.withDescription(
     "Make a brand the organization's default: bare samva:brand and domains without a brand resolve to it",
   ),
@@ -328,35 +349,37 @@ const makeDefault = Command.make("default", {
     { command: "samva brands default acme" },
     { command: "samva brands default acme --dry-run --json" },
   ]),
-  Command.withHandler(({ slug, dryRun, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "brands.default", slug })
-          : Console.log(`[dry-run] Would make brand ${slug} the default.`);
-      const client = yield* getClientProvider;
-      const brand = yield* Brands.setDefault({ slug }).pipe(
-        client.provide,
-        Effect.mapError(apiFailure(`Could not make brand ${slug} the default`)),
-      );
-      const result = {
-        action: "brands.default",
-        slug: brand.slug,
-        name: brand.name,
-        isDefault: brand.isDefault,
-      };
-      if (json) return yield* printJson(result);
-      yield* Console.log(`Brand ${brand.slug} (${brand.name}) is now the default.`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const remove = Command.make("remove", {
-  slug: requiredSlugArgument,
-  dryRun: dryRunFlag,
-  yes: yesFlag,
-  json: jsonFlag,
-}).pipe(
+const remove = deriveOverride(
+  "remove",
+  {
+    slug: requiredSlugArgument,
+    dryRun: dryRunFlag,
+    yes: yesFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ slug }) => ({ slug }),
+    call: (request) => Brands.remove(request),
+    failure: (error, request) => toCliApiError(`Could not remove brand ${request.slug}`, error),
+    preview: {
+      data: (request) => ({ dryRun: true, action: "brands.remove", slug: request.slug }),
+      render: (request) => Console.log(`[dry-run] Would permanently remove brand ${request.slug}.`),
+    },
+    confirmation: (request) => ({
+      message: `Permanently remove brand ${request.slug}?`,
+      nonInteractiveMessage:
+        "Permanent brand deletion requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    mapOutput: (_result, _input, request) => ({
+      action: "brands.remove",
+      slug: request.slug,
+      removed: true,
+    }),
+    render: (_result, _input, request) => Console.log(`Removed brand ${request.slug}.`),
+  },
+).pipe(
   Command.withDescription(
     "Permanently delete a brand. The default brand cannot be deleted; make another brand the default first. Domains that used it fall back to the default.",
   ),
@@ -364,29 +387,6 @@ const remove = Command.make("remove", {
     { command: "samva brands remove promo --dry-run" },
     { command: "samva brands remove promo --yes" },
   ]),
-  Command.withHandler(({ slug, dryRun, yes, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "brands.remove", slug })
-          : Console.log(`[dry-run] Would permanently remove brand ${slug}.`);
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Permanently remove brand ${slug}?`,
-        nonInteractiveMessage:
-          "Permanent brand deletion requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      yield* Brands.remove({ slug }).pipe(
-        client.provide,
-        Effect.mapError(apiFailure(`Could not remove brand ${slug}`)),
-      );
-      const result = { action: "brands.remove", slug, removed: true };
-      if (json) return yield* printJson(result);
-      yield* Console.log(`Removed brand ${slug}.`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 export const brandsCommand = Command.make("brands").pipe(

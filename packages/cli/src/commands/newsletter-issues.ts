@@ -1,6 +1,7 @@
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
+import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -8,8 +9,8 @@ import * as Issues from "samva/effect/newsletter-issues";
 
 import { SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
-import { jsonFlag, printJsonDocument, printResult } from "../lib/output";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printJsonDocument } from "../lib/output";
 import { readStdinUtf8 } from "../lib/stdin";
 
 const idArgument = Argument.String("newsletter-id").pipe(
@@ -65,48 +66,53 @@ const listRows = (result: {
   return [`Revision ${result.revision ?? "-"}`, ...rows].join("\n");
 };
 
-const list = Command.make("list", { id: idArgument, json: jsonFlag }).pipe(
+const list = deriveOverride(
+  "list",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => Issues.list(request),
+    failure: "Could not list newsletter issues",
+    render: (result) => Console.log(listRows(result)),
+  },
+).pipe(
   Command.withDescription(
     "List issues with each draft's title and its latest send status (draft when never scheduled), plus the current workspace revision",
   ),
   Command.withExamples([{ command: "samva newsletters issues list nl_1234567890abcdef --json" }]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, json }) {
-      const request = { id };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.list(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list newsletter issues", error)),
-      );
-      yield* printResult(result, listRows(result));
-    }),
-  ),
 );
 
-const open = Command.make("open", { id: idArgument, json: jsonFlag }).pipe(
+const open = deriveOverride(
+  "open",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => Issues.open(request),
+    failure: "Could not open newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription(
     "Open the existing newsletter issue workspace; does not create a repository",
   ),
   Command.withExamples([{ command: "samva newsletters issues open nl_1234567890abcdef --json" }]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, json }) {
-      const request = { id };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.open(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not open newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const read = Command.make("read", {
-  id: idArgument,
-  json: jsonFlag,
-  path: pathFlag,
-  revision: revisionFlag,
-}).pipe(
+const read = deriveOverride(
+  "read",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    path: pathFlag,
+    revision: revisionFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.id, path: input.path, expectedRevision: input.revision }),
+    call: (request) => Issues.get(request),
+    failure: "Could not read newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Read one Markdown issue at the revision you inspected"),
   Command.withExamples([
     {
@@ -114,17 +120,6 @@ const read = Command.make("read", {
         "samva newsletters issues read nl_1234567890abcdef --path issues/october.md --revision 4 --json",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, path, revision, json }) {
-      const request = { id, path, expectedRevision: revision };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.get(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
 const create = Command.make("create", {
@@ -193,18 +188,35 @@ const update = Command.make("update", {
   ),
 );
 
-const remove = Command.make("delete", {
-  id: idArgument,
-  json: jsonFlag,
-  path: pathFlag,
-  revision: revisionFlag,
-  idempotencyKey: keyFlag,
-  dryRun: dryRunFlag,
-  yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm removal without prompting"),
-    Flag.withDefault(false),
-  ),
-}).pipe(
+const remove = deriveOverride(
+  "delete",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    path: pathFlag,
+    revision: revisionFlag,
+    idempotencyKey: keyFlag,
+    dryRun: dryRunFlag,
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDescription("Confirm removal without prompting"),
+      Flag.withDefault(false),
+    ),
+  },
+  {
+    mapInput: (input) => ({ id: input.id, path: input.path, expectedRevision: input.revision }),
+    call: (request, input) => Issues.remove(request, { idempotencyKey: input.idempotencyKey }),
+    failure: "Could not delete newsletter issues",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "newsletterIssues.remove", request }),
+    },
+    confirmation: (request) => ({
+      message: `Delete ${request.path} from topic ${request.id}'s draft?`,
+      nonInteractiveMessage:
+        "Issue deletion requires --yes outside a terminal. Preview with --dry-run.",
+    }),
+    document: true,
+  },
+).pipe(
   Command.withDescription("Delete an issue from the draft; the default issue must remain"),
   Command.withExamples([
     {
@@ -212,39 +224,36 @@ const remove = Command.make("delete", {
         "samva newsletters issues delete nl_1234567890abcdef --path issues/october.md --revision 4 --idempotency-key edit-1 --yes --json",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, path, revision, idempotencyKey, dryRun, yes, json }) {
-      const request = { id, path, expectedRevision: revision };
-      if (dryRun)
-        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.remove", request });
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Delete ${path} from topic ${id}'s draft?`,
-        nonInteractiveMessage:
-          "Issue deletion requires --yes outside a terminal. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      const result = yield* Issues.remove(request, { idempotencyKey }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not delete newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const save = Command.make("save", {
-  id: idArgument,
-  json: jsonFlag,
-  revision: revisionFlag,
-  idempotencyKey: keyFlag,
-  dryRun: dryRunFlag,
-  head: Flag.String("head").pipe(
-    Flag.withDescription("Expected branch-head commit from issues head"),
-  ),
-  message: Flag.String("message").pipe(Flag.withDescription("Git commit message")),
-}).pipe(
+const save = deriveOverride(
+  "save",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    revision: revisionFlag,
+    idempotencyKey: keyFlag,
+    dryRun: dryRunFlag,
+    head: Flag.String("head").pipe(
+      Flag.withDescription("Expected branch-head commit from issues head"),
+    ),
+    message: Flag.String("message").pipe(Flag.withDescription("Git commit message")),
+  },
+  {
+    mapInput: (input) => ({
+      id: input.id,
+      expectedRevision: input.revision,
+      expectedHead: input.head,
+      message: input.message,
+    }),
+    call: (request, input) => Issues.save(request, { idempotencyKey: input.idempotencyKey }),
+    failure: "Could not save newsletter issues",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "newsletterIssues.save", request }),
+    },
+    document: true,
+  },
+).pipe(
   Command.withDescription("Validate and save the issue project as a Git commit"),
   Command.withExamples([
     {
@@ -252,27 +261,23 @@ const save = Command.make("save", {
         'samva newsletters issues save nl_1234567890abcdef --revision 4 --idempotency-key edit-1 --head 0000000000000000000000000000000000000000 --message "Save October issue" --json',
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, revision, idempotencyKey, dryRun, head, message, json }) {
-      const request = { id, expectedRevision: revision, expectedHead: head, message };
-      if (dryRun)
-        return yield* printJsonDocument({ dryRun, action: "newsletterIssues.save", request });
-      const client = yield* getClientProvider;
-      const result = yield* Issues.save(request, { idempotencyKey }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not save newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const check = Command.make("check", {
-  id: idArgument,
-  json: jsonFlag,
-  path: pathFlag,
-  revision: revisionFlag,
-}).pipe(
+const check = deriveOverride(
+  "check",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    path: pathFlag,
+    revision: revisionFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.id, path: input.path, expectedRevision: input.revision }),
+    call: (request) => Issues.check(request),
+    failure: "Could not check newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Compile one issue and report its diagnostics and declared fixtures"),
   Command.withExamples([
     {
@@ -280,29 +285,33 @@ const check = Command.make("check", {
         "samva newsletters issues check nl_1234567890abcdef --path issues/october.md --revision 4 --json",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, path, revision, json }) {
-      const request = { id, path, expectedRevision: revision };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.check(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not check newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const render = Command.make("render", {
-  id: idArgument,
-  json: jsonFlag,
-  path: pathFlag,
-  revision: revisionFlag,
-  fixture: Flag.String("fixture").pipe(
-    Flag.withDescription("Fixture declared by the issue layout"),
-  ),
-  target: Flag.Literals("target", ["email", "web"]).pipe(Flag.withDescription("Render target")),
-}).pipe(
+const render = deriveOverride(
+  "render",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    path: pathFlag,
+    revision: revisionFlag,
+    fixture: Flag.String("fixture").pipe(
+      Flag.withDescription("Fixture declared by the issue layout"),
+    ),
+    target: Flag.Literals("target", ["email", "web"]).pipe(Flag.withDescription("Render target")),
+  },
+  {
+    mapInput: (input) => ({
+      id: input.id,
+      path: input.path,
+      expectedRevision: input.revision,
+      fixture: input.fixture,
+      target: input.target,
+    }),
+    call: (request) => Issues.render(request),
+    failure: "Could not render newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Render an issue fixture to the email or web target"),
   Command.withExamples([
     {
@@ -310,58 +319,43 @@ const render = Command.make("render", {
         "samva newsletters issues render nl_1234567890abcdef --path issues/october.md --revision 4 --fixture default --target email --json",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, path, revision, fixture, target, json }) {
-      const request = { id, path, expectedRevision: revision, fixture, target };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.render(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not render newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const head = Command.make("head", { id: idArgument, json: jsonFlag }).pipe(
+const head = deriveOverride(
+  "head",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => Issues.head(request),
+    failure: "Could not head newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Read the current workspace revision and repository branch head"),
   Command.withExamples([{ command: "samva newsletters issues head nl_1234567890abcdef --json" }]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, json }) {
-      const request = { id };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.head(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not head newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
-const history = Command.make("history", {
-  id: idArgument,
-  json: jsonFlag,
-  limit: Flag.Int("limit").pipe(
-    Flag.withDescription("Commits to return (1–100; default 20)"),
-    Flag.withDefault(20),
-  ),
-}).pipe(
+const history = deriveOverride(
+  "history",
+  {
+    id: idArgument,
+    json: jsonFlag,
+    limit: Flag.Int("limit").pipe(
+      Flag.withDescription("Commits to return (1–100; default 20)"),
+      Flag.withDefault(20),
+    ),
+  },
+  {
+    mapInput: (input) => ({ id: input.id, limit: input.limit }),
+    call: (request) => Issues.history(request),
+    failure: "Could not history newsletter issues",
+    document: true,
+  },
+).pipe(
   Command.withDescription("List a bounded set of saved commits, newest first"),
   Command.withExamples([
     { command: "samva newsletters issues history nl_1234567890abcdef --json" },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, limit, json }) {
-      const request = { id, limit };
-      const client = yield* getClientProvider;
-      const result = yield* Issues.history(request).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not history newsletter issues", error)),
-      );
-      yield* printJsonDocument(result);
-    }),
-  ),
 );
 
 export const issuesCommand = Command.make("issues").pipe(

@@ -12,15 +12,12 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as ApiKeys from "samva/effect/api-keys";
 
 import { CliUsageError, toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
-import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
-import { isJsonLinesRequested } from "../lib/runtime";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields } from "../lib/output";
 
 /**
  * `samva api-keys` manages the organization's API keys. The API decides what a key may be given: a
@@ -248,142 +245,182 @@ const keyFields = (key: KeyRow): ReadonlyArray<readonly [string, unknown]> => [
   ["Last used", key.lastUsedAt],
 ];
 
-const withJsonQuiet = <A, E, R>(json: boolean, effect: Effect.Effect<A, E, R>) =>
-  json ? effect.pipe(Effect.provideService(References.MinimumLogLevel, "None")) : effect;
+const CREATE_WARNING =
+  "This API key is shown once. Store it now; `samva api-keys rotate` issues a replacement.";
+const ROTATE_WARNING =
+  "This API key is shown once. The previous key no longer works; store the new one now.";
 
-const list = Command.make("list", {
-  namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
-  status: Flag.Literals("status", ["active", "revoked"]).pipe(
-    Flag.withDescription("Only keys in this state"),
-    Flag.optional,
-  ),
-  search: Flag.String("search").pipe(
-    Flag.withDescription("Match against name and description"),
-    Flag.optional,
-  ),
-  limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
-  cursor: Flag.String("cursor").pipe(
-    Flag.withDescription("Resume after this nextCursor from a previous page"),
-    Flag.optional,
-  ),
-  all: Flag.Boolean("all").pipe(
-    Flag.withDescription("Traverse every page (requires --jsonl)"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const list = deriveOverride(
+  "list",
+  {
+    namespace: Flag.String("namespace").pipe(Flag.withSchema(NamespaceId), Flag.optional),
+    status: Flag.Literals("status", ["active", "revoked"]).pipe(
+      Flag.withDescription("Only keys in this state"),
+      Flag.optional,
+    ),
+    search: Flag.String("search").pipe(
+      Flag.withDescription("Match against name and description"),
+      Flag.optional,
+    ),
+    limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
+    cursor: Flag.String("cursor").pipe(
+      Flag.withDescription("Resume after this nextCursor from a previous page"),
+      Flag.optional,
+    ),
+    all: Flag.Boolean("all").pipe(
+      Flag.withDescription("Traverse every page (requires --jsonl)"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ namespace, status, search, limit, cursor }) => ({
+      namespaceId: Option.getOrUndefined(namespace),
+      status: Option.getOrUndefined(status),
+      search: Option.getOrUndefined(search),
+      limit: Option.getOrUndefined(limit),
+      cursor: Option.getOrUndefined(cursor),
+    }),
+    call: (request) => ApiKeys.list(request),
+    failure: (error, request) =>
+      toCliApiError("Could not list API keys", error, { cursor: request.cursor ?? null }),
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) return yield* Console.log("No API keys found.");
+        for (const key of data.items) {
+          yield* printFields(keyFields(key));
+          yield* Console.log("");
+        }
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List the organization's API keys, newest first"),
   Command.withExamples([
     { command: "samva api-keys list" },
     { command: "samva api-keys list --status active --search ci --json" },
     { command: "samva api-keys list --all --jsonl" },
   ]),
-  Command.withHandler(({ status, search, limit, cursor, all, namespace, json }) =>
-    withJsonQuiet(
-      json,
-      Effect.gen(function* () {
-        if (all && !isJsonLinesRequested()) {
-          return yield* new CliUsageError({
-            code: "all_requires_jsonl",
-            message: "--all is an unbounded traversal and requires --jsonl.",
-          });
-        }
-        const client = yield* getClientProvider;
-        const query = {
-          namespaceId: Option.getOrUndefined(namespace),
-          status: Option.getOrUndefined(status),
-          search: Option.getOrUndefined(search),
-          limit: Option.getOrUndefined(limit),
-        };
-        let nextCursor = Option.getOrUndefined(cursor);
-        for (;;) {
-          const page = nextCursor;
-          const data = yield* ApiKeys.list({ ...query, cursor: page }).pipe(
-            client.provide,
-            Effect.mapError((error) =>
-              toCliApiError("Could not list API keys", error, { cursor: page ?? null }),
-            ),
-          );
-          if (isJsonLinesRequested()) {
-            for (const item of data.items) yield* printJsonLine(item);
-          } else if (json) {
-            return yield* printJson(data);
-          } else {
-            if (data.items.length === 0) return yield* Console.log("No API keys found.");
-            for (const key of data.items) {
-              yield* printFields(keyFields(key));
-              yield* Console.log("");
-            }
-            if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-          }
-          if (!all || data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }),
-    ),
-  ),
 );
 
-const get = Command.make("get", { id: idArgument, json: jsonFlag }).pipe(
+const get = deriveOverride(
+  "get",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => ApiKeys.get(request),
+    failure: "Could not get API key",
+    render: (key) => printFields(keyFields(key)),
+  },
+).pipe(
   Command.withDescription("Get an API key's metadata and access (never its secret)"),
   Command.withExamples([{ command: "samva api-keys get key_abc123 --json" }]),
-  Command.withHandler(({ id, json }) =>
-    withJsonQuiet(
-      json,
-      Effect.gen(function* () {
-        const client = yield* getClientProvider;
-        const key = yield* ApiKeys.get({ id }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Could not get API key", error)),
-        );
-        if (json) return yield* printJson(key);
-        yield* printFields(keyFields(key));
-      }),
-    ),
-  ),
 );
 
-const create = Command.make("create", {
-  name: Flag.String("name").pipe(Flag.withDescription("Key name, 1 to 32 characters")),
-  description: Flag.String("description").pipe(
-    Flag.withDescription("What the key is for"),
-    Flag.optional,
-  ),
-  expiresAt: Flag.String("expires-at").pipe(
-    Flag.withDescription("When the key stops working, an ISO 8601 instant"),
-    Flag.optional,
-  ),
-  grant: Flag.String("grant").pipe(
-    Flag.withDescription(
-      `Give a restricted key a resource at a level, <resource>=read|write (repeatable). Resources: ${GRANTABLE_RESOURCES.join(", ")}`,
+const create = deriveOverride(
+  "create",
+  {
+    name: Flag.String("name").pipe(Flag.withDescription("Key name, 1 to 32 characters")),
+    description: Flag.String("description").pipe(
+      Flag.withDescription("What the key is for"),
+      Flag.optional,
     ),
-    Flag.atLeast(0),
-  ),
-  mailboxPermission: Flag.Literals("mailbox-permission", API_KEY_MAILBOX_ACTIONS).pipe(
-    Flag.withDescription(
-      `Let a restricted key work in mailboxes with this action (repeatable): ${API_KEY_MAILBOX_ACTIONS.join(", ")}`,
+    expiresAt: Flag.String("expires-at").pipe(
+      Flag.withDescription("When the key stops working, an ISO 8601 instant"),
+      Flag.optional,
     ),
-    Flag.atLeast(0),
-  ),
-  mailbox: Flag.String("mailbox").pipe(
-    Flag.withSchema(MailboxId),
-    Flag.withDescription(
-      "Confine the mailbox access to this mailbox (repeatable); omit for every mailbox the owner reaches",
+    grant: Flag.String("grant").pipe(
+      Flag.withDescription(
+        `Give a restricted key a resource at a level, <resource>=read|write (repeatable). Resources: ${GRANTABLE_RESOURCES.join(", ")}`,
+      ),
+      Flag.atLeast(0),
     ),
-    Flag.atLeast(0),
-  ),
-  namespace: Flag.String("namespace").pipe(
-    Flag.withSchema(NamespaceId),
-    Flag.withDescription("Confine a restricted key to one namespace (ns_...)"),
-    Flag.optional,
-  ),
-  fullAccess: Flag.Boolean("full-access").pipe(
-    Flag.withDescription("Give the key its owner's full access instead of restricted access"),
-    Flag.withDefault(false),
-  ),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+    mailboxPermission: Flag.Literals("mailbox-permission", API_KEY_MAILBOX_ACTIONS).pipe(
+      Flag.withDescription(
+        `Let a restricted key work in mailboxes with this action (repeatable): ${API_KEY_MAILBOX_ACTIONS.join(", ")}`,
+      ),
+      Flag.atLeast(0),
+    ),
+    mailbox: Flag.String("mailbox").pipe(
+      Flag.withSchema(MailboxId),
+      Flag.withDescription(
+        "Confine the mailbox access to this mailbox (repeatable); omit for every mailbox the owner reaches",
+      ),
+      Flag.atLeast(0),
+    ),
+    namespace: Flag.String("namespace").pipe(
+      Flag.withSchema(NamespaceId),
+      Flag.withDescription("Confine a restricted key to one namespace (ns_...)"),
+      Flag.optional,
+    ),
+    fullAccess: Flag.Boolean("full-access").pipe(
+      Flag.withDescription("Give the key its owner's full access instead of restricted access"),
+      Flag.withDefault(false),
+    ),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({
+      name,
+      description,
+      expiresAt,
+      grant,
+      mailboxPermission,
+      mailbox,
+      namespace,
+      fullAccess,
+    }) =>
+      Effect.gen(function* () {
+        const access = yield* accessFromFlags(
+          grant,
+          fullAccess,
+          { permissions: mailboxPermission, mailboxIds: mailbox },
+          namespace,
+        );
+        const expires = yield* Option.match(expiresAt, {
+          onNone: () => Effect.void,
+          onSome: parseExpiresAt,
+        });
+        return yield* decodeRequest(ApiKeys.CreatePayload, {
+          name,
+          ...Option.match(description, {
+            onNone: () => ({}),
+            onSome: (value) => ({ description: value }),
+          }),
+          ...(expires === undefined ? {} : { expiresAt: expires }),
+          access,
+        });
+      }),
+    call: (request) => ApiKeys.create(request),
+    failure: "Could not create API key",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "api-keys.create", request }),
+      render: (request) =>
+        printFields([
+          ["Action", "api-keys.create"],
+          ["Name", request.name],
+          ["Description", request.description],
+          ["Access", describeAccess(request.access)],
+          ["Expires", request.expiresAt],
+        ]),
+    },
+    mapOutput: (result) => {
+      const { key, ...apiKey } = result;
+      return { apiKey, key: Redacted.value(key), displayOnce: true, warning: CREATE_WARNING };
+    },
+    render: (result) =>
+      Effect.gen(function* () {
+        const { key, ...apiKey } = result;
+        yield* Console.error(`WARNING: ${CREATE_WARNING}`);
+        yield* printFields([...keyFields(apiKey), ["API key", Redacted.value(key)]]);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Create an API key. The secret is shown once; the API refuses access you do not hold.",
   ),
@@ -403,92 +440,22 @@ const create = Command.make("create", {
         "samva api-keys create --name deploy --full-access --expires-at 2027-01-01T00:00:00Z",
     },
   ]),
-  Command.withHandler(
-    ({
-      name,
-      description,
-      expiresAt,
-      grant,
-      mailboxPermission,
-      mailbox,
-      namespace,
-      fullAccess,
-      dryRun,
-      json,
-    }) =>
-      withJsonQuiet(
-        json,
-        Effect.gen(function* () {
-          const access = yield* accessFromFlags(
-            grant,
-            fullAccess,
-            { permissions: mailboxPermission, mailboxIds: mailbox },
-            namespace,
-          );
-          const expires = yield* Option.match(expiresAt, {
-            onNone: () => Effect.void,
-            onSome: parseExpiresAt,
-          });
-          const payload = yield* decodeRequest(ApiKeys.CreatePayload, {
-            name,
-            ...Option.match(description, {
-              onNone: () => ({}),
-              onSome: (value) => ({ description: value }),
-            }),
-            ...(expires === undefined ? {} : { expiresAt: expires }),
-            access,
-          });
-          if (dryRun) {
-            if (json) {
-              return yield* printJson({
-                dryRun: true,
-                action: "api-keys.create",
-                request: payload,
-              });
-            }
-            return yield* printFields([
-              ["Action", "api-keys.create"],
-              ["Name", payload.name],
-              ["Description", payload.description],
-              ["Access", describeAccess(payload.access)],
-              ["Expires", payload.expiresAt],
-            ]);
-          }
-          const client = yield* getClientProvider;
-          const { key, ...apiKey } = yield* ApiKeys.create(payload).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not create API key", error)),
-          );
-          const warning =
-            "This API key is shown once. Store it now; `samva api-keys rotate` issues a replacement.";
-          // The secret is Redacted on the Effect surface; unwrap it here, the one place the
-          // customer can read it.
-          const secret = Redacted.value(key);
-          if (json) return yield* printJson({ apiKey, key: secret, displayOnce: true, warning });
-          yield* Console.error(`WARNING: ${warning}`);
-          yield* printFields([...keyFields(apiKey), ["API key", secret]]);
-        }),
-      ),
-  ),
 );
 
-const update = Command.make("update", {
-  id: idArgument,
-  name: Flag.String("name").pipe(Flag.withDescription("New key name"), Flag.optional),
-  description: Flag.String("description").pipe(
-    Flag.withDescription("New description"),
-    Flag.optional,
-  ),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription(
-    "Rename an API key or change its description. Its access is fixed at creation; create a new key to change it.",
-  ),
-  Command.withExamples([{ command: "samva api-keys update key_abc123 --name ci-prod --dry-run" }]),
-  Command.withHandler(({ id, name, description, dryRun, json }) =>
-    withJsonQuiet(
-      json,
+const update = deriveOverride(
+  "update",
+  {
+    id: idArgument,
+    name: Flag.String("name").pipe(Flag.withDescription("New key name"), Flag.optional),
+    description: Flag.String("description").pipe(
+      Flag.withDescription("New description"),
+      Flag.optional,
+    ),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ id, name, description }) =>
       Effect.gen(function* () {
         if (Option.isNone(name) && Option.isNone(description)) {
           return yield* new CliUsageError({
@@ -503,40 +470,56 @@ const update = Command.make("update", {
             onSome: (value) => ({ description: value }),
           }),
         });
-        if (dryRun) {
-          if (json) {
-            return yield* printJson({
-              dryRun: true,
-              action: "api-keys.update",
-              id,
-              request: payload,
-            });
-          }
-          return yield* printFields([
-            ["Action", "api-keys.update"],
-            ["API key", id],
-            ["Name", payload.name],
-            ["Description", payload.description],
-          ]);
-        }
-        const client = yield* getClientProvider;
-        const key = yield* ApiKeys.update({ id, ...payload }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Could not update API key", error)),
-        );
-        if (json) return yield* printJson(key);
-        yield* printFields(keyFields(key));
+        return { id, ...payload };
       }),
-    ),
+    call: (request) => ApiKeys.update(request),
+    failure: "Could not update API key",
+    preview: {
+      data: (request) => {
+        const { id, ...payload } = request;
+        return { dryRun: true, action: "api-keys.update", id, request: payload };
+      },
+      render: (request) =>
+        printFields([
+          ["Action", "api-keys.update"],
+          ["API key", request.id],
+          ["Name", request.name],
+          ["Description", request.description],
+        ]),
+    },
+    render: (key) => printFields(keyFields(key)),
+  },
+).pipe(
+  Command.withDescription(
+    "Rename an API key or change its description. Its access is fixed at creation; create a new key to change it.",
   ),
+  Command.withExamples([{ command: "samva api-keys update key_abc123 --name ci-prod --dry-run" }]),
 );
 
-const revoke = Command.make("revoke", {
-  id: idArgument,
-  dryRun: dryRunFlag,
-  yes: yesFlag,
-  json: jsonFlag,
-}).pipe(
+const revoke = deriveOverride(
+  "revoke",
+  {
+    id: idArgument,
+    dryRun: dryRunFlag,
+    yes: yesFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => ApiKeys.revoke(request),
+    failure: "Could not revoke API key",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "api-keys.revoke", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would revoke API key ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Revoke API key ${request.id}? It stops authenticating requests immediately, and revocation is final.`,
+      nonInteractiveMessage:
+        "Revoking an API key requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (_result, _input, request) => Console.log(`Revoked API key ${request.id}.`),
+  },
+).pipe(
   Command.withDescription(
     "Revoke an API key so it can no longer authenticate. Revocation is final; its record stays listable.",
   ),
@@ -544,40 +527,41 @@ const revoke = Command.make("revoke", {
     { command: "samva api-keys revoke key_abc123 --dry-run" },
     { command: "samva api-keys revoke key_abc123 --yes" },
   ]),
-  Command.withHandler(({ id, dryRun, yes, json }) =>
-    withJsonQuiet(
-      json,
-      Effect.gen(function* () {
-        if (dryRun) {
-          return yield* json
-            ? printJson({ dryRun: true, action: "api-keys.revoke", id })
-            : Console.log(`[dry-run] Would revoke API key ${id}.`);
-        }
-        yield* confirmDestructive({
-          yes,
-          json,
-          message: `Revoke API key ${id}? It stops authenticating requests immediately, and revocation is final.`,
-          nonInteractiveMessage:
-            "Revoking an API key requires --yes in non-interactive mode. Preview with --dry-run.",
-        });
-        const client = yield* getClientProvider;
-        const result = yield* ApiKeys.revoke({ id }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Could not revoke API key", error)),
-        );
-        if (json) return yield* printJson(result);
-        yield* Console.log(`Revoked API key ${id}.`);
-      }),
-    ),
-  ),
 );
 
-const rotate = Command.make("rotate", {
-  id: idArgument,
-  dryRun: dryRunFlag,
-  yes: yesFlag,
-  json: jsonFlag,
-}).pipe(
+const rotate = deriveOverride(
+  "rotate",
+  {
+    id: idArgument,
+    dryRun: dryRunFlag,
+    yes: yesFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => ApiKeys.rotate(request),
+    failure: "Could not rotate API key",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "api-keys.rotate", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would rotate API key ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Rotate API key ${request.id}? The current key stops working immediately.`,
+      nonInteractiveMessage:
+        "Rotating an API key requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    mapOutput: (result) => {
+      const { key, ...apiKey } = result;
+      return { apiKey, key: Redacted.value(key), displayOnce: true, warning: ROTATE_WARNING };
+    },
+    render: (result) =>
+      Effect.gen(function* () {
+        const { key, ...apiKey } = result;
+        yield* Console.error(`WARNING: ${ROTATE_WARNING}`);
+        yield* printFields([...keyFields(apiKey), ["API key", Redacted.value(key)]]);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Replace an API key with a new secret, same owner, name, and access. The old key stops working at once.",
   ),
@@ -585,36 +569,6 @@ const rotate = Command.make("rotate", {
     { command: "samva api-keys rotate key_abc123 --dry-run" },
     { command: "samva api-keys rotate key_abc123 --yes --json | jq -r .data.key" },
   ]),
-  Command.withHandler(({ id, dryRun, yes, json }) =>
-    withJsonQuiet(
-      json,
-      Effect.gen(function* () {
-        if (dryRun) {
-          return yield* json
-            ? printJson({ dryRun: true, action: "api-keys.rotate", id })
-            : Console.log(`[dry-run] Would rotate API key ${id}.`);
-        }
-        yield* confirmDestructive({
-          yes,
-          json,
-          message: `Rotate API key ${id}? The current key stops working immediately.`,
-          nonInteractiveMessage:
-            "Rotating an API key requires --yes in non-interactive mode. Preview with --dry-run.",
-        });
-        const client = yield* getClientProvider;
-        const { key, ...apiKey } = yield* ApiKeys.rotate({ id }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Could not rotate API key", error)),
-        );
-        const warning =
-          "This API key is shown once. The previous key no longer works; store the new one now.";
-        const secret = Redacted.value(key);
-        if (json) return yield* printJson({ apiKey, key: secret, displayOnce: true, warning });
-        yield* Console.error(`WARNING: ${warning}`);
-        yield* printFields([...keyFields(apiKey), ["API key", secret]]);
-      }),
-    ),
-  ),
 );
 
 export const apiKeysCommand = Command.make("api-keys").pipe(

@@ -8,6 +8,7 @@ import * as Policies from "samva/effect/policies";
 
 import { toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 
 const scope = {
@@ -37,19 +38,18 @@ const printPolicy = (
         `  ${JSON.stringify(rule.match)}: ${rule.decide === undefined ? `at least ${rule.atLeast}` : rule.decide}${rule.note === undefined ? "" : `; ${rule.note}`}`,
       );
   });
-const get = Command.make("get", { ...scope, json: jsonFlag }).pipe(
+const get = deriveOverride(
+  "get",
+  { ...scope, json: jsonFlag },
+  {
+    mapInput: ({ kind, id }) => ({ kind, id }),
+    call: (request) => Policies.getPolicy(request),
+    failure: "Could not read policy",
+    render: (policy) => printPolicy(policy),
+  },
+).pipe(
   Command.withDescription("Read the decision policy and its version for one scope"),
   Command.withExamples([{ command: "samva policies get mailbox mbx_1234567890123456 --json" }]),
-  Command.withHandler(({ kind, id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const policy = yield* Policies.getPolicy({ kind, id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read policy", error)),
-      );
-      yield* json ? printJson(policy) : printPolicy(policy);
-    }),
-  ),
 );
 const set = Command.make("set", {
   ...scope,

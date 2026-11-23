@@ -7,6 +7,7 @@ import * as Email from "samva/effect/email";
 
 import { toCliApiError } from "../../errors";
 import { getClientProvider } from "../../lib/client";
+import { deriveOverride } from "../../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../../lib/output";
 
 const readStatus = Effect.gen(function* () {
@@ -17,33 +18,37 @@ const readStatus = Effect.gen(function* () {
   );
 });
 
-const status = Command.make("status", { json: jsonFlag }).pipe(
+const status = deriveOverride(
+  "status",
+  { json: jsonFlag },
+  {
+    call: () => Email.getOnboardingReview(),
+    failure: "Could not get email review status",
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Decision", data.decision],
+          ["Stage", data.stage],
+          ["Can send", data.canSend ? "yes" : "no"],
+          ["Reason", data.code],
+          ["Next action", data.nextAction],
+          ["Generation", data.generation],
+        ]);
+        if (data.identities.length > 0) {
+          yield* Console.log("\nSending identities:");
+          for (const clearance of data.identities) {
+            // The review decision alone is not permission — an approved identity whose material
+            // facts have changed is blocked — so the line leads with what a send would do.
+            yield* Console.log(
+              `${clearance.identityId}  ${clearance.canSend ? "cleared" : "blocked"}  ${clearance.decision}${clearance.code ? `  ${clearance.code}` : ""}`,
+            );
+          }
+        }
+      }),
+  },
+).pipe(
   Command.withDescription("Get organization and sending-identity review status"),
   Command.withExamples([{ command: "samva email review status --json" }]),
-  Command.withHandler(({ json }) =>
-    Effect.gen(function* () {
-      const data = yield* readStatus;
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["Decision", data.decision],
-        ["Stage", data.stage],
-        ["Can send", data.canSend ? "yes" : "no"],
-        ["Reason", data.code],
-        ["Next action", data.nextAction],
-        ["Generation", data.generation],
-      ]);
-      if (data.identities.length > 0) {
-        yield* Console.log("\nSending identities:");
-        for (const clearance of data.identities) {
-          // The review decision alone is not permission — an approved identity whose material
-          // facts have changed is blocked — so the line leads with what a send would do.
-          yield* Console.log(
-            `${clearance.identityId}  ${clearance.canSend ? "cleared" : "blocked"}  ${clearance.decision}${clearance.code ? `  ${clearance.code}` : ""}`,
-          );
-        }
-      }
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const reapply = Command.make("reapply", { json: jsonFlag }).pipe(

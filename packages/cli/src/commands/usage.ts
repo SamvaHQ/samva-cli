@@ -1,14 +1,10 @@
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
-import * as Effect from "effect/Effect";
-import { identity } from "effect/Function";
 import * as Option from "effect/Option";
-import * as References from "effect/References";
 import * as Organizations from "samva/effect/organizations";
 
-import { toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
-import { jsonFlag, printFields, printJson } from "../lib/output";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields } from "../lib/output";
 
 const afterFlag = Flag.String("after").pipe(
   Flag.withDescription(
@@ -21,26 +17,23 @@ const beforeFlag = Flag.String("before").pipe(
   Flag.optional,
 );
 
-export const usageCommand = Command.make("usage", {
-  after: afterFlag,
-  before: beforeFlag,
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Get organization usage"),
-  Command.withExamples([{ command: "samva org usage --after 2026-09-01T00:00:00Z --json" }]),
-  Command.withHandler(({ after, before, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Organizations.getUsage({
-        after: Option.getOrUndefined(after),
-        before: Option.getOrUndefined(before),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not get usage", error)),
-      );
-      if (json) return yield* printJson(data);
+export const usageCommand = deriveOverride(
+  "usage",
+  {
+    after: afterFlag,
+    before: beforeFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ after, before }) => ({
+      after: Option.getOrUndefined(after),
+      before: Option.getOrUndefined(before),
+    }),
+    call: (request) => Organizations.getUsage(request),
+    failure: "Could not get usage",
+    render: (data) => {
       const { usage, billing } = data;
-      yield* printFields([
+      return printFields([
         ["Start", usage.periodStart],
         ["End", usage.periodEnd],
         ["Emails", usage.emailCount],
@@ -74,6 +67,9 @@ export const usageCommand = Command.make("usage", {
         ],
         ["AI credits reset", billing.aiResetsAt ?? "—"],
       ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
+    },
+  },
+).pipe(
+  Command.withDescription("Get organization usage"),
+  Command.withExamples([{ command: "samva org usage --after 2026-09-01T00:00:00Z --json" }]),
 );

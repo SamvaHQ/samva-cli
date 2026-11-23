@@ -9,10 +9,11 @@ import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as WhatsApp from "samva/effect/whatsapp";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
+import { connectOperation, deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { waitingLine } from "./messages";
 import { broadcasts, templatesStats } from "./whatsapp-broadcasts";
@@ -62,65 +63,80 @@ const WhatsAppAccountPage = Schema.Struct({
   }),
 });
 
-const status = Command.make("status", {
-  page: Flag.Int("page").pipe(Flag.withDefault(1)),
-  limit: Flag.Int("limit").pipe(Flag.withDefault(20)),
-  json: jsonFlag,
-}).pipe(
+const status = deriveOverride(
+  "status",
+  {
+    page: Flag.Int("page").pipe(Flag.withDefault(1)),
+    limit: Flag.Int("limit").pipe(Flag.withDefault(20)),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ page, limit }) =>
+      Effect.gen(function* () {
+        if (page < 1 || page > 10_000 || limit < 1 || limit > 100)
+          return yield* new CliUsageError({
+            code: "invalid_pagination",
+            message: "--page must be between 1 and 10000; --limit must be between 1 and 100.",
+          });
+        return { page, limit };
+      }),
+    connect: connectOperation(
+      ({ page, limit }: { readonly page: number; readonly limit: number }) =>
+        Effect.gen(function* () {
+          const body = yield* getAuthenticatedJson(
+            `/v1/whatsapp/business-accounts?page=${page}&limit=${limit}`,
+          ).pipe(
+            Effect.mapError((error) => toCliApiError("Could not read WhatsApp status", error)),
+          );
+          const result = yield* Schema.decodeUnknownEffect(WhatsAppAccountPage)(body).pipe(
+            Effect.mapError(
+              () =>
+                new SamvaCliError({
+                  message: "The API answered with an unreadable WhatsApp account list.",
+                }),
+            ),
+          );
+          return result;
+        }),
+    ),
+    render: (result) =>
+      Effect.gen(function* () {
+        if (result.pagination.total === 0) {
+          yield* Console.log(
+            "No WhatsApp numbers connected. Connect a number in the dashboard or create a connection link with `samva whatsapp setup-links create`.",
+          );
+          return;
+        }
+        for (const account of result.items) {
+          yield* printFields([
+            ["Account ID", account.id],
+            ["Phone number", account.phoneNumber],
+            ["Business account ID", account.whatsappBusinessAccountId],
+            ["Namespace", account.namespaceId],
+            ["Display name", account.displayName],
+            ["Verification", account.verificationStatus],
+            ["Credentials", account.credentialStatus],
+            ["Default", account.isDefault ? "yes" : "no"],
+            ["Active", account.isActive ? "yes" : "no"],
+            ["Messaging tier", account.messagingLimit],
+            ["Messaging limit", account.currentLimit],
+            ["Quality", account.qualityRating],
+          ]);
+          yield* Console.log("");
+        }
+        yield* printFields([
+          ["Page", `${result.pagination.page} of ${result.pagination.totalPages}`],
+          ["Total", result.pagination.total],
+        ]);
+        if (result.pagination.page < result.pagination.totalPages)
+          yield* Console.log(
+            `More numbers: samva whatsapp status --page ${result.pagination.page + 1} --limit ${result.pagination.limit}`,
+          );
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Show connected WhatsApp numbers, verification, quality, and messaging limits",
-  ),
-  Command.withHandler(({ page, limit, json }) =>
-    Effect.gen(function* () {
-      if (page < 1 || page > 10_000 || limit < 1 || limit > 100)
-        return yield* new CliUsageError({
-          code: "invalid_pagination",
-          message: "--page must be between 1 and 10000; --limit must be between 1 and 100.",
-        });
-      const body = yield* getAuthenticatedJson(
-        `/v1/whatsapp/business-accounts?page=${page}&limit=${limit}`,
-      ).pipe(Effect.mapError((error) => toCliApiError("Could not read WhatsApp status", error)));
-      const result = yield* Schema.decodeUnknownEffect(WhatsAppAccountPage)(body).pipe(
-        Effect.mapError(
-          () =>
-            new SamvaCliError({
-              message: "The API answered with an unreadable WhatsApp account list.",
-            }),
-        ),
-      );
-      if (json) return yield* printJson(result);
-      if (result.pagination.total === 0) {
-        yield* Console.log(
-          "No WhatsApp numbers connected. Connect a number in the dashboard or create a connection link with `samva whatsapp setup-links create`.",
-        );
-        return;
-      }
-      for (const account of result.items) {
-        yield* printFields([
-          ["Account ID", account.id],
-          ["Phone number", account.phoneNumber],
-          ["Business account ID", account.whatsappBusinessAccountId],
-          ["Namespace", account.namespaceId],
-          ["Display name", account.displayName],
-          ["Verification", account.verificationStatus],
-          ["Credentials", account.credentialStatus],
-          ["Default", account.isDefault ? "yes" : "no"],
-          ["Active", account.isActive ? "yes" : "no"],
-          ["Messaging tier", account.messagingLimit],
-          ["Messaging limit", account.currentLimit],
-          ["Quality", account.qualityRating],
-        ]);
-        yield* Console.log("");
-      }
-      yield* printFields([
-        ["Page", `${result.pagination.page} of ${result.pagination.totalPages}`],
-        ["Total", result.pagination.total],
-      ]);
-      if (result.pagination.page < result.pagination.totalPages)
-        yield* Console.log(
-          `More numbers: samva whatsapp status --page ${result.pagination.page + 1} --limit ${result.pagination.limit}`,
-        );
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
 
@@ -526,66 +542,66 @@ const WhatsAppMessageStatus = Schema.Struct({
   updatedAt: Schema.String,
 });
 
-const messageStatus = Command.make("status", { id: Argument.String("id"), json: jsonFlag }).pipe(
-  Command.withDescription("Check the lifecycle status of a WhatsApp message"),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const body = yield* getAuthenticatedJson(`/v1/messages/${encodeURIComponent(id)}`).pipe(
-        Effect.mapError((error) => toCliApiError("Could not read WhatsApp message status", error)),
-      );
-      const result = yield* Schema.decodeUnknownEffect(WhatsAppMessageStatus)(body).pipe(
-        Effect.mapError(
-          () => new SamvaCliError({ message: "The API answered with an unreadable message." }),
-        ),
-      );
-      if (result.channel !== "whatsapp")
-        return yield* new SamvaCliError({
-          message: "This is not a WhatsApp message. Use `samva messages get` to inspect it.",
-        });
-      if (json) return yield* printJson(result);
-      yield* printFields([
+const messageStatus = deriveOverride(
+  "status",
+  { id: Argument.String("id"), json: jsonFlag },
+  {
+    mapInput: ({ id }) => id,
+    connect: connectOperation((id: string) =>
+      Effect.gen(function* () {
+        const body = yield* getAuthenticatedJson(`/v1/messages/${encodeURIComponent(id)}`).pipe(
+          Effect.mapError((error) =>
+            toCliApiError("Could not read WhatsApp message status", error),
+          ),
+        );
+        const result = yield* Schema.decodeUnknownEffect(WhatsAppMessageStatus)(body).pipe(
+          Effect.mapError(
+            () => new SamvaCliError({ message: "The API answered with an unreadable message." }),
+          ),
+        );
+        if (result.channel !== "whatsapp")
+          return yield* new SamvaCliError({
+            message: "This is not a WhatsApp message. Use `samva messages get` to inspect it.",
+          });
+        return result;
+      }),
+    ),
+    render: (result) =>
+      printFields([
         ["Message ID", result.id],
         ["Channel", result.channel],
         ["Status", result.status],
         ["Waiting", waitingLine(result)],
         ["Created", result.createdAt],
         ["Updated", result.updatedAt],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
-);
+      ]),
+  },
+).pipe(Command.withDescription("Check the lifecycle status of a WhatsApp message"));
 
 const message = Command.make("message").pipe(
   Command.withDescription("Inspect WhatsApp messages"),
   Command.withSubcommands([messageStatus]),
 );
 
-const setDefault = Command.make("set-default", {
-  id: Argument.String("account-id").pipe(Argument.withSchema(WhatsAppBusinessAccountId)),
-  yes: Flag.Boolean("yes"),
-  json: jsonFlag,
-}).pipe(
+const setDefault = deriveOverride(
+  "set-default",
+  {
+    id: Argument.String("account-id").pipe(Argument.withSchema(WhatsAppBusinessAccountId)),
+    yes: Flag.Boolean("yes"),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ accountId: id }),
+    call: (request) => WhatsApp.setDefaultBusinessAccount(request),
+    failure: "Could not set the default WhatsApp number",
+    confirmation: (request) => ({
+      message: `Set ${request.accountId} as the default number in its scope?`,
+      nonInteractiveMessage: "Confirm the default-number change with --yes.",
+    }),
+    render: (_result, _input, request) => printFields([["Default account", request.accountId]]),
+  },
+).pipe(
   Command.withDescription("Set the default for the connected number's organization or namespace"),
-  Command.withHandler(({ id, yes, json }) =>
-    Effect.gen(function* () {
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Set ${id} as the default number in its scope?`,
-        nonInteractiveMessage: "Confirm the default-number change with --yes.",
-      });
-      const result = yield* postAuthenticatedJson(
-        `/v1/whatsapp/business-accounts/${encodeURIComponent(id)}/set-default`,
-        { body: undefined },
-      ).pipe(
-        Effect.mapError((error) =>
-          toCliApiError("Could not set the default WhatsApp number", error),
-        ),
-      );
-      if (json) return yield* printJson(result);
-      return yield* printFields([["Default account", id]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 export const whatsappCommand = Command.make("whatsapp").pipe(

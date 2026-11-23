@@ -51,7 +51,7 @@ describe("bare and parent commands render help", () => {
     expect(stderr).toBe("");
   });
 
-  it("lists the Git-backed template workflow without lifecycle wrappers", async () => {
+  it("lists Git-backed template workflows and contract commands without legacy aliases", async () => {
     const { code, stdout, stderr } = await runCli(["templates", "--help"]);
     expect(code).toBe(0);
     expect(stderr).toBe("");
@@ -60,10 +60,10 @@ describe("bare and parent commands render help", () => {
     expect(stdout).toContain("export");
     expect(stdout).toContain("clone");
     expect(stdout).toContain("publish");
-    expect(stdout).not.toMatch(/^\s+credential\s/m);
-    expect(stdout).not.toContain("pull");
-    expect(stdout).not.toContain("restore");
-    expect(stdout).not.toContain("reset");
+    expect(stdout).toMatch(/^\s+restore-workspace\s/m);
+    for (const alias of ["credential", "pull", "restore", "reset"]) {
+      expect(stdout).not.toMatch(new RegExp(`^\\s+${alias}\\s`, "m"));
+    }
   });
 });
 

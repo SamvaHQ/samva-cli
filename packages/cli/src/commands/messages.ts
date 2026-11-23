@@ -19,8 +19,8 @@ import {
   toCliApiError,
 } from "../errors";
 import { getClientProvider } from "../lib/client";
-import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
-import { isJsonLinesRequested } from "../lib/runtime";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields, printJson } from "../lib/output";
 
 type Message = Effect.Success<ReturnType<typeof Messages.get>>;
 type MessageReceipt = Effect.Success<ReturnType<typeof Messages.send>>;
@@ -375,30 +375,24 @@ const allFlag = Flag.Boolean("all").pipe(
   Flag.withDefault(false),
 );
 
-const list = Command.make("list", {
-  cursor: cursorFlag,
-  limit: limitFlag,
-  status: statusFlag,
-  channel: channelFlag,
-  direction: directionFlag,
-  conversationId: conversationIdFlag,
-  contactId: contactIdFlag,
-  from: fromFlag,
-  after: afterFlag,
-  before: beforeFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("List messages"),
-  Command.withExamples([
-    { command: "samva messages list --channel email --limit 25" },
-    { command: "samva messages list --status failed --json" },
-    { command: "samva messages list --direction inbound --channel email" },
-    { command: "samva messages list --from billing@acme.test" },
-    { command: "samva messages list --all --jsonl", description: "Stream every page as JSONL" },
-  ]),
-  Command.withHandler(
-    ({
+const list = deriveOverride(
+  "list",
+  {
+    cursor: cursorFlag,
+    limit: limitFlag,
+    status: statusFlag,
+    channel: channelFlag,
+    direction: directionFlag,
+    conversationId: conversationIdFlag,
+    contactId: contactIdFlag,
+    from: fromFlag,
+    after: afterFlag,
+    before: beforeFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({
       cursor,
       limit,
       status,
@@ -409,56 +403,43 @@ const list = Command.make("list", {
       from,
       after,
       before,
-      all,
-      json,
-    }) =>
+    }) => ({
+      channel: Option.getOrUndefined(channel),
+      direction: Option.getOrUndefined(direction),
+      status: Option.getOrUndefined(status),
+      conversationId: Option.getOrUndefined(conversationId),
+      contactId: Option.getOrUndefined(contactId),
+      from: Option.getOrUndefined(from),
+      after: Option.getOrUndefined(after),
+      before: Option.getOrUndefined(before),
+      limit: Option.getOrUndefined(limit),
+      cursor: Option.getOrUndefined(cursor),
+    }),
+    call: (request) => Messages.list(request),
+    failure: "Could not list messages",
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+    },
+    render: (data) =>
       Effect.gen(function* () {
-        if (all && !isJsonLinesRequested()) {
-          return yield* new CliUsageError({
-            code: "all_requires_jsonl",
-            message: "--all is an unbounded traversal and requires --jsonl.",
-          });
-        }
-        const client = yield* getClientProvider;
-        const query = {
-          channel: Option.getOrUndefined(channel),
-          direction: Option.getOrUndefined(direction),
-          status: Option.getOrUndefined(status),
-          conversationId: Option.getOrUndefined(conversationId),
-          contactId: Option.getOrUndefined(contactId),
-          from: Option.getOrUndefined(from),
-          after: Option.getOrUndefined(after),
-          before: Option.getOrUndefined(before),
-          limit: Option.getOrUndefined(limit),
-        };
-        const listPage = (pageCursor: string | undefined) =>
-          Messages.list({ ...query, cursor: pageCursor }).pipe(
-            client.provide,
-            Effect.mapError(apiError("Could not list messages")),
-          );
-        if (all) {
-          let nextCursor = Option.getOrUndefined(cursor);
-          for (;;) {
-            const data = yield* listPage(nextCursor);
-            for (const item of data.items) yield* printJsonLine(item);
-            if (data.nextCursor === null) return;
-            nextCursor = data.nextCursor;
-          }
-        }
-        const data = yield* listPage(Option.getOrUndefined(cursor));
-        if (isJsonLinesRequested()) {
-          for (const item of data.items) yield* printJsonLine(item);
-          return;
-        }
-        if (json) return yield* printJson(data);
         if (data.items.length === 0) return yield* Console.log("No messages found.");
         for (const message of data.items) {
           yield* printSummary(message);
           yield* Console.log("");
         }
         if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
+      }),
+  },
+).pipe(
+  Command.withDescription("List messages"),
+  Command.withExamples([
+    { command: "samva messages list --channel email --limit 25" },
+    { command: "samva messages list --status failed --json" },
+    { command: "samva messages list --direction inbound --channel email" },
+    { command: "samva messages list --from billing@acme.test" },
+    { command: "samva messages list --all --jsonl", description: "Stream every page as JSONL" },
+  ]),
 );
 
 const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).pipe(
@@ -475,35 +456,36 @@ const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).p
   ),
 );
 
-const events = Command.make("events", {
-  id: Argument.String("id"),
-  cursor: cursorFlag,
-  limit: Flag.Int("limit").pipe(Flag.withDescription("Maximum events per page"), Flag.optional),
-  json: jsonFlag,
-}).pipe(
+const events = deriveOverride(
+  "events",
+  {
+    id: Argument.String("id"),
+    cursor: cursorFlag,
+    limit: Flag.Int("limit").pipe(Flag.withDescription("Maximum events per page"), Flag.optional),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, cursor, limit }) => ({
+      id,
+      cursor: Option.getOrUndefined(cursor),
+      limit: Option.getOrUndefined(limit),
+    }),
+    call: (request) => Messages.getEvents(request),
+    failure: "Could not list message events",
+    render: (data) =>
+      Effect.gen(function* () {
+        for (const event of data.items)
+          yield* printFields([
+            ["Event", event.eventType],
+            ["Status", event.status],
+            ["Time", event.timestamp],
+          ]);
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List lifecycle events for a message, oldest first"),
   Command.withExamples([{ command: "samva messages events msg_abc123 --json" }]),
-  Command.withHandler(({ id, cursor, limit, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Messages.getEvents({
-        id,
-        cursor: Option.getOrUndefined(cursor),
-        limit: Option.getOrUndefined(limit),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list message events", error)),
-      );
-      if (json) return yield* printJson(data);
-      for (const event of data.items)
-        yield* printFields([
-          ["Event", event.eventType],
-          ["Status", event.status],
-          ["Time", event.timestamp],
-        ]);
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const wait = Command.make("wait", {
@@ -542,47 +524,48 @@ const wait = Command.make("wait", {
   ),
 );
 
-const deliveries = Command.make("deliveries", { id: Argument.String("id"), json: jsonFlag }).pipe(
+const deliveries = deriveOverride(
+  "deliveries",
+  { id: Argument.String("id"), json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Messages.listDeliveries(request),
+    failure: "Could not read message delivery",
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Message ID", data.id],
+          ["Status", data.status],
+          ["Skipped recipients", skippedRecipientsLine(data)],
+        ]);
+        for (const item of data.items) {
+          yield* printFields([
+            ["Recipient", item.recipient],
+            ["Status", item.status],
+            ["Queued", item.queuedAt],
+            ["Provider accepted", item.sentAt],
+            ["Delivered", item.deliveredAt],
+            ["Read", item.readAt],
+            ["Failed", item.failedAt],
+            ["Failure", item.error?.message],
+          ]);
+        }
+        for (const endpoint of data.reply.endpoints)
+          yield* printFields([
+            ["Reply to", endpoint.address],
+            ["Mailbox ID", endpoint.mailboxId],
+          ]);
+        if (data.reply.received !== null)
+          yield* printFields([
+            ["Reply received", data.reply.received.receivedAt],
+            ["Reply message ID", data.reply.received.messageId],
+            ["Mailbox thread ID", data.reply.received.thread?.threadId],
+          ]);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Read delivery timestamps, failures, skipped eligibility, and observed replies",
-  ),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Messages.listDeliveries({ id }).pipe(
-        client.provide,
-        Effect.mapError(apiError("Could not read message delivery")),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["Message ID", data.id],
-        ["Status", data.status],
-        ["Skipped recipients", skippedRecipientsLine(data)],
-      ]);
-      for (const item of data.items) {
-        yield* printFields([
-          ["Recipient", item.recipient],
-          ["Status", item.status],
-          ["Queued", item.queuedAt],
-          ["Provider accepted", item.sentAt],
-          ["Delivered", item.deliveredAt],
-          ["Read", item.readAt],
-          ["Failed", item.failedAt],
-          ["Failure", item.error?.message],
-        ]);
-      }
-      for (const endpoint of data.reply.endpoints)
-        yield* printFields([
-          ["Reply to", endpoint.address],
-          ["Mailbox ID", endpoint.mailboxId],
-        ]);
-      if (data.reply.received !== null)
-        yield* printFields([
-          ["Reply received", data.reply.received.receivedAt],
-          ["Reply message ID", data.reply.received.messageId],
-          ["Mailbox thread ID", data.reply.received.thread?.threadId],
-        ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );
 

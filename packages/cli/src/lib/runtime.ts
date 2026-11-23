@@ -61,243 +61,36 @@ export type OutputMode = "human" | "json" | "jsonl" | "quiet";
 const outputFlags = new Set(["--json", "--jsonl", "--quiet"]);
 const outputAssignments = /^(--json|--jsonl|--quiet)=/;
 
-/** Process-boundary metadata, solely for stable envelope command names. */
-const commandTree = {
-  login: {},
-  logout: {},
-  org: { list: {}, use: {}, current: {}, invite: {}, avatar: { set: {}, clear: {} }, usage: {} },
-  email: {
-    send: {},
-    doctor: {},
-    receiving: { status: {}, enable: {}, update: {} },
-    review: { status: {}, reapply: {} },
-    tracking: {
-      defaults: { get: {}, set: {} },
-      recipient: { get: {}, set: {} },
-    },
-    domains: {
-      list: {},
-      add: {},
-      update: {},
-      check: {},
-      remove: {},
-      "rotate-dkim": {},
-      "set-default": {},
-      "custom-tracking": { enable: {}, status: {}, recheck: {}, disable: {} },
-    },
-    senders: { list: {}, add: {}, check: {}, "set-default": {}, remove: {} },
-  },
-  messages: { list: {}, get: {}, deliveries: {}, events: {}, wait: {} },
-  whatsapp: {
-    status: {},
-    "set-default": {},
-    send: {},
-    templates: { list: {}, stats: {}, submit: {}, registrations: {}, registration: {} },
-    broadcasts: { create: {}, run: {} },
-    flows: {
-      list: {},
-      get: {},
-      create: {},
-      publish: {},
-      register: {},
-      registrations: {},
-      endpoint: { set: {}, "rotate-secret": {} },
-      "encryption-key": { rotate: {} },
-    },
-    "setup-links": { create: {}, list: {}, get: {}, revoke: {} },
-    message: { status: {} },
-  },
-  contacts: {
-    "set-consent": {},
-    list: {},
-    get: {},
-    events: {},
-    merge: {},
-    import: {},
-    "import-status": {},
-    "import-resume": {},
-  },
-  events: { send: {} },
-  journeys: {
-    recipes: {},
-    readiness: {},
-    "recipe-preview": {},
-    "recipe-connect": {},
-    "recipe-test-handoff": {},
-    "recipe-test": {},
-    "recipe-test-receipt": {},
-    "recipe-setups": { list: {}, get: {}, save: {}, activate: {} },
-    list: {},
-    get: {},
-    create: {},
-    rename: {},
-    draft: {},
-    publish: {},
-    pause: {},
-    resume: {},
-    archive: {},
-    delete: {},
-    version: {},
-    stats: {},
-    runs: { list: {}, get: {} },
-  },
-  campaigns: {
-    report: {},
-    preview: {},
-    test: {},
-    create: {},
-    list: {},
-    get: {},
-    update: {},
-    archive: {},
-    runs: { create: {}, list: {}, get: {}, pause: {}, resume: {}, cancel: {}, recipients: {} },
-  },
-  "scheduled-messages": { create: {}, list: {}, get: {}, cancel: {}, resume: {} },
-  templates: {
-    families: { list: {}, get: {}, create: {}, attach: {}, detach: {} },
-    "share-link": { create: {}, update: {}, get: {}, rename: {}, delete: {} },
-    init: {},
-    clone: {},
-    credential: {},
-    add: {},
-    move: {},
-    dev: {},
-    check: {},
-    render: {},
-    snapshot: {},
-    build: {},
-    export: {},
-    types: {},
-    workspace: {
-      open: {},
-      diff: {},
-      patch: {},
-      "add-asset": {},
-      check: {},
-      fixture: {},
-      save: {},
-      history: {},
-      publish: {},
-    },
-    publish: {},
-    list: {},
-    get: {},
-    create: {},
-    "from-website": {},
-    "from-brief": {},
-    suggest: {},
-    update: {},
-    delete: {},
-    projects: { delete: {} },
-  },
-  brands: { create: {}, list: {}, get: {}, pull: {}, push: {}, default: {}, remove: {} },
-  mailboxes: {
-    import: {},
-    "import-status": {},
-    events: {},
-    list: {},
-    create: {},
-    get: {},
-    update: {},
-    pause: {},
-    resume: {},
-    endpoints: { add: {}, update: {}, remove: {} },
-    remove: {},
-    threads: {},
-    "all-threads": {},
-    "needs-you": {},
-    "thread-update": {},
-    read: {},
-    send: {},
-    reply: {},
-    actions: { list: {}, get: {}, approve: {}, deny: {}, cancel: {}, retry: {} },
-    spam: { list: {}, discard: {}, empty: {} },
-  },
-  agents: {
-    init: {},
-    build: {},
-    info: {},
-    list: {},
-    create: {},
-    get: {},
-    update: {},
-    draft: { replace: {} },
-    publish: {},
-    tests: { rerun: {} },
-  },
-  policies: { get: {}, set: {}, clear: {} },
-  analytics: { stats: {}, "delivery-metrics": {} },
-  conversations: { list: {}, get: {}, create: {} },
-  knowledge: { list: {}, get: {}, "add-website": {}, "add-file": {}, sync: {} },
-  namespaces: {
-    list: {},
-    create: {},
-    get: {},
-    update: {},
-    delete: {},
-    assign: {},
-    unassign: {},
-    usage: {},
-    "portal-links": { create: {}, list: {}, revoke: {} },
-  },
-  webhooks: {
-    list: {},
-    get: {},
-    secret: {},
-    create: {},
-    update: {},
-    test: {},
-    logs: {},
-    stats: {},
-    retry: {},
-    "rotate-secret": {},
-    remove: {},
-  },
-  api: {},
-  "api-keys": { list: {}, get: {}, create: {}, update: {}, rotate: {}, revoke: {} },
-  profile: { list: {}, show: {}, create: {}, use: {}, delete: {} },
-  feedback: { send: {} },
-  suppressions: { list: {}, remove: {} },
-  subscriptions: { subscribe: {} },
-  topics: {
-    list: {},
-    get: {},
-    create: {},
-    update: {},
-    remove: {},
-    default: {},
-    subscriptions: { list: {}, set: {}, check: {} },
-  },
-  newsletters: {
-    list: {},
-    get: {},
-    create: {},
-    update: {},
-    delete: {},
-    domains: { list: {}, add: {}, get: {}, remove: {} },
-    issues: {
-      list: {},
-      open: {},
-      read: {},
-      create: {},
-      update: {},
-      delete: {},
-      save: {},
-      check: {},
-      render: {},
-      head: {},
-      history: {},
-    },
-  },
-  help: {},
-} as const;
-
-interface CommandTree {
-  readonly [name: string]: CommandTree;
+interface CommandNode {
+  readonly name: string;
+  readonly subcommands: ReadonlyArray<{ readonly commands: ReadonlyArray<CommandNode> }>;
 }
 
-/** Command handlers remain the grammar authority. */
-export const isKnownRootCommand = (token: string): boolean => token in commandTree;
+type CommandTree = ReadonlyMap<string, CommandTree>;
+
+const commandTreeOf = (commands: ReadonlyArray<CommandNode>): CommandTree =>
+  new Map(
+    commands.map(({ name, subcommands }) => [
+      name,
+      commandTreeOf(subcommands.flatMap((group) => group.commands)),
+    ]),
+  );
+
+let commandTree: CommandTree = new Map();
+
+/** Use the parser's tree for process result names and lazy command registration. */
+export const registerCommandTree = (commands: ReadonlyArray<CommandNode>): void => {
+  commandTree = new Map([...commandTreeOf(commands), ["help", new Map()]]);
+};
+
+export const isKnownRootCommand = (token: string): boolean => commandTree.has(token);
+
+// These paths released with their parent's envelope name. Keep existing scripts and help stable.
+const releasedEnvelopeNames: Readonly<Record<string, string>> = {
+  "mailboxes.threads.delete": "mailboxes.threads",
+  "mailboxes.trash": "mailboxes",
+  "mailboxes.trash.empty": "mailboxes",
+};
 
 const globalOptionsWithValue = new Set(["--profile", "--api-url", "--org", "--log-level"]);
 
@@ -324,7 +117,7 @@ export const commandNameFromArgv = (argv: ReadonlyArray<string>): string => {
     )
       continue;
     if (token.startsWith("-")) continue;
-    const next = tree[token];
+    const next = tree.get(token);
     if (next === undefined) {
       if (path.length === 0) continue;
       break;
@@ -332,7 +125,22 @@ export const commandNameFromArgv = (argv: ReadonlyArray<string>): string => {
     path.push(token);
     tree = next;
   }
-  return path.length === 0 ? "samva" : path.join(".");
+  const name = path.length === 0 ? "samva" : path.join(".");
+  return Object.hasOwn(releasedEnvelopeNames, name) ? (releasedEnvelopeNames[name] ?? name) : name;
+};
+
+/** Commands with no subcommands can parse and run without the derived catalog. */
+export const isReleasedLeafInvocation = (argv: ReadonlyArray<string>): boolean => {
+  if (argv.some((arg) => arg === "--completions" || arg.startsWith("--completions="))) return false;
+  const name = commandNameFromArgv(argv);
+  if (name === "samva" || name === "help") return false;
+  let node = commandTree;
+  for (const part of name.split(".")) {
+    const child = node.get(part);
+    if (child === undefined) return false;
+    node = child;
+  }
+  return node.size === 0;
 };
 
 /**

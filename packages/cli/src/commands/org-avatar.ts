@@ -2,6 +2,7 @@ import { extname } from "node:path";
 
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
+import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
@@ -12,6 +13,7 @@ import * as Organizations from "samva/effect/organizations";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientConfig, getClientProvider, requestAuthHeaders } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
 import { printResult } from "../lib/output";
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -111,26 +113,26 @@ const set = Command.make("set", {
   ),
 );
 
-const clear = Command.make("clear").pipe(
+const clear = deriveOverride(
+  "clear",
+  {},
+  {
+    call: () => Organizations.update({ avatarUrl: null }),
+    failure: "Could not remove the avatar",
+    mapOutput: (organization) => ({
+      action: "org.avatar.clear",
+      slug: organization.slug,
+      avatarUrl: null,
+    }),
+    render: (organization) => Console.log(`Avatar removed for "${organization.slug}".`),
+  },
+).pipe(
   Command.withDescription(
     "Remove the organization's avatar; the generated glyph shows in its place",
   ),
   Command.withExamples([
     { command: "samva org avatar clear", description: "Remove the organization avatar" },
   ]),
-  Command.withHandler(() =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const organization = yield* Organizations.update({ avatarUrl: null }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not remove the avatar", error)),
-      );
-      yield* printResult(
-        { action: "org.avatar.clear", slug: organization.slug, avatarUrl: null },
-        `Avatar removed for "${organization.slug}".`,
-      );
-    }),
-  ),
 );
 
 export const orgAvatarCommand = Command.make("avatar").pipe(

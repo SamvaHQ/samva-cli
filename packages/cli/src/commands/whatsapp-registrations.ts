@@ -8,12 +8,13 @@ import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as TemplateRegistrations from "samva/effect/template-registrations";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
-import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
-import { jsonFlag, printFields, printJson } from "../lib/output";
+import { getAuthenticatedJson } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields } from "../lib/output";
 
 /**
  * `samva whatsapp templates submit | registrations | registration` — a template's content as
@@ -136,13 +137,6 @@ export const registrationSummary = (registrations: ReadonlyArray<WireRegistratio
         )
         .join("; ");
 
-const decodeRegistration = (body: unknown) =>
-  Schema.decodeUnknownEffect(WireRegistration)(body).pipe(
-    Effect.mapError(
-      () => new SamvaCliError({ message: "The API answered with an unreadable registration." }),
-    ),
-  );
-
 /** Read every registration of a template, newest first. */
 export const readRegistrations = (templateId: string) =>
   getAuthenticatedJson(registrationsPath(templateId)).pipe(
@@ -157,38 +151,18 @@ export const readRegistrations = (templateId: string) =>
     Effect.map((list) => list.data),
   );
 
-const quiet = <A, E, R>(json: boolean, effect: Effect.Effect<A, E, R>) =>
-  json ? Effect.provideService(effect, References.MinimumLogLevel, "None") : effect;
-
-const submit = Command.make("submit", {
-  id: templateIdArgument,
-  businessAccount: businessAccountFlag,
-  publication: publicationFlag,
-  wabaId: wabaIdFlag,
-  workspaceRevision: workspaceRevisionFlag,
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription(
-    "Submit the template's current publication to Meta for review. A newer publication resubmits through the same registration. Supply the reviewed publication, number, Meta business account and workspace revision to guard a previously approved submission.",
-  ),
-  Command.withExamples([
-    {
-      command: "samva whatsapp templates submit tmpl_abc123",
-      description: "Register on the default number's business account",
-    },
-    {
-      command: "samva whatsapp templates submit tmpl_abc123 --business-account waba_abc123",
-      description: "Register on a specific business account",
-    },
-    {
-      command:
-        "samva whatsapp templates submit tmpl_abc123 --publication tpub_abc123 --business-account waba_abc123 --waba-id 1234567890 --workspace-revision 12 --json",
-      description: "Submit the exact content and account reviewed earlier",
-    },
-  ]),
-  Command.withHandler(({ id, businessAccount, publication, wabaId, workspaceRevision, json }) =>
-    quiet(
-      json,
+const submit = deriveOverride(
+  "submit",
+  {
+    id: templateIdArgument,
+    businessAccount: businessAccountFlag,
+    publication: publicationFlag,
+    wabaId: wabaIdFlag,
+    workspaceRevision: workspaceRevisionFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ id, businessAccount, publication, wabaId, workspaceRevision }) =>
       Effect.gen(function* () {
         const approval =
           Option.isSome(publication) || Option.isSome(wabaId) || Option.isSome(workspaceRevision)
@@ -208,22 +182,65 @@ const submit = Command.make("submit", {
                 ),
               )
             : undefined;
-        const body = yield* postAuthenticatedJson(registrationsPath(id), {
-          body:
-            approval === undefined
-              ? submitRegistrationPayload(Option.getOrUndefined(businessAccount))
-              : { provider: "whatsapp", approval },
-        }).pipe(Effect.mapError(registrationError("submit the template registration")));
-        const registration = yield* decodeRegistration(body);
-        if (json) return yield* printJson(registration);
+        return {
+          id,
+          provider: "whatsapp" as const,
+          ...(approval === undefined
+            ? { businessAccountId: Option.getOrUndefined(businessAccount) }
+            : { approval }),
+        };
+      }),
+    call: (request) => TemplateRegistrations.submit(request),
+    failure: registrationError("submit the template registration"),
+    render: (registration) =>
+      Effect.gen(function* () {
         yield* Effect.logInfo("Template submitted for review.\n");
         yield* printFields(registrationFields(registration));
       }),
-    ),
+  },
+).pipe(
+  Command.withDescription(
+    "Submit the template's current publication to Meta for review. A newer publication resubmits through the same registration. Supply the reviewed publication, number, Meta business account and workspace revision to guard a previously approved submission.",
   ),
+  Command.withExamples([
+    {
+      command: "samva whatsapp templates submit tmpl_abc123",
+      description: "Register on the default number's business account",
+    },
+    {
+      command: "samva whatsapp templates submit tmpl_abc123 --business-account waba_abc123",
+      description: "Register on a specific business account",
+    },
+    {
+      command:
+        "samva whatsapp templates submit tmpl_abc123 --publication tpub_abc123 --business-account waba_abc123 --waba-id 1234567890 --workspace-revision 12 --json",
+      description: "Submit the exact content and account reviewed earlier",
+    },
+  ]),
 );
 
-const list = Command.make("registrations", { id: templateIdArgument, json: jsonFlag }).pipe(
+const list = deriveOverride(
+  "registrations",
+  { id: templateIdArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => TemplateRegistrations.list(request),
+    failure: registrationError("list template registrations"),
+    render: (page) =>
+      Effect.gen(function* () {
+        if (page.data.length === 0) {
+          yield* Effect.logInfo(
+            "No registrations. Submit one with `samva whatsapp templates submit <template-id>`.",
+          );
+          return;
+        }
+        for (const registration of page.data) {
+          yield* printFields(registrationFields(registration));
+          yield* Console.log("");
+        }
+      }),
+  },
+).pipe(
   Command.withDescription("List a template's Meta registrations, newest first"),
   Command.withExamples([
     {
@@ -231,32 +248,22 @@ const list = Command.make("registrations", { id: templateIdArgument, json: jsonF
       description: "Read each registration's review status and Meta's reason",
     },
   ]),
-  Command.withHandler(({ id, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const registrations = yield* readRegistrations(id);
-        if (json) return yield* printJson({ data: registrations });
-        if (registrations.length === 0) {
-          yield* Effect.logInfo(
-            "No registrations. Submit one with `samva whatsapp templates submit <template-id>`.",
-          );
-          return;
-        }
-        for (const registration of registrations) {
-          yield* printFields(registrationFields(registration));
-          yield* Console.log("");
-        }
-      }),
-    ),
-  ),
 );
 
-const get = Command.make("registration", {
-  id: templateIdArgument,
-  registrationId: registrationIdArgument,
-  json: jsonFlag,
-}).pipe(
+const get = deriveOverride(
+  "registration",
+  {
+    id: templateIdArgument,
+    registrationId: registrationIdArgument,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, registrationId }) => ({ id, registrationId }),
+    call: (request) => TemplateRegistrations.get(request),
+    failure: registrationError("get the template registration"),
+    render: (registration) => printFields(registrationFields(registration)),
+  },
+).pipe(
   Command.withDescription("Get one registration: its status, Meta's category, and any reason"),
   Command.withExamples([
     {
@@ -264,19 +271,6 @@ const get = Command.make("registration", {
       description: "Check whether Meta approved the template",
     },
   ]),
-  Command.withHandler(({ id, registrationId, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* getAuthenticatedJson(registrationsPath(id, registrationId)).pipe(
-          Effect.mapError(registrationError("get the template registration")),
-        );
-        const registration = yield* decodeRegistration(body);
-        if (json) return yield* printJson(registration);
-        yield* printFields(registrationFields(registration));
-      }),
-    ),
-  ),
 );
 
 export { get as registrationGet, list as registrationsList, submit as registrationSubmit };

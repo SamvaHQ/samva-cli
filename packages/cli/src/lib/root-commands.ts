@@ -1,3 +1,5 @@
+import type * as Command from "effect/cli/Command";
+
 import { agentsCommand } from "../commands/agents";
 import { analyticsCommand } from "../commands/analytics";
 import { apiCommand } from "../commands/api";
@@ -27,9 +29,11 @@ import { templatesCommand } from "../commands/templates";
 import { topicsCommand } from "../commands/topics";
 import { webhooksCommand } from "../commands/webhooks";
 import { whatsappCommand } from "../commands/whatsapp";
+import type { deriveCommand } from "./derive/command";
+import { isReleasedLeafInvocation, registerCommandTree } from "./runtime";
 
 /** The single root-command registry used by parsing, help, and completions. */
-export const rootCommands = [
+const curatedRootCommands = [
   loginCommand,
   logoutCommand,
   orgCommand,
@@ -60,3 +64,21 @@ export const rootCommands = [
   profileCommand,
   feedbackCommand,
 ] as const;
+
+type RootServices =
+  | Command.Services<(typeof curatedRootCommands)[number]>
+  | Command.Services<ReturnType<typeof deriveCommand>>;
+
+registerCommandTree(curatedRootCommands);
+
+// Root help and completions need the full catalog. A released leaf can run on its own.
+const derived = isReleasedLeafInvocation(process.argv.slice(2))
+  ? undefined
+  : await import("./derive/tree");
+// Merging trees erases each node's input shape. The resulting handlers come from these two sets.
+export const rootCommands = (derived?.addDerivedCommands(curatedRootCommands) ??
+  curatedRootCommands) as ReadonlyArray<
+  Command.Command<string, never, unknown, unknown, RootServices>
+>;
+
+if (derived !== undefined) registerCommandTree(rootCommands);

@@ -1,6 +1,12 @@
 import { lstat, open, readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
+import {
+  archivePart,
+  archivePartCount,
+  maxArchiveSizeBytes,
+  maxImportSizeBytes,
+} from "@samva/core/mailboxes/history-import";
 import { MailboxId } from "@samva/core/shared/base";
 import { Console, Effect, Redacted, Schedule } from "effect";
 import * as Argument from "effect/cli/Argument";
@@ -10,6 +16,7 @@ import * as Mailboxes from "samva/effect/mailboxes";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 
 interface ArchiveFile {
@@ -116,27 +123,81 @@ const discoverMailArchives = Effect.fn("MailImport.discoverArchives")(function* 
   return files;
 });
 
-const uploadArchive = Effect.fn("MailImport.uploadArchive")(function* (
-  file: ArchiveFile,
+const uploadPart = Effect.fn("MailImport.uploadPart")(function* (
+  path: string,
+  body: Blob,
+  partNumber: number,
   url: string,
 ) {
+  const failed = (reason: string) =>
+    new SamvaCliError({ message: `Upload failed for ${path}, part ${partNumber}: ${reason}.` });
   const response = yield* Effect.tryPromise({
     try: (signal) =>
-      // @effect-diagnostics-next-line globalFetchInEffect:off -- Bun streams the file with its known length, which the presigned upload requires.
+      // @effect-diagnostics-next-line globalFetchInEffect:off -- Bun streams a file slice with its known length.
       fetch(url, {
         method: "PUT",
-        headers: { "content-type": "application/mbox", "content-length": String(file.sizeBytes) },
-        body: Bun.file(file.path),
+        headers: { "content-length": String(body.size) },
+        body,
         redirect: "manual",
         signal,
       }),
-    catch: (cause) =>
-      new SamvaCliError({ message: `Upload failed for ${file.path}: ${String(cause)}` }),
+    // Fetch errors can contain the signed URL.
+    catch: () => failed("network or file read error"),
   });
-  if (!response.ok)
-    return yield* new SamvaCliError({
-      message: `Upload failed for ${file.path}: HTTP ${response.status}.`,
-    });
+  const etag = response.headers.get("etag");
+  if (response.body !== null)
+    yield* Effect.promise(() => response.body?.cancel() ?? Promise.resolve());
+  if (!response.ok) return yield* failed(`HTTP ${response.status}`);
+  if (!etag) return yield* failed("storage did not return an ETag");
+  return etag;
+});
+
+const uploadArchive = Effect.fn("MailImport.uploadArchive")(function* (
+  file: ArchiveFile,
+  mailbox: MailboxId,
+  target: { id: string; archiveId: string; partSizeBytes: number },
+  client: Effect.Success<typeof getClientProvider>,
+) {
+  const params = { id: mailbox, importId: target.id, archiveId: target.archiveId };
+  const source = Bun.file(file.path);
+  const count = archivePartCount(file.sizeBytes, target.partSizeBytes);
+  const parts = [];
+  for (let partNumber = 1; partNumber <= count; partNumber++) {
+    const { offset, sizeBytes } = archivePart(file.sizeBytes, target.partSizeBytes, partNumber);
+    const etag = yield* Effect.gen(function* () {
+      const signed = yield* Mailboxes.signImportUploadParts({
+        ...params,
+        partNumbers: [partNumber],
+      }).pipe(
+        client.provide,
+        Effect.mapError((error) => toCliApiError("Could not sign mail import part", error)),
+      );
+      const part = signed.parts[0];
+      if (part?.partNumber !== partNumber || part.sizeBytes !== sizeBytes)
+        return yield* new SamvaCliError({
+          message: `The API returned an invalid upload target for part ${partNumber}.`,
+        });
+      return yield* uploadPart(
+        file.path,
+        source.slice(offset, offset + sizeBytes),
+        partNumber,
+        Redacted.value(part.uploadUrl),
+      );
+    }).pipe(Effect.retry({ times: 2, schedule: Schedule.exponential("250 millis") }));
+    parts.push({ partNumber, etag });
+    yield* Effect.logInfo(
+      `Uploaded part ${partNumber}/${count} for ${file.path} (${offset + sizeBytes}/${file.sizeBytes} bytes).`,
+    );
+  }
+  yield* Mailboxes.completeImportUpload({ ...params, parts }).pipe(
+    client.provide,
+    Effect.mapError((error) => toCliApiError("Could not complete mail import upload", error)),
+    Effect.retry({
+      times: 2,
+      schedule: Schedule.exponential("1 second"),
+      while: (error) => error.api?.status === undefined || error.api.status >= 500,
+    }),
+  );
 });
 
 const archivePriority = (file: ArchiveFile): number => {
@@ -214,11 +275,30 @@ export const mailboxesImportCommand = Command.make("import", {
         if (json) yield* printJson({ items: [], files: [], skippedEmpty });
         return;
       }
+      let totalSizeBytes = 0;
+      for (const file of files) {
+        if (file.sizeBytes > maxArchiveSizeBytes)
+          return yield* new CliUsageError({
+            code: "mail_import_too_large",
+            message: `${file.path} is ${file.sizeBytes} bytes. Each archive can contain up to ${maxArchiveSizeBytes} bytes.`,
+          });
+        totalSizeBytes += file.sizeBytes;
+      }
+      if (totalSizeBytes > maxImportSizeBytes)
+        return yield* new CliUsageError({
+          code: "mail_import_too_large",
+          message: `Combined archive size is ${totalSizeBytes} bytes. Each import can contain up to ${maxImportSizeBytes} bytes.`,
+        });
       const client = yield* getClientProvider;
       let importId: string | undefined;
+      // Register every archive before sending bytes, so a refusal such as the plan's storage
+      // limit arrives before anything uploads.
+      const targets: Array<{
+        readonly file: ArchiveFile;
+        readonly target: Parameters<typeof uploadArchive>[2];
+      }> = [];
       for (const file of files) {
-        yield* Effect.logInfo(`Uploading ${file.path} (${file.sizeBytes} bytes).`);
-        const target = yield* Mailboxes.createImportUpload({
+        const registered = yield* Mailboxes.createImportUpload({
           id: mailbox,
           filename: file.filename,
           sizeBytes: file.sizeBytes,
@@ -227,14 +307,21 @@ export const mailboxesImportCommand = Command.make("import", {
           ...(importId === undefined ? {} : { importId }),
         }).pipe(
           client.provide,
-          Effect.mapError((error) =>
-            importError(
-              toCliApiError("Could not create mail import upload", error),
-              mailbox,
-              importId,
-            ),
-          ),
+          Effect.mapError((error) => toCliApiError("Could not create mail import upload", error)),
+          Effect.result,
         );
+        if (registered._tag === "Failure") {
+          if (importId === undefined) return yield* registered.failure;
+          // Nothing has uploaded yet, so the partly registered import is released, not kept.
+          const discarded = yield* Mailboxes.discardImport({ id: mailbox, importId }).pipe(
+            client.provide,
+            Effect.result,
+          );
+          return yield* discarded._tag === "Success"
+            ? registered.failure
+            : importError(registered.failure, mailbox, importId);
+        }
+        const target = registered.success;
         if (importId !== undefined && target.id !== importId)
           return yield* importError(
             new SamvaCliError({
@@ -245,7 +332,11 @@ export const mailboxesImportCommand = Command.make("import", {
             importId,
           );
         importId = target.id;
-        yield* uploadArchive(file, Redacted.value(target.uploadUrl)).pipe(
+        targets.push({ file, target });
+      }
+      for (const { file, target } of targets) {
+        yield* Effect.logInfo(`Uploading ${file.path} (${file.sizeBytes} bytes).`);
+        yield* uploadArchive(file, mailbox, target, client).pipe(
           Effect.mapError((error) => importError(error, mailbox, importId)),
         );
       }
@@ -319,33 +410,34 @@ export const mailboxesImportCommand = Command.make("import", {
   ),
 );
 
-export const mailboxesImportStatusCommand = Command.make("import-status", {
-  mailbox: mailboxArgument,
-  importId: Argument.String("import-id"),
-  json: jsonFlag,
-}).pipe(
+export const mailboxesImportStatusCommand = deriveOverride(
+  "import-status",
+  {
+    mailbox: mailboxArgument,
+    importId: Argument.String("import-id"),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ mailbox, importId }) => ({ id: mailbox, importId }),
+    call: (request) => Mailboxes.getImport(request),
+    failure: "Could not read mail import",
+    render: (job) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Import ID", job.id],
+          ["Status", job.status],
+          ["Imported", job.imported],
+          ["Skipped duplicate", job.skippedDuplicate],
+          ["Skipped spam/trash", job.skippedSpamTrash],
+          ["Failed", job.failed],
+        ]);
+        for (const failure of job.failures)
+          yield* Console.log(`${failure.offset}: ${failure.message}`);
+      }),
+  },
+).pipe(
   Command.withDescription("Read a mail history import's progress and failure reasons"),
   Command.withExamples([
     { command: "samva mailboxes import-status mbx_1234567890123456 <import-id> --json" },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ mailbox, importId, json }) {
-      const client = yield* getClientProvider;
-      const job = yield* Mailboxes.getImport({ id: mailbox, importId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read mail import", error)),
-      );
-      if (json) return yield* printJson(job);
-      yield* printFields([
-        ["Import ID", job.id],
-        ["Status", job.status],
-        ["Imported", job.imported],
-        ["Skipped duplicate", job.skippedDuplicate],
-        ["Skipped spam/trash", job.skippedSpamTrash],
-        ["Failed", job.failed],
-      ]);
-      for (const failure of job.failures)
-        yield* Console.log(`${failure.offset}: ${failure.message}`);
-    }),
-  ),
 );

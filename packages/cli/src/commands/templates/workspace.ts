@@ -10,6 +10,7 @@ import * as Templates from "samva/effect/templates";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../../errors";
 import { getClientProvider } from "../../lib/client";
+import { deriveOverride } from "../../lib/derive/curated";
 import { jsonFlag, printJsonDocument } from "../../lib/output";
 
 /**
@@ -74,7 +75,16 @@ const apiFailure = (what: string) => (error: unknown) => toCliApiError(`Could no
 /** Machine-only output: these results are inputs to the caller's next call. */
 const emit = (value: unknown) => printJsonDocument(value);
 
-const open = Command.make("open", { id: templateIdArgument, json: jsonFlag }).pipe(
+const open = deriveOverride(
+  "open",
+  { id: templateIdArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Templates.openWorkspace(request),
+    failure: "Could not open the template workspace",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Open the project workspace and read its revision, files, and conflicts"),
   Command.withExamples([
     {
@@ -82,16 +92,6 @@ const open = Command.make("open", { id: templateIdArgument, json: jsonFlag }).pi
       description: "Start here: every other command is fenced to the revision this returns",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, json }) {
-      const client = yield* getClientProvider;
-      const view = yield* Templates.openWorkspace({ id }).pipe(
-        client.provide,
-        Effect.mapError(apiFailure("open the template workspace")),
-      );
-      yield* emit(view);
-    }),
-  ),
 );
 
 const diff = Command.make("diff", {
@@ -291,18 +291,33 @@ const fixture = Command.make("fixture", {
   ),
 );
 
-const save = Command.make("save", {
-  id: templateIdArgument,
-  revision: revisionFlag,
-  head: Flag.String("head").pipe(
-    Flag.withDescription(
-      "Commit the workspace expects to be the branch head, from `workspace open`",
+const save = deriveOverride(
+  "save",
+  {
+    id: templateIdArgument,
+    revision: revisionFlag,
+    head: Flag.String("head").pipe(
+      Flag.withDescription(
+        "Commit the workspace expects to be the branch head, from `workspace open`",
+      ),
     ),
-  ),
-  message: Flag.String("message").pipe(Flag.withDescription("Commit message")),
-  idempotencyKey: idempotencyKeyFlag,
-  json: jsonFlag,
-}).pipe(
+    message: Flag.String("message").pipe(Flag.withDescription("Commit message")),
+    idempotencyKey: idempotencyKeyFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, revision, head, message }) => ({
+      id,
+      expectedRevision: revision,
+      expectedHead: head,
+      message,
+    }),
+    call: (request, input) =>
+      Templates.saveWorkspace(request, { idempotencyKey: input.idempotencyKey }),
+    failure: "Could not save the template workspace",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Validate the effective tree and append one ordinary Git commit"),
   Command.withExamples([
     {
@@ -311,59 +326,58 @@ const save = Command.make("save", {
       description: "Commit the workspace; the receipt names the commit to publish",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, revision, head, message, idempotencyKey, json }) {
-      const client = yield* getClientProvider;
-      const receipt = yield* Templates.saveWorkspace(
-        {
-          id,
-          expectedRevision: revision,
-          expectedHead: head,
-          message,
-        },
-        { idempotencyKey: idempotencyKey },
-      ).pipe(client.provide, Effect.mapError(apiFailure("save the template workspace")));
-      yield* emit(receipt);
-    }),
-  ),
 );
 
-const history = Command.make("history", {
-  id: templateIdArgument,
-  limit: Flag.Int("limit").pipe(
-    Flag.withDescription("Commits to return, newest first"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("List saved commits and identify the published one"),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, limit, json }) {
-      const client = yield* getClientProvider;
-      const limitValue = Option.getOrUndefined(limit);
-      const result = yield* Templates.workspaceHistory({
-        id,
-        ...(limitValue === undefined ? {} : { limit: limitValue }),
-      }).pipe(client.provide, Effect.mapError(apiFailure("list the template workspace history")));
-      yield* emit(result);
+const history = deriveOverride(
+  "history",
+  {
+    id: templateIdArgument,
+    limit: Flag.Int("limit").pipe(
+      Flag.withDescription("Commits to return, newest first"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, limit }) => ({
+      id,
+      ...(Option.isSome(limit) ? { limit: limit.value } : {}),
     }),
-  ),
-);
+    call: (request) => Templates.workspaceHistory(request),
+    failure: "Could not list the template workspace history",
+    document: true,
+  },
+).pipe(Command.withDescription("List saved commits and identify the published one"));
 
-const publish = Command.make("publish", {
-  id: templateIdArgument,
-  revision: revisionFlag,
-  commit: Flag.String("commit").pipe(
-    Flag.withDescription("Saved commit to publish, from a `workspace save` receipt"),
-  ),
-  entry: Flag.String("entry").pipe(
-    Flag.withDescription("TSX entry path to publish, from `templates get`"),
-  ),
-  projectId: Flag.String("project-id").pipe(
-    Flag.withDescription("Project the commit belongs to, from `workspace open`"),
-  ),
-  json: jsonFlag,
-}).pipe(
+const publish = deriveOverride(
+  "publish",
+  {
+    id: templateIdArgument,
+    revision: revisionFlag,
+    commit: Flag.String("commit").pipe(
+      Flag.withDescription("Saved commit to publish, from a `workspace save` receipt"),
+    ),
+    entry: Flag.String("entry").pipe(
+      Flag.withDescription("TSX entry path to publish, from `templates get`"),
+    ),
+    projectId: Flag.String("project-id").pipe(
+      Flag.withDescription("Project the commit belongs to, from `workspace open`"),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, revision, commit, entry, projectId }) => ({
+      id,
+      projectId,
+      commitSha: commit,
+      entryPath: entry,
+      expectedWorkspaceRevision: revision,
+    }),
+    call: (request) => Templates.publish(request),
+    failure: "Could not publish the template commit",
+    document: true,
+  },
+).pipe(
   Command.withDescription("Publish an exact saved commit without a local clone"),
   Command.withExamples([
     {
@@ -373,19 +387,6 @@ const publish = Command.make("publish", {
         "Complete the workspace journey; `templates publish` is the Git-clone equivalent",
     },
   ]),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, revision, commit, entry, projectId, json }) {
-      const client = yield* getClientProvider;
-      const publication = yield* Templates.publish({
-        id,
-        projectId,
-        commitSha: commit,
-        entryPath: entry,
-        expectedWorkspaceRevision: revision,
-      }).pipe(client.provide, Effect.mapError(apiFailure("publish the template commit")));
-      yield* emit(publication);
-    }),
-  ),
 );
 
 export const workspaceCommand = Command.make("workspace").pipe(

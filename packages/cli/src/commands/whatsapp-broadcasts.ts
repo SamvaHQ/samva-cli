@@ -7,9 +7,11 @@ import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as WhatsApp from "samva/effect/whatsapp";
 
 import { SamvaCliError, toCliApiError } from "../errors";
-import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
+import { postAuthenticatedJson } from "../lib/client";
+import { connectOperation, deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson, truncateForDisplay } from "../lib/output";
 import { campaignPacingFields } from "../lib/run-hold";
 import { parseTagList } from "./campaigns";
@@ -347,17 +349,41 @@ const create = Command.make("create", {
   ),
 );
 
-const run = Command.make("run", {
-  campaignId: Argument.String("campaignId").pipe(
-    Argument.withDescription("Broadcast (campaign) id"),
-  ),
-  at: Flag.String("at").pipe(
-    Flag.withDescription("Absolute run start instant as ISO 8601 (default: now)"),
-    Flag.optional,
-  ),
-  idempotencyKey: idempotencyKeyFlag,
-  json: jsonFlag,
-}).pipe(
+const run = deriveOverride(
+  "run",
+  {
+    campaignId: Argument.String("campaignId").pipe(
+      Argument.withDescription("Broadcast (campaign) id"),
+    ),
+    at: Flag.String("at").pipe(
+      Flag.withDescription("Absolute run start instant as ISO 8601 (default: now)"),
+      Flag.optional,
+    ),
+    idempotencyKey: idempotencyKeyFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ campaignId, at, idempotencyKey }) =>
+      Effect.gen(function* () {
+        const atValue = Option.getOrUndefined(at);
+        yield* checkInstant(atValue);
+        return { campaignId, at: atValue, key: Option.getOrUndefined(idempotencyKey) };
+      }),
+    connect: connectOperation(
+      (request: {
+        readonly campaignId: string;
+        readonly at: string | undefined;
+        readonly key: string | undefined;
+      }) => scheduleRun(request.campaignId, request.at, request.key),
+    ),
+    render: (scheduled) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Run scheduled.\n");
+        yield* printRunFields(scheduled);
+        yield* warnCapacity(scheduled);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Schedule a run of a WhatsApp broadcast. Meta sets the messaging limit per business portfolio, and every number in the portfolio shares it. A run sends only what the limit has room for and resumes itself with the rest, sooner if Meta raises the limit; a large audience prints a warning. Read progress, including why recipients were skipped or are waiting, with `samva campaigns runs get`.",
   ),
@@ -368,21 +394,6 @@ const run = Command.make("run", {
       description: "Send at a future time",
     },
   ]),
-  Command.withHandler(({ campaignId, at, idempotencyKey, json }) =>
-    Effect.gen(function* () {
-      const atValue = Option.getOrUndefined(at);
-      yield* checkInstant(atValue);
-      const scheduled = yield* scheduleRun(
-        campaignId,
-        atValue,
-        Option.getOrUndefined(idempotencyKey),
-      );
-      if (json) return yield* printJson(scheduled);
-      yield* Effect.logInfo("Run scheduled.\n");
-      yield* printRunFields(scheduled);
-      yield* warnCapacity(scheduled);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 export const broadcasts = Command.make("broadcasts").pipe(
@@ -401,23 +412,6 @@ const StatsSource = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("direct") }),
 ]);
-const StatsRow = Schema.Struct({
-  templateId: Schema.String,
-  templateSlug: Schema.String,
-  name: Schema.String,
-  language: Schema.String,
-  category: Schema.NullOr(Schema.String),
-  source: StatsSource,
-  sent: Schema.Finite,
-  delivered: Schema.Finite,
-  read: Schema.Finite,
-  failed: Schema.Finite,
-  estimatedProviderCosts: Schema.Array(
-    Schema.Struct({ amount: Schema.String, currency: Schema.String }),
-  ),
-});
-const StatsList = Schema.Struct({ items: Schema.Array(StatsRow) });
-
 export interface TemplateStatsFilter {
   readonly startDate?: string | undefined;
   readonly endDate?: string | undefined;
@@ -448,14 +442,58 @@ export const sourceLabel = (source: typeof StatsSource.Type): string =>
 const optionalString = (name: string, description: string) =>
   Flag.String(name).pipe(Flag.withDescription(description), Flag.optional);
 
-export const templatesStats = Command.make("stats", {
-  startDate: optionalString("start-date", "Count messages created at or after this ISO 8601 date"),
-  endDate: optionalString("end-date", "Count messages created before this ISO 8601 date"),
-  templateId: optionalString("template-id", "Only this template (tmpl_…)"),
-  campaignId: optionalString("campaign-id", "Only messages a campaign sent (camp_…)"),
-  journeyId: optionalString("journey-id", "Only messages a journey sent (jrny_…)"),
-  json: jsonFlag,
-}).pipe(
+export const templatesStats = deriveOverride(
+  "stats",
+  {
+    startDate: optionalString(
+      "start-date",
+      "Count messages created at or after this ISO 8601 date",
+    ),
+    endDate: optionalString("end-date", "Count messages created before this ISO 8601 date"),
+    templateId: optionalString("template-id", "Only this template (tmpl_…)"),
+    campaignId: optionalString("campaign-id", "Only messages a campaign sent (camp_…)"),
+    journeyId: optionalString("journey-id", "Only messages a journey sent (jrny_…)"),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ startDate, endDate, templateId, campaignId, journeyId }) => ({
+      startDate: Option.getOrUndefined(startDate),
+      endDate: Option.getOrUndefined(endDate),
+      templateId: Option.getOrUndefined(templateId),
+      campaignId: Option.getOrUndefined(campaignId),
+      journeyId: Option.getOrUndefined(journeyId),
+    }),
+    call: (request) => WhatsApp.getTemplateStats(request),
+    failure: "Could not read WhatsApp template stats",
+    render: (stats) =>
+      Effect.gen(function* () {
+        if (stats.items.length === 0) {
+          return yield* Console.log("No WhatsApp template messages in this range.");
+        }
+        for (const row of stats.items) {
+          yield* printFields([
+            ["Template", `${row.templateSlug} (${row.templateId})`],
+            [
+              "Name",
+              `${row.name} (${row.language})${row.category === null ? "" : `, ${row.category}`}`,
+            ],
+            ["Source", sourceLabel(row.source)],
+            ["Sent", String(row.sent)],
+            ["Delivered", String(row.delivered)],
+            ["Read", String(row.read)],
+            ["Failed", String(row.failed)],
+            [
+              "Estimated cost",
+              row.estimatedProviderCosts
+                .map((cost) => `${cost.amount} ${cost.currency}`)
+                .join(", "),
+            ],
+          ]);
+          yield* Console.log("");
+        }
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Sent, delivered, read, and failed counts and Meta's estimated cost for each WhatsApp template, split by what sent it: a campaign, a journey step, or a direct send",
   ),
@@ -466,43 +504,4 @@ export const templatesStats = Command.make("stats", {
       description: "How one broadcast performed",
     },
   ]),
-  Command.withHandler((flags) =>
-    Effect.gen(function* () {
-      const body = yield* getAuthenticatedJson(
-        templateStatsPath({
-          startDate: Option.getOrUndefined(flags.startDate),
-          endDate: Option.getOrUndefined(flags.endDate),
-          templateId: Option.getOrUndefined(flags.templateId),
-          campaignId: Option.getOrUndefined(flags.campaignId),
-          journeyId: Option.getOrUndefined(flags.journeyId),
-        }),
-      ).pipe(
-        Effect.mapError((error) => toCliApiError("Could not read WhatsApp template stats", error)),
-      );
-      const stats = yield* decode(StatsList, "stats response")(body);
-      if (flags.json) return yield* printJson(stats);
-      if (stats.items.length === 0) {
-        return yield* Console.log("No WhatsApp template messages in this range.");
-      }
-      for (const row of stats.items) {
-        yield* printFields([
-          ["Template", `${row.templateSlug} (${row.templateId})`],
-          [
-            "Name",
-            `${row.name} (${row.language})${row.category === null ? "" : `, ${row.category}`}`,
-          ],
-          ["Source", sourceLabel(row.source)],
-          ["Sent", String(row.sent)],
-          ["Delivered", String(row.delivered)],
-          ["Read", String(row.read)],
-          ["Failed", String(row.failed)],
-          [
-            "Estimated cost",
-            row.estimatedProviderCosts.map((cost) => `${cost.amount} ${cost.currency}`).join(", "),
-          ],
-        ]);
-        yield* Console.log("");
-      }
-    }).pipe(flags.json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );

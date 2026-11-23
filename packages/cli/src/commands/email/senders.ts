@@ -8,93 +8,75 @@ import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Email from "samva/effect/email";
 
-import { CliUsageError, getConflictError, toCliApiError } from "../../errors";
+import { getConflictError, toCliApiError } from "../../errors";
 import { getClientProvider } from "../../lib/client";
-import { confirmDestructive } from "../../lib/confirm";
+import { deriveOverride } from "../../lib/derive/curated";
 import {
   namespaceField,
   namespaceFlag,
   placedAsRequested,
   placementLabel,
 } from "../../lib/namespace";
-import { jsonFlag, printFields, printJson, printJsonLine, withoutSeries } from "../../lib/output";
-import { isJsonLinesRequested } from "../../lib/runtime";
+import { jsonFlag, printFields, printJson, withoutSeries } from "../../lib/output";
 
-const list = Command.make("list", {
-  cursor: Flag.String("cursor").pipe(
-    Flag.withDescription("Resume after this nextCursor from a previous page"),
-    Flag.optional,
-  ),
-  limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
-  namespace: namespaceFlag("list"),
-  all: Flag.Boolean("all").pipe(
-    Flag.withDescription("Traverse every page (requires --jsonl)"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const list = deriveOverride(
+  "list",
+  {
+    cursor: Flag.String("cursor").pipe(
+      Flag.withDescription("Resume after this nextCursor from a previous page"),
+      Flag.optional,
+    ),
+    limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
+    namespace: namespaceFlag("list"),
+    all: Flag.Boolean("all").pipe(
+      Flag.withDescription("Traverse every page (requires --jsonl)"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ cursor, limit, namespace }) => ({
+      cursor: Option.getOrUndefined(cursor),
+      limit: Option.getOrUndefined(limit),
+      ...namespaceField(namespace),
+    }),
+    call: (request) => Email.listSenders(request),
+    failure: "Could not list senders",
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+      mapItem: withoutSeries,
+    },
+    mapOutput: (data) => ({ ...data, items: data.items.map(withoutSeries) }),
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) {
+          return yield* Console.log(
+            "No senders yet. Add one with `samva email senders add --email you@example.com`.",
+          );
+        }
+        for (const sender of data.items) {
+          yield* printFields([
+            ["Email", sender.email],
+            ["Name", sender.name],
+            ["Status", sender.verificationStatus],
+            ["Sendable", sender.sendable ? "yes" : "no"],
+            ["Provider", sender.providerLifecycle],
+            ["Default", sender.isDefault ? "yes" : "no"],
+            ["Namespace", sender.namespaceId ?? "organization"],
+            ["ID", sender.id],
+          ]);
+          yield* Console.log("");
+        }
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List verified sender addresses"),
   Command.withExamples([
     { command: "samva email senders list" },
     { command: "samva email senders list --json" },
   ]),
-  Command.withHandler(({ cursor, limit, namespace, all, json }) =>
-    Effect.gen(function* () {
-      if (all && !isJsonLinesRequested())
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      const client = yield* getClientProvider;
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const query = {
-        cursor: cursorValue,
-        limit: limitValue,
-        ...namespaceField(namespace),
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* Email.listSenders({ ...query, cursor: nextCursor }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list senders", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(withoutSeries(item));
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* Email.listSenders(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list senders", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(withoutSeries(item));
-        return;
-      }
-      if (json) return yield* printJson({ ...data, items: data.items.map(withoutSeries) });
-      if (data.items.length === 0) {
-        return yield* Console.log(
-          "No senders yet. Add one with `samva email senders add --email you@example.com`.",
-        );
-      }
-      for (const sender of data.items) {
-        yield* printFields([
-          ["Email", sender.email],
-          ["Name", sender.name],
-          ["Status", sender.verificationStatus],
-          ["Sendable", sender.sendable ? "yes" : "no"],
-          ["Provider", sender.providerLifecycle],
-          ["Default", sender.isDefault ? "yes" : "no"],
-          ["Namespace", sender.namespaceId ?? "organization"],
-          ["ID", sender.id],
-        ]);
-        yield* Console.log("");
-      }
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const add = Command.make("add", {
@@ -207,10 +189,24 @@ const add = Command.make("add", {
   ),
 );
 
-const check = Command.make("check", {
-  id: Argument.String("id").pipe(Argument.withDescription("Sender id to check")),
-  json: jsonFlag,
-}).pipe(
+const check = deriveOverride(
+  "check",
+  {
+    id: Argument.String("id").pipe(Argument.withDescription("Sender id to check")),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Email.checkSenderVerification(request),
+    failure: "Could not check sender",
+    render: (data) =>
+      printFields([
+        ["Email", data.email],
+        ["Status", data.status],
+        ["Verified at", data.verifiedAt ?? null],
+      ]),
+  },
+).pipe(
   Command.withDescription("Check a sender's verification status"),
   Command.withExamples([
     {
@@ -218,103 +214,79 @@ const check = Command.make("check", {
       description: "Poll sender verification",
     },
   ]),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Email.checkSenderVerification({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not check sender", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["Email", data.email],
-        ["Status", data.status],
-        ["Verified at", data.verifiedAt ?? null],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const setDefault = Command.make("set-default", {
-  id: Argument.String("id").pipe(Argument.withDescription("Sender id to make the default")),
-  namespace: namespaceFlag("create").pipe(
-    Flag.withDescription(
-      "Choose the default sender for this namespace; omit for the credential scope",
+const setDefault = deriveOverride(
+  "set-default",
+  {
+    id: Argument.String("id").pipe(Argument.withDescription("Sender id to make the default")),
+    namespace: namespaceFlag("create").pipe(
+      Flag.withDescription(
+        "Choose the default sender for this namespace; omit for the credential scope",
+      ),
     ),
-  ),
-  dryRun: Flag.Boolean("dry-run").pipe(
-    Flag.withDescription("Print the planned change without calling the API"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDescription("Print the planned change without calling the API"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, namespace }) => ({ id, ...namespaceField(namespace) }),
+    call: (request) => Email.setDefaultSender(request),
+    failure: "Could not set the default sender",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "email.senders.set-default", ...request }),
+      render: (request) =>
+        Console.log(`[dry-run] Would make sender ${request.id} the default sender.`),
+    },
+    render: (_data, _input, request) =>
+      Console.log(`Sender ${request.id} is now the default sender.`),
+  },
+).pipe(
   Command.withDescription("Make a verified sender the default From address for its scope"),
   Command.withExamples([
     { command: "samva email senders set-default sender_abc123 --dry-run" },
     { command: "samva email senders set-default sender_abc123" },
     { command: "samva email senders set-default sender_abc123 --namespace ns_1234567890123456" },
   ]),
-  Command.withHandler(({ id, namespace, dryRun, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({
-              dryRun: true,
-              action: "email.senders.set-default",
-              id,
-              ...namespaceField(namespace),
-            })
-          : Console.log(`[dry-run] Would make sender ${id} the default sender.`);
-      const client = yield* getClientProvider;
-      const data = yield* Email.setDefaultSender({ id, ...namespaceField(namespace) }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not set the default sender", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Console.log(`Sender ${id} is now the default sender.`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const remove = Command.make("remove", {
-  id: Argument.String("id").pipe(Argument.withDescription("Sender id to permanently remove")),
-  dryRun: Flag.Boolean("dry-run").pipe(
-    Flag.withDescription("Print the deletion plan without calling the API"),
-    Flag.withDefault(false),
-  ),
-  yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm permanent deletion (required for non-interactive use)"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const remove = deriveOverride(
+  "remove",
+  {
+    id: Argument.String("id").pipe(Argument.withDescription("Sender id to permanently remove")),
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDescription("Print the deletion plan without calling the API"),
+      Flag.withDefault(false),
+    ),
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDescription("Confirm permanent deletion (required for non-interactive use)"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Email.removeSender(request),
+    failure: "Could not remove sender",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "email.senders.remove", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would permanently remove sender ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Permanently remove sender ${request.id}?`,
+      nonInteractiveMessage:
+        "Permanent sender deletion requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (_data, _input, request) => Console.log(`Removed sender ${request.id}.`),
+  },
+).pipe(
   Command.withDescription("Permanently remove a sender"),
   Command.withExamples([
     { command: "samva email senders remove sender_abc123 --dry-run" },
     { command: "samva email senders remove sender_abc123 --yes" },
   ]),
-  Command.withHandler(({ id, dryRun, yes, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "email.senders.remove", id })
-          : Console.log(`[dry-run] Would permanently remove sender ${id}.`);
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Permanently remove sender ${id}?`,
-        nonInteractiveMessage:
-          "Permanent sender deletion requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      const data = yield* Email.removeSender({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not remove sender", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Console.log(`Removed sender ${id}.`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 export const sendersCommand = Command.make("senders").pipe(

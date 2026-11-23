@@ -1,5 +1,4 @@
 import {
-  CreatedWhatsAppSetupLink,
   WHATSAPP_SETUP_LINK_STATUS_VALUES,
   WhatsAppSetupLink,
 } from "@samva/core/whatsapp/setup-link";
@@ -9,13 +8,12 @@ import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as WhatsAppSetupLinks from "samva/effect/whatsapp-setup-links";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
-import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
-import { jsonFlag, printFields, printJson } from "../lib/output";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields } from "../lib/output";
 
 /**
  * `samva whatsapp setup-links create | list | get | revoke` — hosted links a platform hands its
@@ -29,12 +27,6 @@ import { jsonFlag, printFields, printJson } from "../lib/output";
 /** Links as the API wire carries them: dates stay ISO strings. */
 const WireSetupLink = Schema.toEncoded(WhatsAppSetupLink);
 export type WireSetupLink = typeof WireSetupLink.Type;
-const WireCreatedSetupLink = Schema.toEncoded(CreatedWhatsAppSetupLink);
-type WireCreatedSetupLink = typeof WireCreatedSetupLink.Type;
-const WireSetupLinkPage = Schema.Struct({
-  items: Schema.Array(WireSetupLink),
-  nextCursor: Schema.NullOr(Schema.String),
-});
 
 const linkIdArgument = Argument.String("link-id").pipe(
   Argument.withDescription("Setup link id (wasl_…), from `samva whatsapp setup-links list`"),
@@ -136,38 +128,63 @@ export const setupLinkFields = (link: WireSetupLink): ReadonlyArray<readonly [st
   ...Object.entries(link.metadata).map(([key, value]) => [`Metadata ${key}`, value] as const),
 ];
 
-const unreadable = (what: string) => () =>
-  new SamvaCliError({ message: `The API answered with an unreadable ${what}.` });
-
-const quiet = <A, E, R>(json: boolean, effect: Effect.Effect<A, E, R>) =>
-  json ? Effect.provideService(effect, References.MinimumLogLevel, "None") : effect;
-
-const decodeLink = (body: unknown) =>
-  Schema.decodeUnknownEffect(WireSetupLink)(body).pipe(Effect.mapError(unreadable("setup link")));
-
-const create = Command.make("create", {
-  namespace: Flag.String("namespace").pipe(
-    Flag.withDescription("Namespace (ns_…) the connected number joins"),
-  ),
-  redirectUrl: Flag.String("redirect-url").pipe(
-    Flag.withDescription("Absolute https URL the hosted page sends your customer to afterwards"),
-    Flag.optional,
-  ),
-  metadata: Flag.String("metadata").pipe(
-    Flag.withDescription(
-      "Your own label, key=value (repeatable); returned on the link and the whatsapp.number.connected event",
+const create = deriveOverride(
+  "create",
+  {
+    namespace: Flag.String("namespace").pipe(
+      Flag.withDescription("Namespace (ns_…) the connected number joins"),
     ),
-    Flag.withMetavar("key=value"),
-    Flag.atLeast(0),
-  ),
-  expiresAt: Flag.String("expires-at").pipe(
-    Flag.withDescription(
-      "ISO 8601 instant the link stops working; at most 30 days ahead, 7 days when omitted",
+    redirectUrl: Flag.String("redirect-url").pipe(
+      Flag.withDescription("Absolute https URL the hosted page sends your customer to afterwards"),
+      Flag.optional,
     ),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+    metadata: Flag.String("metadata").pipe(
+      Flag.withDescription(
+        "Your own label, key=value (repeatable); returned on the link and the whatsapp.number.connected event",
+      ),
+      Flag.withMetavar("key=value"),
+      Flag.atLeast(0),
+    ),
+    expiresAt: Flag.String("expires-at").pipe(
+      Flag.withDescription(
+        "ISO 8601 instant the link stops working; at most 30 days ahead, 7 days when omitted",
+      ),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ namespace, redirectUrl, metadata, expiresAt }) =>
+      Effect.gen(function* () {
+        const pairs = yield* parseMetadataPairs(metadata);
+        const expires = Option.getOrUndefined(expiresAt);
+        if (expires !== undefined && Number.isNaN(Date.parse(expires))) {
+          return yield* new CliUsageError({
+            code: "invalid_expires_at",
+            message: `--expires-at must be an ISO 8601 instant such as 2027-01-01T00:00:00Z, got "${expires}".`,
+          });
+        }
+        return createSetupLinkPayload({
+          namespaceId: namespace,
+          redirectUrl: Option.getOrUndefined(redirectUrl),
+          metadata: pairs,
+          expiresAt: expires,
+        });
+      }),
+    call: (request) => WhatsAppSetupLinks.create(request),
+    failure: setupLinkError("create the setup link"),
+    render: (link) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Setup link created.\n");
+        yield* Console.log(link.url);
+        yield* Console.log("");
+        yield* printFields(setupLinkFields(link));
+        yield* Console.log(
+          "\nThis URL is shown once; Samva keeps only a digest of its token. Send it to your customer now.",
+        );
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Create a single-use link your customer opens to connect their WhatsApp number into a namespace. The URL is shown once.",
   ),
@@ -178,83 +195,39 @@ const create = Command.make("create", {
       description: "Create a link for one of your customers and keep the printed URL",
     },
   ]),
-  Command.withHandler(({ namespace, redirectUrl, metadata, expiresAt, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const pairs = yield* parseMetadataPairs(metadata);
-        const expires = Option.getOrUndefined(expiresAt);
-        if (expires !== undefined && Number.isNaN(Date.parse(expires))) {
-          return yield* new CliUsageError({
-            code: "invalid_expires_at",
-            message: `--expires-at must be an ISO 8601 instant such as 2027-01-01T00:00:00Z, got "${expires}".`,
-          });
-        }
-        const body = yield* postAuthenticatedJson(setupLinksPath(), {
-          body: createSetupLinkPayload({
-            namespaceId: namespace,
-            redirectUrl: Option.getOrUndefined(redirectUrl),
-            metadata: pairs,
-            expiresAt: expires,
-          }),
-        }).pipe(Effect.mapError(setupLinkError("create the setup link")));
-        const link = yield* Schema.decodeUnknownEffect(WireCreatedSetupLink)(body).pipe(
-          Effect.mapError(unreadable("setup link")),
-        );
-        if (json) return yield* printJson(link);
-        yield* Effect.logInfo("Setup link created.\n");
-        yield* Console.log(link.url);
-        yield* Console.log("");
-        yield* printFields(setupLinkFields(link));
-        yield* Console.log(
-          "\nThis URL is shown once; Samva keeps only a digest of its token. Send it to your customer now.",
-        );
-      }),
-    ),
-  ),
 );
 
-const list = Command.make("list", {
-  namespace: Flag.String("namespace").pipe(
-    Flag.withDescription("Only links for this namespace (ns_…)"),
-    Flag.optional,
-  ),
-  status: Flag.Literals("status", WHATSAPP_SETUP_LINK_STATUS_VALUES).pipe(
-    Flag.withDescription(
-      `Only links in this state: ${WHATSAPP_SETUP_LINK_STATUS_VALUES.join(", ")}`,
+const list = deriveOverride(
+  "list",
+  {
+    namespace: Flag.String("namespace").pipe(
+      Flag.withDescription("Only links for this namespace (ns_…)"),
+      Flag.optional,
     ),
-    Flag.optional,
-  ),
-  limit: Flag.Int("limit").pipe(Flag.withDescription("Links per page"), Flag.optional),
-  cursor: Flag.String("cursor").pipe(
-    Flag.withDescription("Resume after this nextCursor from a previous page"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("List WhatsApp setup links, newest first"),
-  Command.withExamples([
-    {
-      command: "samva whatsapp setup-links list --namespace ns_abc123 --status pending",
-      description: "See the links still waiting for a customer",
-    },
-  ]),
-  Command.withHandler(({ namespace, status, limit, cursor, json }) =>
-    quiet(
-      json,
+    status: Flag.Literals("status", WHATSAPP_SETUP_LINK_STATUS_VALUES).pipe(
+      Flag.withDescription(
+        `Only links in this state: ${WHATSAPP_SETUP_LINK_STATUS_VALUES.join(", ")}`,
+      ),
+      Flag.optional,
+    ),
+    limit: Flag.Int("limit").pipe(Flag.withDescription("Links per page"), Flag.optional),
+    cursor: Flag.String("cursor").pipe(
+      Flag.withDescription("Resume after this nextCursor from a previous page"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ namespace, status, limit, cursor }) => ({
+      namespaceId: Option.getOrUndefined(namespace),
+      status: Option.getOrUndefined(status),
+      limit: Option.getOrUndefined(limit),
+      cursor: Option.getOrUndefined(cursor),
+    }),
+    call: (request) => WhatsAppSetupLinks.list(request),
+    failure: setupLinkError("list setup links"),
+    render: (page) =>
       Effect.gen(function* () {
-        const body = yield* getAuthenticatedJson(
-          listSetupLinksPath({
-            namespaceId: Option.getOrUndefined(namespace),
-            status: Option.getOrUndefined(status),
-            limit: Option.getOrUndefined(limit),
-            cursor: Option.getOrUndefined(cursor),
-          }),
-        ).pipe(Effect.mapError(setupLinkError("list setup links")));
-        const page = yield* Schema.decodeUnknownEffect(WireSetupLinkPage)(body).pipe(
-          Effect.mapError(unreadable("list")),
-        );
-        if (json) return yield* printJson(page);
         if (page.items.length === 0) {
           yield* Effect.logInfo(
             "No setup links. Create one with `samva whatsapp setup-links create --namespace <id>`.",
@@ -267,35 +240,55 @@ const list = Command.make("list", {
         }
         if (page.nextCursor !== null) yield* printFields([["Next cursor", page.nextCursor]]);
       }),
-    ),
-  ),
+  },
+).pipe(
+  Command.withDescription("List WhatsApp setup links, newest first"),
+  Command.withExamples([
+    {
+      command: "samva whatsapp setup-links list --namespace ns_abc123 --status pending",
+      description: "See the links still waiting for a customer",
+    },
+  ]),
 );
 
-const get = Command.make("get", { id: linkIdArgument, json: jsonFlag }).pipe(
+const get = deriveOverride(
+  "get",
+  { id: linkIdArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ linkId: id }),
+    call: (request) => WhatsAppSetupLinks.get(request),
+    failure: setupLinkError("get the setup link"),
+    render: (link) => printFields(setupLinkFields(link)),
+  },
+).pipe(
   Command.withDescription("Get one setup link (its URL is not retrievable after creation)"),
   Command.withExamples([
     { command: "samva whatsapp setup-links get wasl_abc123", description: "Read a link's status" },
   ]),
-  Command.withHandler(({ id, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        const body = yield* getAuthenticatedJson(setupLinksPath(id)).pipe(
-          Effect.mapError(setupLinkError("get the setup link")),
-        );
-        const link = yield* decodeLink(body);
-        if (json) return yield* printJson(link);
-        yield* printFields(setupLinkFields(link));
-      }),
-    ),
-  ),
 );
 
-const revoke = Command.make("revoke", {
-  id: linkIdArgument,
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
-  json: jsonFlag,
-}).pipe(
+const revoke = deriveOverride(
+  "revoke",
+  {
+    id: linkIdArgument,
+    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ linkId: id }),
+    call: (request) => WhatsAppSetupLinks.revoke(request),
+    failure: setupLinkError("revoke the setup link"),
+    confirmation: (request) => ({
+      message: `Revoke setup link ${request.linkId}? Your customer can no longer use it, and a new link must be sent.`,
+      nonInteractiveMessage: "Revoking a setup link requires --yes in non-interactive mode.",
+    }),
+    render: (link) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Setup link revoked.\n");
+        yield* printFields(setupLinkFields(link));
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Revoke a pending setup link so it can no longer connect a number. A link that connected, was revoked, or expired answers 410.",
   ),
@@ -305,26 +298,6 @@ const revoke = Command.make("revoke", {
       description: "Stop a pending link",
     },
   ]),
-  Command.withHandler(({ id, yes, json }) =>
-    quiet(
-      json,
-      Effect.gen(function* () {
-        yield* confirmDestructive({
-          yes,
-          json,
-          message: `Revoke setup link ${id}? Your customer can no longer use it, and a new link must be sent.`,
-          nonInteractiveMessage: "Revoking a setup link requires --yes in non-interactive mode.",
-        });
-        const body = yield* postAuthenticatedJson(setupLinksPath(id, "revoke"), {
-          body: {},
-        }).pipe(Effect.mapError(setupLinkError("revoke the setup link")));
-        const link = yield* decodeLink(body);
-        if (json) return yield* printJson(link);
-        yield* Effect.logInfo("Setup link revoked.\n");
-        yield* printFields(setupLinkFields(link));
-      }),
-    ),
-  ),
 );
 
 export const setupLinks = Command.make("setup-links").pipe(

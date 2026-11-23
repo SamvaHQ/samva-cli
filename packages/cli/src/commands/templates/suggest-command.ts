@@ -3,13 +3,10 @@ import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
-import { identity } from "effect/Function";
-import * as References from "effect/References";
 import * as Templates from "samva/effect/templates";
 
-import { toCliApiError } from "../../errors";
-import { getClientProvider } from "../../lib/client";
-import { jsonFlag, printJson } from "../../lib/output";
+import { deriveOverride } from "../../lib/derive/curated";
+import { jsonFlag } from "../../lib/output";
 
 export const briefArgument = Argument.String("brief").pipe(
   Argument.withDescription("What the email or WhatsApp message is for, in a sentence or two"),
@@ -49,11 +46,29 @@ export const channelFlag = Flag.Literals("channel", ["email", "whatsapp"]).pipe(
   Flag.withDefault("email"),
 );
 
-export const suggestCommand = Command.make("suggest", {
-  brief: briefArgument,
-  channel: channelFlag,
-  json: jsonFlag,
-}).pipe(
+export const suggestCommand = deriveOverride(
+  "suggest",
+  {
+    brief: briefArgument,
+    channel: channelFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ brief, channel }) => ({ brief, channel }),
+    call: (request) => Templates.suggestStarters(request),
+    failure: "Could not suggest templates",
+    render: (result) =>
+      Effect.gen(function* () {
+        if (result.suggestions.length === 0) return yield* Console.log("No suggestions.");
+        for (const [index, suggestion] of result.suggestions.entries())
+          yield* Console.log(
+            `${index + 1}. ${suggestion.name} (${suggestion.galleryTemplateId})\n   ${suggestion.reason}`,
+          );
+        const note = recreationNote(result.recreation);
+        if (note !== null) yield* Console.log(`\n${note}`);
+      }),
+  },
+).pipe(
   Command.withDescription("Suggest the gallery designs that fit a brief, best first"),
   Command.withExamples([
     {
@@ -65,21 +80,4 @@ export const suggestCommand = Command.make("suggest", {
       description: "Machine-readable suggestions and recreation match",
     },
   ]),
-  Command.withHandler(({ brief, channel, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const result = yield* Templates.suggestStarters({ brief, channel }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not suggest templates", error)),
-      );
-      if (json) return yield* printJson(result);
-      if (result.suggestions.length === 0) return yield* Console.log("No suggestions.");
-      for (const [index, suggestion] of result.suggestions.entries())
-        yield* Console.log(
-          `${index + 1}. ${suggestion.name} (${suggestion.galleryTemplateId})\n   ${suggestion.reason}`,
-        );
-      const note = recreationNote(result.recreation);
-      if (note !== null) yield* Console.log(`\n${note}`);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );

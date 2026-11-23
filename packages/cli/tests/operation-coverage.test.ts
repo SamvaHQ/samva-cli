@@ -1,117 +1,57 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "@effect/vitest";
+import { publicOperations } from "@samva/contracts/surface/operations";
 
-// oxlint-disable-next-line samva/no-cross-package-relative-imports -- the operation map is an SDK source file, not a package export
-import { SDK_EFFECT_MODULES, SDK_SERVICE_OPERATIONS } from "../../sdk/src/service-map";
+import { curatedOverrides } from "../src/commands/overrides";
+import { derivedOperations, operationCommandPath } from "../src/lib/derive/tree";
 import { rootCommands } from "../src/lib/root-commands";
-import { curatedCommands, OPERATION_COVERAGE } from "./support/operation-coverage";
-
-// Every public API operation is reachable through `samva api`. This table records which ones also
-// have a curated command. Other generated operations use the generic API command.
+import { commandNameFromArgv } from "../src/lib/runtime";
+import curatedHelp from "./support/curated-help-baseline.json";
 
 interface CommandNode {
   readonly name: string;
   readonly subcommands: ReadonlyArray<{ readonly commands: ReadonlyArray<CommandNode> }>;
 }
 
-// The legacy thread-list command still runs directly and also hosts the delete subcommand.
-const RUNNABLE_GROUPS = new Set(["mailboxes threads"]);
-
 const runnablePaths = (node: CommandNode, prefix: ReadonlyArray<string>): Array<string> => {
   const path = [...prefix, node.name];
   const children = node.subcommands.flatMap((group) => group.commands);
   const joined = path.join(" ");
-  const runnable = children.length === 0 || RUNNABLE_GROUPS.has(joined) ? [joined] : [];
+  // The thread-list command runs directly and also hosts a delete subcommand.
+  const runnable = children.length === 0 || joined === "mailboxes threads" ? [joined] : [];
   return [...runnable, ...children.flatMap((child) => runnablePaths(child, path))];
 };
-const commandPaths = new Set(
-  (rootCommands as ReadonlyArray<CommandNode>).flatMap((command) => runnablePaths(command, [])),
+
+const paths = rootCommands.flatMap((command) => runnablePaths(command, []));
+const operations = publicOperations();
+const derivedPaths = derivedOperations.map((operation) =>
+  operationCommandPath(operation).join(" "),
 );
 
-const sdkOperations = new Map<string, Array<string>>();
-for (const [service, operations] of Object.entries(SDK_SERVICE_OPERATIONS)) {
-  for (const [method, operationId] of Object.entries(operations)) {
-    sdkOperations.set(operationId, [
-      ...(sdkOperations.get(operationId) ?? []),
-      `${service}.${method}`,
-    ]);
-  }
-}
-
-/** Operations a command calls only to read back the result of its own write, never as its purpose. */
-const READBACK_ONLY = new Set(["emailGetDomainById"]);
-
-const operationsForModule = (module: string): Readonly<Record<string, string>> => {
-  const mapping: Readonly<Record<string, string>> = SDK_EFFECT_MODULES;
-  const service = mapping[module];
-  if (service === undefined) throw new Error(`Unknown SDK Effect module: ${module}`);
-  const services: Readonly<Record<string, Readonly<Record<string, string>>>> =
-    SDK_SERVICE_OPERATIONS;
-  const operations = services[service];
-  if (operations === undefined) throw new Error(`Unknown SDK service: ${service}`);
-  return operations;
-};
-
 describe("CLI operation coverage", () => {
-  it("resolves generated module names and rejects unknown imports", () => {
-    expect(operationsForModule("whatsapp")).toBe(SDK_SERVICE_OPERATIONS.whatsapp);
-    expect(operationsForModule("whatsapp-flows")).toBe(SDK_SERVICE_OPERATIONS.whatsappFlows);
-    expect(operationsForModule("whatsapp-setup-links")).toBe(
-      SDK_SERVICE_OPERATIONS.whatsappSetupLinks,
-    );
-    expect(() => operationsForModule("unknown-module")).toThrow(
-      "Unknown SDK Effect module: unknown-module",
-    );
-  });
-  it("keeps curated overrides tied to generated operations", () => {
-    const stale = Object.keys(curatedCommands).filter((id) => !sdkOperations.has(id));
-    expect(stale, "Remove curated overrides for operations the SDK no longer has.").toEqual([]);
+  it("registers a runnable path for every public operation", () => {
+    const missing = operations.flatMap((operation) => {
+      const path = operationCommandPath(operation);
+      return paths.includes(path.join(" ")) ? [] : [operation.operationId];
+    });
+    expect(missing).toEqual([]);
   });
 
-  it("names only commands that exist", () => {
-    const missing = Object.entries(OPERATION_COVERAGE).filter(
-      ([, command]) => command !== "api" && !commandPaths.has(command),
-    );
-    expect(missing, "A covering command must be runnable, such as `email domains list`.").toEqual(
-      [],
-    );
-  });
-
-  it("marks no operation api that a command calls through the SDK", () => {
-    const sourceRoot = fileURLToPath(new URL("../src", import.meta.url));
-    const files = (dir: string): Array<string> =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-        entry.isDirectory()
-          ? files(join(dir, entry.name))
-          : entry.name.endsWith(".ts")
-            ? [join(dir, entry.name)]
-            : [],
-      );
-    const called = new Set<string>();
-    for (const file of files(sourceRoot)) {
-      const source = readFileSync(file, "utf8");
-      for (const [, alias, module] of source.matchAll(
-        /import \* as (\w+) from "samva\/effect\/([\w-]+)"/g,
-      )) {
-        // Client configures transport; it does not expose an operation group.
-        if (module === "client") continue;
-        const operations = operationsForModule(module!);
-        for (const [, method] of source.matchAll(new RegExp(`\\b${alias}\\.(\\w+)\\b`, "g"))) {
-          const operationId = operations[method as string];
-          if (operationId !== undefined) called.add(operationId);
-        }
-      }
-    }
-    const stale = [...called].filter(
-      (id) => OPERATION_COVERAGE[id] === "api" && !READBACK_ONLY.has(id),
-    );
+  it("gives each derived operation its own path alongside released commands", () => {
+    expect(new Set(derivedPaths).size).toBe(derivedOperations.length);
     expect(
-      stale,
-      "A command calls these operations; point each at its command in tests/support/operation-coverage.ts.",
+      derivedPaths.filter(
+        (path) => commandNameFromArgv(path.split(" ")) !== path.replaceAll(" ", "."),
+      ),
     ).toEqual([]);
-    expect(called.size).toBeGreaterThan(100);
+    expect(derivedPaths.filter((path) => Object.hasOwn(curatedHelp, path))).toEqual([]);
+    expect(paths.length).toBe(new Set(paths).size);
+  });
+
+  it("ties every curated override to an existing public operation and released command", () => {
+    const ids = new Set(operations.map(({ operationId }) => operationId));
+    const stale = Object.entries(curatedOverrides).filter(
+      ([id, path]) => !ids.has(id) || !Object.hasOwn(curatedHelp, path),
+    );
+    expect(stale).toEqual([]);
   });
 });

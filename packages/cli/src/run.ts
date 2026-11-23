@@ -27,6 +27,7 @@ import {
   commandNameFromArgv,
   isKnownRootCommand,
   outputModeFromArgv,
+  registerCommandTree,
   validateProcessArgs,
 } from "./lib/runtime";
 
@@ -39,6 +40,7 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
     BunServices.BunServices | Keyring.Service | HttpClient.HttpClient | SecureRandom.SecureRandom
   >,
 ) => {
+  registerCommandTree(cli.subcommands.flatMap(({ commands }) => commands));
   const argv = process.argv.slice(2);
   const outputMode = outputModeFromArgv(argv);
   const machineMode = outputMode === "json" || outputMode === "jsonl";

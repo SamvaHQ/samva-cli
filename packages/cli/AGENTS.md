@@ -10,7 +10,15 @@ Machine-readable results go to stdout; warnings and typed errors go to stderr. E
 fields. Follow `next` and fix `details.fields` before retrying. API 401 and 403 exit with code `4`;
 other operational failures exit with code `1`. Human mode prints the same message and recovery step.
 
-`samva api <path>` is the floor under every command: it calls any public endpoint with the CLI's
+Every public operation has a command. Discover derived commands with `samva --help` and inspect
+their arguments with `samva <group> <operation> --help --json`. Derived commands turn path
+parameters into positionals and scalar inputs into flags. Repeat an array flag once per value.
+For a nested payload, pass the complete JSON with `--data '<json>'`, `--data @payload.json`, or
+`--data -` for piped stdin. Supply the body through either `--data` or individual payload flags.
+Unknown fields fail before any request. Use `--all --jsonl` for every page, `--dry-run` to preview
+mutations without credentials, and `--yes` to confirm destructive actions in automation.
+
+`samva api <path>` calls any public endpoint directly with the CLI's
 credentials (`SAMVA_API_KEY`, or the signed-in profile and its organization) and prints the API
 response as returned, not the `{schemaVersion,...}` envelope, so `--json` and `--jsonl` are refused
 (exit `2`). The path is relative to the API URL (`email/domains` and `/v1/email/domains` are the same

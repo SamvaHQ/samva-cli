@@ -98,8 +98,8 @@ const startPendingMessageApi = (
       status: "sent",
       attemptCount: 1,
       waitReason: null,
-      skippedRecipients: [],
       nextRetryAt: null,
+      queuedAt: null,
       sentAt: now,
       deliveredAt: null,
       readAt: null,
@@ -198,6 +198,10 @@ const startPendingMessageApi = (
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
+            id: message.id,
+            status: delivered() ? "delivered" : message.status,
+            skippedRecipients: message.skippedRecipients,
+            reply: { endpoints: [], received: null },
             items: [
               delivered() ? { ...delivery, status: "delivered", deliveredAt: now } : delivery,
             ],
@@ -770,7 +774,7 @@ describe("--json stdout purity", () => {
       name: "samva",
       globalOptions: expect.arrayContaining(["--json", "--jsonl", "--quiet", "--completions"]),
     });
-    expect(manifest.commands).toEqual([
+    const released = [
       "login",
       "logout",
       "org",
@@ -801,7 +805,10 @@ describe("--json stdout purity", () => {
       "profile",
       "feedback",
       "help",
-    ]);
+    ];
+    expect(manifest.commands.filter((name) => released.includes(name))).toEqual(released);
+    expect(manifest.commands).toContain("contact-groups");
+    expect(manifest.commands).toEqual([...rootCommands.map(({ name }) => name), "help"]);
   });
 
   it("describes the root command for -h and rejects an unknown command before --help", async () => {
@@ -2784,8 +2791,15 @@ describe("envelope command names", () => {
   };
   const paths = (rootCommands as ReadonlyArray<Node>).flatMap((command) => leafPaths(command, []));
 
-  it("names every released command path, not its parent", () => {
-    const misnamed = paths.filter((path) => commandNameFromArgv(path) !== path.join("."));
+  it("names every released command path with its stable envelope name", () => {
+    const historical: Readonly<Record<string, string>> = {
+      "mailboxes.threads.delete": "mailboxes.threads",
+      "mailboxes.trash.empty": "mailboxes",
+    };
+    const misnamed = paths.filter((path) => {
+      const name = path.join(".");
+      return commandNameFromArgv(path) !== (historical[name] ?? name);
+    });
     expect(misnamed).toEqual([]);
   });
 

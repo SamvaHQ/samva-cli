@@ -1,3 +1,30 @@
+## @samva/cli-linux-arm64@0.44.0
+
+### Mail imports check plan storage before uploading
+
+`mailboxes.createImportUpload` returns a `PaymentRequiredError` (402) when the import's archives
+total more than about twice the organization's remaining mailbox storage. The error's message
+names the storage the import needs and what is left.
+
+`samva mailboxes import` registers every archive before uploading any bytes, so a storage refusal
+appears before the upload starts. When a later archive in a tree is refused, the command discards
+the import it started.
+
+### Import mail archives over 5 GB
+
+**Breaking for SDK callers.** Use the `archiveId` and `partSizeBytes` from `mailboxes.createImportUpload`
+to request part URLs with `mailboxes.signImportUploadParts`. Upload each part and pass its ETag
+to `mailboxes.completeImportUpload` before calling `mailboxes.startImport`.
+
+`samva mailboxes import` uploads and retries parts automatically. Each archive can be up to
+64 GiB, with a 256 GiB total per import.
+
+### Run any public API operation from the CLI
+
+Use `samva --help` to find dedicated commands for public API operations. Derived commands accept
+typed flags or a full JSON payload through `--data`, support `--dry-run` for mutations, and stream
+cursor pages with `--all --jsonl`. Existing command paths and flags continue to work.
+
 ## @samva/cli-linux-arm64@0.43.0
 
 ### Prepare and test Shopify post-delivery check-ins

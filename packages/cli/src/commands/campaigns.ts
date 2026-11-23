@@ -4,27 +4,16 @@ import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
-import { identity } from "effect/Function";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import type { JsonValue } from "samva/effect";
 import * as Campaigns from "samva/effect/campaigns";
 
-import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
-import {
-  jsonFlag,
-  printFields,
-  printJson,
-  printJsonLine,
-  truncateForDisplay,
-  withoutSeries,
-} from "../lib/output";
+import { CliUsageError, SamvaCliError } from "../errors";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields, truncateForDisplay, withoutSeries } from "../lib/output";
 import { campaignPacingFields } from "../lib/run-hold";
-import { isJsonLinesRequested } from "../lib/runtime";
 import {
   inputContractIdFlag,
   publicationIdFlag,
@@ -281,7 +270,7 @@ const allFlag = Flag.Boolean("all").pipe(
   Flag.withDefault(false),
 );
 
-const create = Command.make("create", {
+const createFlags = {
   name: nameFlag,
   subject: subjectFlag,
   preheader: preheaderFlag,
@@ -303,6 +292,117 @@ const create = Command.make("create", {
   trackClicks: trackClicksFlag,
   dryRun: dryRunFlag,
   json: jsonFlag,
+};
+
+const create = deriveOverride("create", createFlags, {
+  prepare: (input) =>
+    Effect.gen(function* () {
+      const issue = yield* resolveIssue(input.issuePath, input.issueCommit, [
+        input.subject,
+        input.preheader,
+        input.html,
+        input.text,
+        input.templateId,
+        input.templateSlug,
+        input.publicationId,
+        input.inputContractId,
+      ]);
+      const htmlValue = Option.getOrUndefined(input.html);
+      const textValue = Option.getOrUndefined(input.text);
+      const templateIdValue = Option.getOrUndefined(input.templateId);
+      const templateSlugValue = Option.getOrUndefined(input.templateSlug);
+      const reference = yield* resolveTemplateReference({
+        templateId: templateIdValue,
+        publicationId: Option.getOrUndefined(input.publicationId),
+        inputContractId: Option.getOrUndefined(input.inputContractId),
+      });
+      const templateDataValue = yield* parseTemplateData(input.templateData);
+
+      if (templateIdValue && templateSlugValue) {
+        return yield* new SamvaCliError({
+          message: "Use either --template-id or --template-slug, not both.",
+        });
+      }
+      const templateRefValue = templateSlugValue ?? templateIdValue;
+
+      if (
+        templateRefValue &&
+        (Option.isSome(input.subject) || Option.isSome(input.preheader) || htmlValue || textValue)
+      ) {
+        return yield* new SamvaCliError({
+          message:
+            "Choose one content source: a template, or inline --subject with --html (and optional --text).",
+        });
+      }
+      if (issue === undefined && !templateRefValue && Option.isNone(input.subject)) {
+        return yield* new SamvaCliError({
+          message: "Provide --subject with inline --html, or reference a published template.",
+        });
+      }
+      if (issue === undefined && !templateRefValue && !htmlValue) {
+        return yield* new SamvaCliError({
+          message: "Provide --html for inline email; --text is an optional fallback.",
+        });
+      }
+
+      return assembleCampaignCreatePayload({
+        name: input.name,
+        subject: Option.getOrUndefined(input.subject),
+        preheader: Option.getOrUndefined(input.preheader),
+        issue,
+        html: htmlValue,
+        text: textValue,
+        templateId: templateIdValue,
+        publicationId: reference.publicationId,
+        inputContractId: reference.inputContractId,
+        templateSlug: templateSlugValue,
+        templateData: templateDataValue,
+        includeTags: parseTagList(input.includeTags),
+        excludeTags: parseTagList(input.excludeTags),
+        contactIds: parseTagList(input.contactIds),
+        topicId: input.topicId,
+        pageSize: Option.getOrUndefined(input.pageSize),
+        tracking:
+          Option.isSome(input.trackOpens) || Option.isSome(input.trackClicks)
+            ? {
+                ...(Option.isSome(input.trackOpens)
+                  ? { opens: input.trackOpens.value === "on" }
+                  : {}),
+                ...(Option.isSome(input.trackClicks)
+                  ? { clicks: input.trackClicks.value === "on" }
+                  : {}),
+              }
+            : undefined,
+      });
+    }),
+  call: (request) => Campaigns.create(request),
+  failure: "Failed to create campaign",
+  preview: {
+    data: (request) => ({ dryRun: true, request }),
+    render: (request) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Dry run — no campaign created.\n");
+        yield* printFields([
+          ["Name", request.name],
+          ["Topic", request.audience.topicId],
+          ["Include tags", (request.audience.includeTags ?? []).join(", ")],
+          ["Exclude tags", (request.audience.excludeTags ?? []).join(", ")],
+          ["Contact ids", (request.audience.contactIds ?? []).join(", ")],
+        ]);
+        yield* Console.log(`\nPayload:\n${truncateForDisplay(JSON.stringify(request, null, 2))}`);
+      }),
+  },
+  render: (data) =>
+    Effect.gen(function* () {
+      yield* Effect.logInfo("Campaign created.\n");
+      yield* printFields([
+        ["ID", data.id],
+        ["Name", data.name],
+        ["Channel", data.channel],
+        ["Definition", data.definition.state],
+      ]);
+      yield* Effect.logInfo(`\nCreate a run:  samva campaigns runs create ${data.id}`);
+    }),
 }).pipe(
   Command.withDescription("Create an email campaign targeting tags or explicit contacts"),
   Command.withExamples([
@@ -317,190 +417,32 @@ const create = Command.make("create", {
       description: "Target explicit contacts and preview the payload",
     },
   ]),
-  Command.withHandler(
-    ({
-      name,
-      subject,
-      preheader,
-      issuePath,
-      issueCommit,
-      html,
-      text,
-      templateId,
-      publicationId,
-      inputContractId,
-      templateSlug,
-      templateData,
-      includeTags,
-      excludeTags,
-      contactIds,
-      topicId,
-      pageSize,
-      trackOpens,
-      trackClicks,
-      dryRun,
-      json,
-    }) =>
-      Effect.gen(function* () {
-        const issue = yield* resolveIssue(issuePath, issueCommit, [
-          subject,
-          preheader,
-          html,
-          text,
-          templateId,
-          templateSlug,
-          publicationId,
-          inputContractId,
-        ]);
-        const htmlValue = Option.getOrUndefined(html);
-        const textValue = Option.getOrUndefined(text);
-        const templateIdValue = Option.getOrUndefined(templateId);
-        const templateSlugValue = Option.getOrUndefined(templateSlug);
-        const reference = yield* resolveTemplateReference({
-          templateId: templateIdValue,
-          publicationId: Option.getOrUndefined(publicationId),
-          inputContractId: Option.getOrUndefined(inputContractId),
-        });
-        const templateDataValue = yield* parseTemplateData(templateData);
-
-        if (templateIdValue && templateSlugValue) {
-          return yield* new SamvaCliError({
-            message: "Use either --template-id or --template-slug, not both.",
-          });
-        }
-        const templateRefValue = templateSlugValue ?? templateIdValue;
-
-        if (
-          templateRefValue &&
-          (Option.isSome(subject) || Option.isSome(preheader) || htmlValue || textValue)
-        ) {
-          return yield* new SamvaCliError({
-            message:
-              "Choose one content source: a template, or inline --subject with --html (and optional --text).",
-          });
-        }
-        if (issue === undefined && !templateRefValue && Option.isNone(subject)) {
-          return yield* new SamvaCliError({
-            message: "Provide --subject with inline --html, or reference a published template.",
-          });
-        }
-        if (issue === undefined && !templateRefValue && !htmlValue) {
-          return yield* new SamvaCliError({
-            message: "Provide --html for inline email; --text is an optional fallback.",
-          });
-        }
-
-        const includeTagsValue = parseTagList(includeTags);
-        const excludeTagsValue = parseTagList(excludeTags);
-        const contactIdsValue = parseTagList(contactIds);
-        const payload = assembleCampaignCreatePayload({
-          name,
-          subject: Option.getOrUndefined(subject),
-          preheader: Option.getOrUndefined(preheader),
-          issue,
-          html: htmlValue,
-          text: textValue,
-          templateId: templateIdValue,
-          publicationId: reference.publicationId,
-          inputContractId: reference.inputContractId,
-          templateSlug: templateSlugValue,
-          templateData: templateDataValue,
-          includeTags: includeTagsValue,
-          excludeTags: excludeTagsValue,
-          contactIds: contactIdsValue,
-          topicId,
-          pageSize: Option.getOrUndefined(pageSize),
-          tracking:
-            Option.isSome(trackOpens) || Option.isSome(trackClicks)
-              ? {
-                  ...(Option.isSome(trackOpens) ? { opens: trackOpens.value === "on" } : {}),
-                  ...(Option.isSome(trackClicks) ? { clicks: trackClicks.value === "on" } : {}),
-                }
-              : undefined,
-        });
-
-        if (dryRun) {
-          if (json) return yield* printJson({ dryRun: true, request: payload });
-          yield* Effect.logInfo("Dry run — no campaign created.\n");
-          yield* printFields([
-            ["Name", name],
-            ["Topic", topicId],
-            ["Include tags", includeTagsValue.join(", ")],
-            ["Exclude tags", excludeTagsValue.join(", ")],
-            ["Contact ids", contactIdsValue.join(", ")],
-          ]);
-          return yield* Console.log(
-            `\nPayload:\n${truncateForDisplay(JSON.stringify(payload, null, 2))}`,
-          );
-        }
-
-        const client = yield* getClientProvider;
-        const data = yield* Campaigns.create(payload).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Failed to create campaign", error)),
-        );
-        if (json) return yield* printJson(data);
-        yield* Effect.logInfo("Campaign created.\n");
-        yield* printFields([
-          ["ID", data.id],
-          ["Name", data.name],
-          ["Channel", data.channel],
-          ["Definition", data.definition.state],
-        ]);
-        yield* Effect.logInfo(`\nCreate a run:  samva campaigns runs create ${data.id}`);
-      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const list = Command.make("list", {
+const listFlags = {
   status: campaignStatusFlag,
   cursor: cursorFlag,
   limit: limitFlag,
   all: allFlag,
   json: jsonFlag,
-}).pipe(
-  Command.withDescription("List campaigns"),
-  Command.withExamples([
-    { command: "samva campaigns list" },
-    { command: "samva campaigns list --status draft --json" },
-    { command: "samva campaigns list --all --jsonl", description: "Stream every page as JSONL" },
-  ]),
-  Command.withHandler(({ status, cursor, limit, all, json }) =>
+};
+
+const list = deriveOverride("list", listFlags, {
+  mapInput: (input) => ({
+    status: Option.getOrUndefined(input.status),
+    cursor: Option.getOrUndefined(input.cursor),
+    limit: Option.getOrUndefined(input.limit),
+  }),
+  call: (request) => Campaigns.list(request),
+  failure: "Could not list campaigns",
+  mapOutput: (data) => ({ ...data, items: data.items.map(withoutSeries) }),
+  paginate: {
+    start: (request) => request.cursor,
+    withCursor: (request, cursor) => ({ ...request, cursor }),
+    mapItem: withoutSeries,
+  },
+  render: (data) =>
     Effect.gen(function* () {
-      if (all && !isJsonLinesRequested())
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const client = yield* getClientProvider;
-      const query = {
-        status: Option.getOrUndefined(status),
-        cursor: cursorValue,
-        limit: limitValue,
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* Campaigns.list({ ...query, cursor: nextCursor }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list campaigns", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(withoutSeries(item));
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* Campaigns.list(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list campaigns", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(withoutSeries(item));
-        return;
-      }
-      if (json) return yield* printJson({ ...data, items: data.items.map(withoutSeries) });
       if (data.items.length === 0) {
         return yield* Console.log("No campaigns yet. Create one with `samva campaigns create`.");
       }
@@ -514,8 +456,14 @@ const list = Command.make("list", {
         yield* Console.log("");
       }
       if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
+    }),
+}).pipe(
+  Command.withDescription("List campaigns"),
+  Command.withExamples([
+    { command: "samva campaigns list" },
+    { command: "samva campaigns list --status draft --json" },
+    { command: "samva campaigns list --all --jsonl", description: "Stream every page as JSONL" },
+  ]),
 );
 
 const printCampaign = (campaign: {
@@ -545,23 +493,21 @@ const printCampaign = (campaign: {
     ["Updated", campaign.updatedAt],
   ]);
 
-const get = Command.make("get", { id: Argument.String("id"), json: jsonFlag }).pipe(
+const get = deriveOverride(
+  "get",
+  { id: Argument.String("id"), json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => Campaigns.get(request),
+    failure: "Could not fetch campaign",
+    render: (data) => printCampaign(data),
+  },
+).pipe(
   Command.withDescription("Show a campaign by id"),
   Command.withExamples([{ command: "samva campaigns get camp_abc123" }]),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.get({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch campaign", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printCampaign(data);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const update = Command.make("update", {
+const updateFlags = {
   id: Argument.String("id"),
   name: Flag.String("name").pipe(Flag.withDescription("New campaign name"), Flag.optional),
   subject: subjectFlag,
@@ -583,6 +529,148 @@ const update = Command.make("update", {
   trackOpens: trackOpensFlag,
   trackClicks: trackClicksFlag,
   json: jsonFlag,
+};
+
+const update = deriveOverride("update", updateFlags, {
+  prepare: (input) =>
+    Effect.gen(function* () {
+      const issue = yield* resolveIssue(input.issuePath, input.issueCommit, [
+        input.subject,
+        input.preheader,
+        input.html,
+        input.text,
+        input.templateId,
+        input.templateSlug,
+        input.publicationId,
+        input.inputContractId,
+      ]);
+      const htmlValue = Option.getOrUndefined(input.html);
+      const textValue = Option.getOrUndefined(input.text);
+      const templateIdValue = Option.getOrUndefined(input.templateId);
+      const reference = yield* resolveTemplateReference({
+        templateId: templateIdValue,
+        publicationId: Option.getOrUndefined(input.publicationId),
+        inputContractId: Option.getOrUndefined(input.inputContractId),
+      });
+      const templateSlugValue = Option.getOrUndefined(input.templateSlug);
+      if (templateIdValue && templateSlugValue) {
+        return yield* new SamvaCliError({
+          message: "Use either --template-id or --template-slug, not both.",
+        });
+      }
+      const templateDataValue = yield* parseTemplateData(input.templateData);
+      const templateRefValue = templateSlugValue ?? templateIdValue;
+      const hasContentFlags =
+        issue !== undefined ||
+        Option.isSome(input.preheader) ||
+        Option.isSome(input.subject) ||
+        Boolean(htmlValue || textValue || templateRefValue) ||
+        Option.isSome(input.templateData) ||
+        Option.isSome(input.publicationId) ||
+        Option.isSome(input.inputContractId) ||
+        Option.isSome(input.trackOpens) ||
+        Option.isSome(input.trackClicks);
+      if (
+        templateRefValue &&
+        (Option.isSome(input.subject) || Option.isSome(input.preheader) || htmlValue || textValue)
+      ) {
+        return yield* new SamvaCliError({
+          message:
+            "Choose one content source: a template, or inline --subject with --html (and optional --text).",
+        });
+      }
+      if (
+        issue === undefined &&
+        hasContentFlags &&
+        !templateRefValue &&
+        Option.isNone(input.subject)
+      ) {
+        return yield* new SamvaCliError({
+          message: "Provide --subject with inline --html, or reference a published template.",
+        });
+      }
+      if (issue === undefined && hasContentFlags && !templateRefValue && !htmlValue) {
+        return yield* new SamvaCliError({
+          message: "Provide --html for inline email; --text is an optional fallback.",
+        });
+      }
+
+      const includeTagsValue = parseTagList(input.includeTags);
+      const excludeTagsValue = parseTagList(input.excludeTags);
+      const contactIdsValue = parseTagList(input.contactIds);
+      const hasAudience =
+        Option.isSome(input.topicId) ||
+        includeTagsValue.length > 0 ||
+        excludeTagsValue.length > 0 ||
+        contactIdsValue.length > 0;
+      const hasPolicy = Option.isSome(input.pageSize);
+      const hasContent = hasContentFlags;
+      const tracking =
+        Option.isSome(input.trackOpens) || Option.isSome(input.trackClicks)
+          ? {
+              ...(Option.isSome(input.trackOpens)
+                ? { opens: input.trackOpens.value === "on" }
+                : {}),
+              ...(Option.isSome(input.trackClicks)
+                ? { clicks: input.trackClicks.value === "on" }
+                : {}),
+            }
+          : undefined;
+      if (hasAudience && Option.isNone(input.topicId)) {
+        return yield* new SamvaCliError({
+          message:
+            "A replacement audience requires --topic-id; include/exclude tags and contact ids narrow it.",
+        });
+      }
+      if (!Option.isSome(input.name) && !hasContent && !hasAudience && !hasPolicy) {
+        return yield* new SamvaCliError({
+          message: "Provide at least one field to update. Run `samva campaigns update --help`.",
+        });
+      }
+
+      const payload: CampaignsUpdateRequestJson = {
+        name: Option.getOrUndefined(input.name),
+        content: hasContent
+          ? {
+              channel: "email",
+              ...(issue === undefined ? {} : { issue }),
+              email: {
+                subject: Option.getOrUndefined(input.subject),
+                preheader: Option.getOrUndefined(input.preheader),
+                html: htmlValue,
+                text: textValue,
+                templateId: templateIdValue,
+                ...reference,
+                templateSlug: templateSlugValue,
+                templateData: templateDataValue,
+                ...(tracking === undefined ? {} : { tracking }),
+              },
+            }
+          : undefined,
+        audience:
+          hasAudience && Option.isSome(input.topicId)
+            ? {
+                topicId: input.topicId.value,
+                includeTags: includeTagsValue.length > 0 ? includeTagsValue : undefined,
+                excludeTags: excludeTagsValue.length > 0 ? excludeTagsValue : undefined,
+                contactIds: contactIdsValue.length > 0 ? contactIdsValue : undefined,
+              }
+            : undefined,
+        policy: hasPolicy
+          ? {
+              pageSize: Option.getOrUndefined(input.pageSize),
+            }
+          : undefined,
+      };
+      return { id: input.id, ...payload };
+    }),
+  call: (request) => Campaigns.update(request),
+  failure: "Could not update campaign",
+  render: (data) =>
+    Effect.gen(function* () {
+      yield* Effect.logInfo("Campaign updated. Definitions freeze after the first run.\n");
+      yield* printCampaign(data);
+    }),
 }).pipe(
   Command.withDescription("Update a draft campaign before its first run"),
   Command.withExamples([
@@ -593,201 +681,45 @@ const update = Command.make("update", {
       description: "Replace content and audience while the definition is still editable",
     },
   ]),
-  Command.withHandler(
-    ({
-      id,
-      name,
-      subject,
-      preheader,
-      issuePath,
-      issueCommit,
-      html,
-      text,
-      templateId,
-      publicationId,
-      inputContractId,
-      templateSlug,
-      templateData,
-      includeTags,
-      excludeTags,
-      contactIds,
-      topicId,
-      pageSize,
-      trackOpens,
-      trackClicks,
-      json,
-    }) =>
-      Effect.gen(function* () {
-        const issue = yield* resolveIssue(issuePath, issueCommit, [
-          subject,
-          preheader,
-          html,
-          text,
-          templateId,
-          templateSlug,
-          publicationId,
-          inputContractId,
-        ]);
-        const htmlValue = Option.getOrUndefined(html);
-        const textValue = Option.getOrUndefined(text);
-        const templateIdValue = Option.getOrUndefined(templateId);
-        const reference = yield* resolveTemplateReference({
-          templateId: templateIdValue,
-          publicationId: Option.getOrUndefined(publicationId),
-          inputContractId: Option.getOrUndefined(inputContractId),
-        });
-        const templateSlugValue = Option.getOrUndefined(templateSlug);
-        if (templateIdValue && templateSlugValue) {
-          return yield* new SamvaCliError({
-            message: "Use either --template-id or --template-slug, not both.",
-          });
-        }
-        const templateDataValue = yield* parseTemplateData(templateData);
-        const templateRefValue = templateSlugValue ?? templateIdValue;
-        const hasContentFlags =
-          issue !== undefined ||
-          Option.isSome(preheader) ||
-          Option.isSome(subject) ||
-          Boolean(htmlValue || textValue || templateRefValue) ||
-          Option.isSome(templateData) ||
-          Option.isSome(publicationId) ||
-          Option.isSome(inputContractId) ||
-          Option.isSome(trackOpens) ||
-          Option.isSome(trackClicks);
-        if (
-          templateRefValue &&
-          (Option.isSome(subject) || Option.isSome(preheader) || htmlValue || textValue)
-        ) {
-          return yield* new SamvaCliError({
-            message:
-              "Choose one content source: a template, or inline --subject with --html (and optional --text).",
-          });
-        }
-        if (issue === undefined && hasContentFlags && !templateRefValue && Option.isNone(subject)) {
-          return yield* new SamvaCliError({
-            message: "Provide --subject with inline --html, or reference a published template.",
-          });
-        }
-        if (issue === undefined && hasContentFlags && !templateRefValue && !htmlValue) {
-          return yield* new SamvaCliError({
-            message: "Provide --html for inline email; --text is an optional fallback.",
-          });
-        }
-
-        const includeTagsValue = parseTagList(includeTags);
-        const excludeTagsValue = parseTagList(excludeTags);
-        const contactIdsValue = parseTagList(contactIds);
-        const hasAudience =
-          Option.isSome(topicId) ||
-          includeTagsValue.length > 0 ||
-          excludeTagsValue.length > 0 ||
-          contactIdsValue.length > 0;
-        const hasPolicy = Option.isSome(pageSize);
-        const hasContent = hasContentFlags;
-        const tracking =
-          Option.isSome(trackOpens) || Option.isSome(trackClicks)
-            ? {
-                ...(Option.isSome(trackOpens) ? { opens: trackOpens.value === "on" } : {}),
-                ...(Option.isSome(trackClicks) ? { clicks: trackClicks.value === "on" } : {}),
-              }
-            : undefined;
-        if (hasAudience && Option.isNone(topicId)) {
-          return yield* new SamvaCliError({
-            message:
-              "A replacement audience requires --topic-id; include/exclude tags and contact ids narrow it.",
-          });
-        }
-        if (!Option.isSome(name) && !hasContent && !hasAudience && !hasPolicy) {
-          return yield* new SamvaCliError({
-            message: "Provide at least one field to update. Run `samva campaigns update --help`.",
-          });
-        }
-
-        const payload: CampaignsUpdateRequestJson = {
-          name: Option.getOrUndefined(name),
-          content: hasContent
-            ? {
-                channel: "email",
-                ...(issue === undefined ? {} : { issue }),
-                email: {
-                  subject: Option.getOrUndefined(subject),
-                  preheader: Option.getOrUndefined(preheader),
-                  html: htmlValue,
-                  text: textValue,
-                  templateId: templateIdValue,
-                  ...reference,
-                  templateSlug: templateSlugValue,
-                  templateData: templateDataValue,
-                  ...(tracking === undefined ? {} : { tracking }),
-                },
-              }
-            : undefined,
-          audience:
-            hasAudience && Option.isSome(topicId)
-              ? {
-                  topicId: topicId.value,
-                  includeTags: includeTagsValue.length > 0 ? includeTagsValue : undefined,
-                  excludeTags: excludeTagsValue.length > 0 ? excludeTagsValue : undefined,
-                  contactIds: contactIdsValue.length > 0 ? contactIdsValue : undefined,
-                }
-              : undefined,
-          policy: hasPolicy
-            ? {
-                pageSize: Option.getOrUndefined(pageSize),
-              }
-            : undefined,
-        };
-        const client = yield* getClientProvider;
-        const data = yield* Campaigns.update({ id, ...payload }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError("Could not update campaign", error)),
-        );
-        if (json) return yield* printJson(data);
-        yield* Effect.logInfo("Campaign updated. Definitions freeze after the first run.\n");
-        yield* printCampaign(data);
-      }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const archive = Command.make("archive", {
-  id: Argument.String("id"),
-  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
-  json: jsonFlag,
-}).pipe(
+const archive = deriveOverride(
+  "archive",
+  {
+    id: Argument.String("id"),
+    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.id }),
+    call: (request) => Campaigns.archive(request),
+    failure: "Could not archive campaign",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "campaigns.archive", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would archive campaign ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Archive campaign ${request.id}? It will no longer be eligible to run.`,
+      nonInteractiveMessage:
+        "Campaign archival requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Campaign archived.\n");
+        yield* printFields([
+          ["ID", data.id],
+          ["Name", data.name],
+          ["Definition", data.definition.state],
+        ]);
+      }),
+  },
+).pipe(
   Command.withDescription("Archive a campaign"),
   Command.withExamples([
     { command: "samva campaigns archive camp_abc123 --dry-run" },
     { command: "samva campaigns archive camp_abc123 --yes" },
   ]),
-  Command.withHandler(({ id, dryRun, yes, json }) =>
-    Effect.gen(function* () {
-      if (dryRun) {
-        return yield* json
-          ? printJson({ dryRun: true, action: "campaigns.archive", id })
-          : Console.log(`[dry-run] Would archive campaign ${id}.`);
-      }
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Archive campaign ${id}? It will no longer be eligible to run.`,
-        nonInteractiveMessage:
-          "Campaign archival requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.archive({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not archive campaign", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Campaign archived.\n");
-      yield* printFields([
-        ["ID", data.id],
-        ["Name", data.name],
-        ["Definition", data.definition.state],
-      ]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const printRun = (
@@ -862,144 +794,184 @@ const compositionFlags = {
   dryRun: dryRunFlag,
   json: jsonFlag,
 };
-const composition = (name: "preview" | "test") =>
-  Command.make(name, compositionFlags).pipe(
-    Command.withDescription(
-      name === "preview"
-        ? "Render draft campaign content without sending"
-        : "Send one draft campaign email to your authenticated account email",
-    ),
-    Command.withExamples([
-      {
-        command: `samva campaigns ${name} --topic-id tpc_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json`,
-      },
-    ]),
-    Command.withHandler(
-      ({
-        topicId,
-        issuePath,
-        issueCommit,
-        subject,
-        preheader,
-        html,
-        text,
-        templateId,
-        templateSlug,
-        templateData,
-        publicationId,
-        inputContractId,
-        contactId,
-        dryRun,
-        json,
-      }) =>
-        Effect.gen(function* () {
-          const issue = yield* resolveIssue(issuePath, issueCommit, [
-            subject,
-            preheader,
-            html,
-            text,
-            templateId,
-            templateSlug,
-            publicationId,
-            inputContractId,
-          ]);
-          if (issue === undefined && Option.isSome(templateId) && Option.isSome(templateSlug))
-            return yield* new CliUsageError({
-              code: "mixed_templates",
-              message: "Use either --template-id or --template-slug, not both.",
-            });
-          const hasTemplate = Option.isSome(templateId) || Option.isSome(templateSlug);
-          if (hasTemplate && [subject, preheader, html, text].some(Option.isSome))
-            return yield* new CliUsageError({
-              code: "mixed_template_content",
-              message: "Choose a template or inline --subject and --html.",
-            });
-          if (
-            issue === undefined &&
-            !hasTemplate &&
-            (Option.isNone(subject) || Option.isNone(html))
-          )
-            return yield* new CliUsageError({
-              code: "content_required",
-              message:
-                "Pass --issue-path with --issue-commit, a template, or inline --subject and --html.",
-            });
-          const reference = yield* resolveTemplateReference({
-            templateId: Option.getOrUndefined(templateId),
-            publicationId: Option.getOrUndefined(publicationId),
-            inputContractId: Option.getOrUndefined(inputContractId),
-          });
-          const data = yield* parseTemplateData(templateData);
-          const request = {
-            audience: { topicId },
-            content: {
-              channel: "email" as const,
-              ...(issue === undefined ? {} : { issue }),
-              email: {
-                subject: Option.getOrUndefined(subject),
-                preheader: Option.getOrUndefined(preheader),
-                html: Option.getOrUndefined(html),
-                text: Option.getOrUndefined(text),
-                templateId: Option.getOrUndefined(templateId),
-                templateSlug: Option.getOrUndefined(templateSlug),
-                ...reference,
-                templateData: data,
-              },
-            },
-            contactId: Option.getOrUndefined(contactId),
-          };
-          if (dryRun) {
-            if (json)
-              return yield* printJson({
-                dryRun,
-                action: name === "preview" ? "campaigns.preview" : "campaigns.sendTest",
-                request,
-              });
-            yield* printFields([
-              ["Action", name === "preview" ? "Preview campaign content" : "Send campaign test"],
-              ["Topic", topicId],
-              ["Issue", issue?.path],
-              ["Saved version", issue?.commit],
-            ]);
-            return yield* Console.log(
-              `\nPayload:\n${truncateForDisplay(JSON.stringify(request, null, 2))}`,
-            );
-          }
-          const client = yield* getClientProvider;
-          if (name === "preview") {
-            const result = yield* Campaigns.preview(request).pipe(
-              client.provide,
-              Effect.mapError((error) =>
-                toCliApiError("Could not preview campaign content", error),
-              ),
-            );
-            if (json) return yield* printJson(result);
-            yield* printFields([
-              ["Subject", result.subject],
-              ["Preheader", result.preheader],
-            ]);
-            return yield* Console.log(`\n${result.text}`);
-          }
-          const result = yield* Campaigns.sendTest(request).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not send campaign test", error)),
-          );
-          if (json) return yield* printJson(result);
-          yield* printFields([["Message ID", result.id]]);
-          yield* Console.log(`Check delivery: samva messages get ${result.id}`);
-        }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-    ),
-  );
-const preview = composition("preview");
-const sendTest = composition("test");
 
-const runCreate = Command.make("create", {
-  campaignId: Argument.String("campaignId"),
-  at: atFlag,
-  idempotencyKey: idempotencyKeyFlag,
-  dryRun: dryRunFlag,
-  json: jsonFlag,
+type CompositionInput = Command.Command.Config.Infer<typeof compositionFlags>;
+
+const compositionRequest = (input: CompositionInput) =>
+  Effect.gen(function* () {
+    const issue = yield* resolveIssue(input.issuePath, input.issueCommit, [
+      input.subject,
+      input.preheader,
+      input.html,
+      input.text,
+      input.templateId,
+      input.templateSlug,
+      input.publicationId,
+      input.inputContractId,
+    ]);
+    if (issue === undefined && Option.isSome(input.templateId) && Option.isSome(input.templateSlug))
+      return yield* new CliUsageError({
+        code: "mixed_templates",
+        message: "Use either --template-id or --template-slug, not both.",
+      });
+    const hasTemplate = Option.isSome(input.templateId) || Option.isSome(input.templateSlug);
+    if (hasTemplate && [input.subject, input.preheader, input.html, input.text].some(Option.isSome))
+      return yield* new CliUsageError({
+        code: "mixed_template_content",
+        message: "Choose a template or inline --subject and --html.",
+      });
+    if (
+      issue === undefined &&
+      !hasTemplate &&
+      (Option.isNone(input.subject) || Option.isNone(input.html))
+    )
+      return yield* new CliUsageError({
+        code: "content_required",
+        message:
+          "Pass --issue-path with --issue-commit, a template, or inline --subject and --html.",
+      });
+    const reference = yield* resolveTemplateReference({
+      templateId: Option.getOrUndefined(input.templateId),
+      publicationId: Option.getOrUndefined(input.publicationId),
+      inputContractId: Option.getOrUndefined(input.inputContractId),
+    });
+    const data = yield* parseTemplateData(input.templateData);
+    return {
+      audience: { topicId: input.topicId },
+      content: {
+        channel: "email" as const,
+        ...(issue === undefined ? {} : { issue }),
+        email: {
+          subject: Option.getOrUndefined(input.subject),
+          preheader: Option.getOrUndefined(input.preheader),
+          html: Option.getOrUndefined(input.html),
+          text: Option.getOrUndefined(input.text),
+          templateId: Option.getOrUndefined(input.templateId),
+          templateSlug: Option.getOrUndefined(input.templateSlug),
+          ...reference,
+          templateData: data,
+        },
+      },
+      contactId: Option.getOrUndefined(input.contactId),
+    };
+  });
+
+const compositionPreview = (action: string, label: string) => ({
+  data: (request: { readonly audience: { readonly topicId: string } }) => ({
+    dryRun: true,
+    action,
+    request,
+  }),
+  render: (request: {
+    readonly audience: { readonly topicId: string };
+    readonly content: { readonly issue?: { readonly path: string; readonly commit: string } };
+  }) =>
+    Effect.gen(function* () {
+      yield* printFields([
+        ["Action", label],
+        ["Topic", request.audience.topicId],
+        ["Issue", request.content.issue?.path],
+        ["Saved version", request.content.issue?.commit],
+      ]);
+      yield* Console.log(`\nPayload:\n${truncateForDisplay(JSON.stringify(request, null, 2))}`);
+    }),
+});
+
+const preview = deriveOverride("preview", compositionFlags, {
+  prepare: compositionRequest,
+  call: (request) => Campaigns.preview(request),
+  failure: "Could not preview campaign content",
+  preview: compositionPreview("campaigns.preview", "Preview campaign content"),
+  render: (result) =>
+    Effect.gen(function* () {
+      yield* printFields([
+        ["Subject", result.subject],
+        ["Preheader", result.preheader],
+      ]);
+      yield* Console.log(`\n${result.text}`);
+    }),
 }).pipe(
+  Command.withDescription("Render draft campaign content without sending"),
+  Command.withExamples([
+    {
+      command:
+        "samva campaigns preview --topic-id tpc_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json",
+    },
+  ]),
+);
+
+const sendTest = deriveOverride("test", compositionFlags, {
+  prepare: compositionRequest,
+  call: (request) => Campaigns.sendTest(request),
+  failure: "Could not send campaign test",
+  preview: compositionPreview("campaigns.sendTest", "Send campaign test"),
+  render: (result) =>
+    Effect.gen(function* () {
+      yield* printFields([["Message ID", result.id]]);
+      yield* Console.log(`Check delivery: samva messages get ${result.id}`);
+    }),
+}).pipe(
+  Command.withDescription("Send one draft campaign email to your authenticated account email"),
+  Command.withExamples([
+    {
+      command:
+        "samva campaigns test --topic-id tpc_1234567890abcdef --issue-path issues/october.md --issue-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json",
+    },
+  ]),
+);
+
+const runCreate = deriveOverride(
+  "create",
+  {
+    campaignId: Argument.String("campaignId"),
+    at: atFlag,
+    idempotencyKey: idempotencyKeyFlag,
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: (input) =>
+      Effect.gen(function* () {
+        const atValue = Option.getOrUndefined(input.at);
+        if (atValue !== undefined && !isAbsoluteInstant(atValue)) {
+          return yield* new SamvaCliError({
+            message:
+              "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-08-01T09:00:00Z.",
+          });
+        }
+        return {
+          id: input.campaignId,
+          scheduledFor: atValue === undefined ? undefined : new Date(atValue),
+        };
+      }),
+    call: (request, input) =>
+      Campaigns.scheduleRun(request, {
+        idempotencyKey: Option.getOrUndefined(input.idempotencyKey),
+      }),
+    failure: "Could not schedule run",
+    preview: {
+      data: (request, input) => ({
+        dryRun: true,
+        action: "campaigns.runs.create",
+        campaignId: input.campaignId,
+        scheduledFor: Option.getOrUndefined(input.at),
+        idempotencyKey: Option.getOrUndefined(input.idempotencyKey),
+      }),
+      render: (_request, input) => {
+        const atValue = Option.getOrUndefined(input.at);
+        return Console.log(
+          `[dry-run] Would create a run for campaign ${input.campaignId}${atValue ? ` at ${atValue}` : " now"}.`,
+        );
+      },
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Run scheduled.\n");
+        yield* printRun(data, { warning: false });
+        yield* warnCapacity(data);
+      }),
+  },
+).pipe(
   Command.withDescription("Create a run for a campaign (starts immediately without --at)"),
   Command.withExamples([
     { command: "samva campaigns runs create camp_abc123", description: "Start now" },
@@ -1008,240 +980,214 @@ const runCreate = Command.make("create", {
       description: "Start at a future time",
     },
   ]),
-  Command.withHandler(({ campaignId, at, idempotencyKey, dryRun, json }) =>
-    Effect.gen(function* () {
-      const atValue = Option.getOrUndefined(at);
-      if (atValue !== undefined && !isAbsoluteInstant(atValue)) {
-        return yield* new SamvaCliError({
-          message:
-            "--at must be an absolute ISO 8601 instant with Z or an offset, e.g. 2026-08-01T09:00:00Z.",
-        });
-      }
-      const idempotencyKeyValue = Option.getOrUndefined(idempotencyKey);
-      if (dryRun)
-        return yield* json
-          ? printJson({
-              dryRun: true,
-              action: "campaigns.runs.create",
-              campaignId,
-              scheduledFor: atValue,
-              idempotencyKey: idempotencyKeyValue,
-            })
-          : Console.log(
-              `[dry-run] Would create a run for campaign ${campaignId}${atValue ? ` at ${atValue}` : " now"}.`,
-            );
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.scheduleRun(
-        {
-          id: campaignId,
-          scheduledFor: atValue === undefined ? undefined : new Date(atValue),
-        },
-        { idempotencyKey: idempotencyKeyValue },
-      ).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not schedule run", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Run scheduled.\n");
-      yield* printRun(data, { warning: false });
-      yield* warnCapacity(data);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runList = Command.make("list", {
-  campaignId: Argument.String("campaignId"),
-  status: runStatusFlag,
-  cursor: cursorFlag,
-  limit: limitFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
+const runList = deriveOverride(
+  "list",
+  {
+    campaignId: Argument.String("campaignId"),
+    status: runStatusFlag,
+    cursor: cursorFlag,
+    limit: limitFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({
+      id: input.campaignId,
+      status: Option.getOrUndefined(input.status),
+      cursor: Option.getOrUndefined(input.cursor),
+      limit: Option.getOrUndefined(input.limit),
+    }),
+    call: (request) => Campaigns.listRuns(request),
+    failure: "Could not list runs",
+    paginate: {
+      start: (request) => request.cursor,
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) {
+          return yield* Console.log("No runs yet. Create one with `samva campaigns runs create`.");
+        }
+        for (const run of data.items) {
+          yield* printFields([
+            ["Run ID", run.id],
+            ["Status", run.status],
+            ["Scheduled for", run.scheduledFor],
+            ["Dispatched", String(run.dispatchedCount)],
+            ["Failed", String(run.failedCount)],
+            ["Skipped", String(run.skippedCount)],
+            [
+              "Skipped by reason",
+              run.skippedReasons.map(({ reason, count }) => `${reason} ${count}`).join(", "),
+            ],
+          ]);
+          yield* Console.log("");
+        }
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List runs for a campaign"),
   Command.withExamples([{ command: "samva campaigns runs list camp_abc123" }]),
-  Command.withHandler(({ campaignId, status, cursor, limit, all, json }) =>
-    Effect.gen(function* () {
-      if (all && !isJsonLinesRequested())
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const client = yield* getClientProvider;
-      const query = {
-        id: campaignId,
-        status: Option.getOrUndefined(status),
-        cursor: cursorValue,
-        limit: limitValue,
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* Campaigns.listRuns({ ...query, cursor: nextCursor }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list runs", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(item);
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* Campaigns.listRuns(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list runs", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(item);
-        return;
-      }
-      if (json) return yield* printJson(data);
-      if (data.items.length === 0) {
-        return yield* Console.log("No runs yet. Create one with `samva campaigns runs create`.");
-      }
-      for (const run of data.items) {
-        yield* printFields([
-          ["Run ID", run.id],
-          ["Status", run.status],
-          ["Scheduled for", run.scheduledFor],
-          ["Dispatched", String(run.dispatchedCount)],
-          ["Failed", String(run.failedCount)],
-          ["Skipped", String(run.skippedCount)],
-          [
-            "Skipped by reason",
-            run.skippedReasons.map(({ reason, count }) => `${reason} ${count}`).join(", "),
-          ],
-        ]);
-        yield* Console.log("");
-      }
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runGet = Command.make("get", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  json: jsonFlag,
-}).pipe(
+const runGet = deriveOverride(
+  "get",
+  { campaignId: Argument.String("campaignId"), runId: Argument.String("runId"), json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.campaignId, runId: input.runId }),
+    call: (request) => Campaigns.getRun(request),
+    failure: "Could not fetch run",
+    render: (data) => printRun(data),
+  },
+).pipe(
   Command.withDescription("Show a campaign run"),
   Command.withExamples([{ command: "samva campaigns runs get camp_abc123 crun_def456" }]),
-  Command.withHandler(({ campaignId, runId, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.getRun({ id: campaignId, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch run", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printRun(data);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const report = Command.make("report", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  json: jsonFlag,
-}).pipe(
+const report = deriveOverride(
+  "report",
+  { campaignId: Argument.String("campaignId"), runId: Argument.String("runId"), json: jsonFlag },
+  {
+    mapInput: (input) => ({ id: input.campaignId, runId: input.runId }),
+    call: (request) => Campaigns.getRunReport(request),
+    failure: "Could not fetch run report",
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Campaign", data.campaignId],
+          ["Run", data.runId],
+          ["Recipients", data.totalRecipients],
+          ["Dispatched", data.dispatchedCount],
+          ["Failed", data.failedCount],
+          ["Skipped", data.skippedCount],
+          ["Delivered", data.deliveredCount],
+          ["Hard bounces", data.hardBounceCount],
+          ["Soft bounces", data.softBounceCount],
+          ["Complaints", data.complaintCount],
+          ["Unique opens (directional)", data.engagement.uniqueOpens],
+          ["Unique clicks (directional)", data.engagement.uniqueClicks],
+          ["Replies", data.replyCount],
+        ]);
+        yield* Console.log(
+          "\nOpens and clicks are directional, with machine observations excluded.",
+        );
+        for (const topic of data.unsubscribesByTopic) {
+          yield* printFields([[`Unsubscribes · ${topic.topicId}`, topic.count]]);
+        }
+        for (const skipped of data.skippedReasons) {
+          yield* printFields([[`Skipped · ${skipped.reason}`, skipped.count]]);
+        }
+      }),
+  },
+).pipe(
   Command.withDescription("Show an email run's recipient report; opens and clicks are directional"),
   Command.withExamples([
     { command: "samva campaigns report camp_abc123 crun_def456" },
     { command: "samva campaigns report camp_abc123 crun_def456 --json" },
   ]),
-  Command.withHandler(({ campaignId, runId, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.getRunReport({ id: campaignId, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch run report", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["Campaign", data.campaignId],
-        ["Run", data.runId],
-        ["Recipients", data.totalRecipients],
-        ["Dispatched", data.dispatchedCount],
-        ["Failed", data.failedCount],
-        ["Skipped", data.skippedCount],
-        ["Delivered", data.deliveredCount],
-        ["Hard bounces", data.hardBounceCount],
-        ["Soft bounces", data.softBounceCount],
-        ["Complaints", data.complaintCount],
-        ["Unique opens (directional)", data.engagement.uniqueOpens],
-        ["Unique clicks (directional)", data.engagement.uniqueClicks],
-        ["Replies", data.replyCount],
-      ]);
-      yield* Console.log("\nOpens and clicks are directional, with machine observations excluded.");
-      for (const topic of data.unsubscribesByTopic) {
-        yield* printFields([[`Unsubscribes · ${topic.topicId}`, topic.count]]);
-      }
-      for (const skipped of data.skippedReasons) {
-        yield* printFields([[`Skipped · ${skipped.reason}`, skipped.count]]);
-      }
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runPause = Command.make("pause", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+const runPause = deriveOverride(
+  "pause",
+  {
+    campaignId: Argument.String("campaignId"),
+    runId: Argument.String("runId"),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.campaignId, runId: input.runId }),
+    call: (request) => Campaigns.pauseRun(request),
+    failure: "Could not pause run",
+    preview: {
+      data: (request) => ({
+        dryRun: true,
+        action: "campaigns.runs.pause",
+        campaignId: request.id,
+        runId: request.runId,
+      }),
+      render: (request) => Console.log(`[dry-run] Would pause campaign run ${request.runId}.`),
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Run paused.\n");
+        yield* printRun(data.item);
+      }),
+  },
+).pipe(
   Command.withDescription("Pause a running campaign run"),
   Command.withExamples([{ command: "samva campaigns runs pause camp_abc123 crun_def456" }]),
-  Command.withHandler(({ campaignId, runId, dryRun, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "campaigns.runs.pause", campaignId, runId })
-          : Console.log(`[dry-run] Would pause campaign run ${runId}.`);
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.pauseRun({ id: campaignId, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not pause run", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Run paused.\n");
-      yield* printRun(data.item);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runResume = Command.make("resume", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+const runResume = deriveOverride(
+  "resume",
+  {
+    campaignId: Argument.String("campaignId"),
+    runId: Argument.String("runId"),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.campaignId, runId: input.runId }),
+    call: (request) => Campaigns.resumeRun(request),
+    failure: "Could not resume run",
+    preview: {
+      data: (request) => ({
+        dryRun: true,
+        action: "campaigns.runs.resume",
+        campaignId: request.id,
+        runId: request.runId,
+      }),
+      render: (request) => Console.log(`[dry-run] Would resume campaign run ${request.runId}.`),
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Run resumed.\n");
+        yield* printRun(data.item);
+      }),
+  },
+).pipe(
   Command.withDescription("Resume a paused campaign run"),
   Command.withExamples([{ command: "samva campaigns runs resume camp_abc123 crun_def456" }]),
-  Command.withHandler(({ campaignId, runId, dryRun, json }) =>
-    Effect.gen(function* () {
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "campaigns.runs.resume", campaignId, runId })
-          : Console.log(`[dry-run] Would resume campaign run ${runId}.`);
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.resumeRun({ id: campaignId, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not resume run", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Run resumed.\n");
-      yield* printRun(data.item);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runCancel = Command.make("cancel", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
-  json: jsonFlag,
-}).pipe(
+const runCancel = deriveOverride(
+  "cancel",
+  {
+    campaignId: Argument.String("campaignId"),
+    runId: Argument.String("runId"),
+    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({ id: input.campaignId, runId: input.runId }),
+    call: (request) => Campaigns.cancelRun(request),
+    failure: "Could not cancel run",
+    preview: {
+      data: (request) => ({
+        dryRun: true,
+        action: "campaigns.runs.cancel",
+        campaignId: request.id,
+        runId: request.runId,
+      }),
+      render: (request) => Console.log(`[dry-run] Would cancel campaign run ${request.runId}.`),
+    },
+    confirmation: (request) => ({
+      message: `Cancel campaign run ${request.runId}? Dispatches already in progress may still complete.`,
+      nonInteractiveMessage:
+        "Campaign run cancellation requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Run cancelled.\n");
+        yield* printRun(data.item);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "Cancel a campaign run (best effort once dispatch has started; terminal when scheduled)",
   ),
@@ -1249,41 +1195,52 @@ const runCancel = Command.make("cancel", {
     { command: "samva campaigns runs cancel camp_abc123 crun_def456 --dry-run" },
     { command: "samva campaigns runs cancel camp_abc123 crun_def456 --yes" },
   ]),
-  Command.withHandler(({ campaignId, runId, dryRun, yes, json }) =>
-    Effect.gen(function* () {
-      if (dryRun) {
-        return yield* json
-          ? printJson({ dryRun: true, action: "campaigns.runs.cancel", campaignId, runId })
-          : Console.log(`[dry-run] Would cancel campaign run ${runId}.`);
-      }
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Cancel campaign run ${runId}? Dispatches already in progress may still complete.`,
-        nonInteractiveMessage:
-          "Campaign run cancellation requires --yes in non-interactive mode. Preview with --dry-run.",
-      });
-      const client = yield* getClientProvider;
-      const data = yield* Campaigns.cancelRun({ id: campaignId, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not cancel run", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* Effect.logInfo("Run cancelled.\n");
-      yield* printRun(data.item);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const runRecipients = Command.make("recipients", {
-  campaignId: Argument.String("campaignId"),
-  runId: Argument.String("runId"),
-  status: recipientStatusFlag,
-  cursor: cursorFlag,
-  limit: limitFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
+const runRecipients = deriveOverride(
+  "recipients",
+  {
+    campaignId: Argument.String("campaignId"),
+    runId: Argument.String("runId"),
+    status: recipientStatusFlag,
+    cursor: cursorFlag,
+    limit: limitFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({
+      id: input.campaignId,
+      runId: input.runId,
+      status: Option.getOrUndefined(input.status),
+      cursor: Option.getOrUndefined(input.cursor),
+      limit: Option.getOrUndefined(input.limit),
+    }),
+    call: (request) => Campaigns.listRecipients(request),
+    failure: "Could not list recipients",
+    paginate: {
+      start: (request) => request.cursor,
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        if (data.items.length === 0) {
+          return yield* Console.log("No recipients for this run.");
+        }
+        for (const recipient of data.items) {
+          yield* printFields([
+            ["Contact", recipient.contactId],
+            ["Status", recipient.status],
+            ["Message ID", recipient.messageId],
+            ["Skipped", recipient.skippedReason],
+            ["Failure", recipient.failureReason],
+          ]);
+          yield* Console.log("");
+        }
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription(
     "List recipients for a campaign run; not_added skips contacts outside the opt-out topic audience",
   ),
@@ -1294,63 +1251,6 @@ const runRecipients = Command.make("recipients", {
       description: "Only failed recipients",
     },
   ]),
-  Command.withHandler(({ campaignId, runId, status, cursor, limit, all, json }) =>
-    Effect.gen(function* () {
-      if (all && !isJsonLinesRequested())
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const client = yield* getClientProvider;
-      const query = {
-        id: campaignId,
-        runId,
-        status: Option.getOrUndefined(status),
-        cursor: cursorValue,
-        limit: limitValue,
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* Campaigns.listRecipients({
-            ...query,
-            cursor: nextCursor,
-          }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list recipients", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(item);
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* Campaigns.listRecipients(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list recipients", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(item);
-        return;
-      }
-      if (json) return yield* printJson(data);
-      if (data.items.length === 0) {
-        return yield* Console.log("No recipients for this run.");
-      }
-      for (const recipient of data.items) {
-        yield* printFields([
-          ["Contact", recipient.contactId],
-          ["Status", recipient.status],
-          ["Message ID", recipient.messageId],
-          ["Skipped", recipient.skippedReason],
-          ["Failure", recipient.failureReason],
-        ]);
-        yield* Console.log("");
-      }
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const runsCommand = Command.make("runs").pipe(

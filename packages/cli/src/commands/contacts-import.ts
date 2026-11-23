@@ -11,6 +11,7 @@ import * as Contacts from "samva/effect/contacts";
 
 import { CliUsageError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { deriveOverride } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 
@@ -176,20 +177,18 @@ export const importContacts = Command.make("import", {
   ),
 );
 
-export const importStatus = Command.make("import-status", {
-  id: Argument.String("id").pipe(Argument.withSchema(ContactImportJobId)),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Read committed list migration progress"),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, json }) {
-      const client = yield* getClientProvider;
-      const job = yield* Contacts.getImportJob({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read import", error)),
-      );
-      if (json) return yield* printJson(job);
-      yield* printFields([
+export const importStatus = deriveOverride(
+  "import-status",
+  {
+    id: Argument.String("id").pipe(Argument.withSchema(ContactImportJobId)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Contacts.getImportJob(request),
+    failure: "Could not read import",
+    render: (job) =>
+      printFields([
         ["Import ID", job.id],
         ["Status", job.status],
         ["Processed", job.processedRows],
@@ -197,36 +196,32 @@ export const importStatus = Command.make("import-status", {
         ["Generation", job.generation],
         ["Resumable", job.resumable],
         ["Failure", job.failure?.message],
-      ]);
-    }),
-  ),
-);
+      ]),
+  },
+).pipe(Command.withDescription("Read committed list migration progress"));
 
-export const resumeImport = Command.make("import-resume", {
-  id: Argument.String("id").pipe(Argument.withSchema(ContactImportJobId)),
-  generation: Flag.Int("generation").pipe(
-    Flag.withDescription("Failed generation returned by import-status"),
-  ),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Resume a failed migration using its persisted input"),
-  Command.withHandler(
-    Effect.fnUntraced(function* ({ id, generation, json }) {
-      const client = yield* getClientProvider;
-      const job = yield* Contacts.startImport({
-        mode: "resume",
-        jobId: id,
-        expectedGeneration: generation,
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not resume import", error)),
-      );
-      if (json) return yield* printJson(job);
-      yield* printFields([
+export const resumeImport = deriveOverride(
+  "import-resume",
+  {
+    id: Argument.String("id").pipe(Argument.withSchema(ContactImportJobId)),
+    generation: Flag.Int("generation").pipe(
+      Flag.withDescription("Failed generation returned by import-status"),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, generation }) => ({
+      mode: "resume" as const,
+      jobId: id,
+      expectedGeneration: generation,
+    }),
+    call: (request) => Contacts.startImport(request),
+    failure: "Could not resume import",
+    render: (job) =>
+      printFields([
         ["Import ID", job.id],
         ["Status", job.status],
         ["Generation", job.generation],
-      ]);
-    }),
-  ),
-);
+      ]),
+  },
+).pipe(Command.withDescription("Resume a failed migration using its persisted input"));

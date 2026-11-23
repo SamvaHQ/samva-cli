@@ -28,25 +28,18 @@ import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
-import { identity } from "effect/Function";
 import * as Option from "effect/Option";
-import * as References from "effect/References";
 import * as IntegrationsCatalog from "samva/effect/integrations-catalog";
 import * as Journeys from "samva/effect/journeys";
 
 import { CliUsageError, toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
-import { confirmDestructive } from "../lib/confirm";
-import { jsonFlag, printFields, printJson, printJsonLine } from "../lib/output";
+import { deriveOverride } from "../lib/derive/curated";
+import { jsonFlag, printFields, printJson } from "../lib/output";
 import { holdFields } from "../lib/run-hold";
-import { isJsonLinesRequested } from "../lib/runtime";
 import { readStdinUtf8 } from "../lib/stdin";
 
 const JOURNEY_STATUSES = ["draft", "active", "paused", "archived"] as const;
 const RUN_STATUSES = ["active", "paused", "exited", "failed"] as const;
-
-const quietWhenJson = (json: boolean) =>
-  json ? Effect.provideService(References.MinimumLogLevel, "None") : identity;
 
 const cursorFlag = Flag.String("cursor").pipe(
   Flag.withDescription("Resume after this nextCursor from a previous page"),
@@ -144,148 +137,155 @@ const printJourney = (journey: {
     ["Updated", journey.updatedAt],
   ]);
 
-const requireJsonLines = (all: boolean) =>
-  all && !isJsonLinesRequested()
-    ? new CliUsageError({
-        code: "all_requires_jsonl",
-        message: "--all is an unbounded traversal and requires --jsonl.",
-      })
-    : undefined;
-
-const list = Command.make("list", {
-  status: Flag.Literals("status", JOURNEY_STATUSES).pipe(
-    Flag.withDescription("Filter by status"),
-    Flag.optional,
-  ),
-  cursor: cursorFlag,
-  limit: limitFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
+const list = deriveOverride(
+  "list",
+  {
+    status: Flag.Literals("status", JOURNEY_STATUSES).pipe(
+      Flag.withDescription("Filter by status"),
+      Flag.optional,
+    ),
+    cursor: cursorFlag,
+    limit: limitFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ status, cursor, limit }) => ({
+      status: Option.getOrUndefined(status),
+      cursor: Option.getOrUndefined(cursor),
+      limit: Option.getOrUndefined(limit),
+    }),
+    call: (request) => Journeys.list(request),
+    failure: (error, request) =>
+      toCliApiError("Could not list journeys", error, { cursor: request.cursor ?? null }),
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+    },
+    render: (page) =>
+      Effect.gen(function* () {
+        if (page.items.length === 0)
+          yield* Console.log("No journeys yet. Create one with `samva journeys create`.");
+        for (const item of page.items) {
+          yield* printJourney(item);
+          yield* Console.log("");
+        }
+        if (page.nextCursor !== null) yield* printFields([["Next cursor", page.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List journeys"),
   Command.withExamples([
     { command: "samva journeys list" },
     { command: "samva journeys list --status active --json" },
     { command: "samva journeys list --all --jsonl", description: "Stream every page as JSONL" },
   ]),
-  Command.withHandler(({ status, cursor, limit, all, json }) =>
-    Effect.gen(function* () {
-      const usage = requireJsonLines(all);
-      if (usage) return yield* usage;
-      const client = yield* getClientProvider;
-      let nextCursor = Option.getOrUndefined(cursor);
-      for (;;) {
-        const page = yield* Journeys.list({
-          status: Option.getOrUndefined(status),
-          cursor: nextCursor,
-          limit: Option.getOrUndefined(limit),
-        }).pipe(
-          client.provide,
-          Effect.mapError((error) =>
-            toCliApiError("Could not list journeys", error, { cursor: nextCursor ?? null }),
-          ),
-        );
-        if (isJsonLinesRequested()) {
-          for (const item of page.items) yield* printJsonLine(item);
-        } else if (json) return yield* printJson(page);
-        else {
-          if (page.items.length === 0)
-            yield* Console.log("No journeys yet. Create one with `samva journeys create`.");
-          for (const item of page.items) {
-            yield* printJourney(item);
-            yield* Console.log("");
-          }
-          if (page.nextCursor !== null) yield* printFields([["Next cursor", page.nextCursor]]);
-        }
-        if (!all || page.nextCursor === null) return;
-        nextCursor = page.nextCursor;
-      }
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const get = Command.make("get", { id: idArgument, json: jsonFlag }).pipe(
+const get = deriveOverride(
+  "get",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Journeys.get(request),
+    failure: "Could not fetch journey",
+    render: (journey) =>
+      Effect.gen(function* () {
+        yield* printJourney(journey);
+        yield* printFields([["Trigger", JSON.stringify(journey.draft.trigger)]]);
+        yield* printFields([["Draft nodes", Object.keys(journey.draft.nodes).length]]);
+      }),
+  },
+).pipe(
   Command.withDescription("Show a journey with its draft definition and revision"),
   Command.withExamples([{ command: "samva journeys get jrny_7q2xk9mvt4znw8rh --json" }]),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const journey = yield* Journeys.get({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch journey", error)),
-      );
-      if (json) return yield* printJson(journey);
-      yield* printJourney(journey);
-      yield* printFields([["Trigger", JSON.stringify(journey.draft.trigger)]]);
-      yield* printFields([["Draft nodes", Object.keys(journey.draft.nodes).length]]);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const create = Command.make("create", {
-  name: nameFlag,
-  definition: definitionFlag,
-  dryRun: Flag.Boolean("dry-run").pipe(
-    Flag.withDescription("Validate the definition offline without creating a journey"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const create = deriveOverride(
+  "create",
+  {
+    name: nameFlag,
+    definition: definitionFlag,
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDescription("Validate the definition offline without creating a journey"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ name, definition }) =>
+      readDefinition(definition).pipe(
+        Effect.map((body) => ({ name, definition: body }) as Parameters<typeof Journeys.create>[0]),
+      ),
+    call: (request) => Journeys.create(request),
+    failure: "Could not create journey",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "journeys.create", request }),
+      render: (request) =>
+        printFields([
+          ["Dry run", true],
+          ["Journey", request.name],
+        ]),
+    },
+    render: (journey) => printJourney(journey),
+  },
+).pipe(
   Command.withDescription("Create a draft journey from a definition"),
   Command.withExamples([
     { command: `samva journeys create --name "Welcome" --definition @welcome.json --json` },
     { command: `cat welcome.json | samva journeys create --name "Welcome" --definition -` },
   ]),
-  Command.withHandler(({ name, definition, dryRun, json }) =>
-    Effect.gen(function* () {
-      const body = yield* readDefinition(definition);
-      const payload = { name, definition: body } as Parameters<typeof Journeys.create>[0];
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "journeys.create", request: payload })
-          : printFields([
-              ["Dry run", true],
-              ["Journey", name],
-            ]);
-      const client = yield* getClientProvider;
-      const journey = yield* Journeys.create(payload).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not create journey", error)),
-      );
-      if (json) return yield* printJson(journey);
-      yield* printJourney(journey);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const rename = Command.make("rename", { id: idArgument, name: nameFlag, json: jsonFlag }).pipe(
+const rename = deriveOverride(
+  "rename",
+  { id: idArgument, name: nameFlag, json: jsonFlag },
+  {
+    mapInput: ({ id, name }) => ({ id, name }),
+    call: (request) => Journeys.update(request),
+    failure: "Could not rename journey",
+    render: (journey) => printJourney(journey),
+  },
+).pipe(
   Command.withDescription("Rename a journey"),
   Command.withExamples([
     { command: `samva journeys rename jrny_7q2xk9mvt4znw8rh --name "Onboarding"` },
   ]),
-  Command.withHandler(({ id, name, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const journey = yield* Journeys.update({ id, name }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not rename journey", error)),
-      );
-      if (json) return yield* printJson(journey);
-      yield* printJourney(journey);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const draft = Command.make("draft", {
-  id: idArgument,
-  revision: revisionFlag,
-  definition: definitionFlag,
-  dryRun: Flag.Boolean("dry-run").pipe(
-    Flag.withDescription("Validate the definition offline without replacing the draft"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const draft = deriveOverride(
+  "draft",
+  {
+    id: idArgument,
+    revision: revisionFlag,
+    definition: definitionFlag,
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDescription("Validate the definition offline without replacing the draft"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ id, revision, definition }) =>
+      readDefinition(definition).pipe(
+        Effect.map(
+          (body) =>
+            ({ id, revision, definition: body }) as Parameters<typeof Journeys.replaceDraft>[0],
+        ),
+      ),
+    call: (request) => Journeys.replaceDraft(request),
+    failure: "Could not replace journey draft",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "journeys.draft", request }),
+      render: (request) =>
+        printFields([
+          ["Dry run", true],
+          ["Journey", request.id],
+        ]),
+    },
+    render: (journey) => printJourney(journey),
+  },
+).pipe(
   Command.withDescription("Replace a journey's draft definition"),
   Command.withExamples([
     {
@@ -293,203 +293,178 @@ const draft = Command.make("draft", {
         "samva journeys draft jrny_7q2xk9mvt4znw8rh --revision <revision> --definition @welcome.json --json",
     },
   ]),
-  Command.withHandler(({ id, revision, definition, dryRun, json }) =>
-    Effect.gen(function* () {
-      const body = yield* readDefinition(definition);
-      const payload = { id, revision, definition: body } as Parameters<
-        typeof Journeys.replaceDraft
-      >[0];
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "journeys.draft", request: payload })
-          : printFields([
-              ["Dry run", true],
-              ["Journey", id],
-            ]);
-      const client = yield* getClientProvider;
-      const journey = yield* Journeys.replaceDraft(payload).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not replace journey draft", error)),
-      );
-      if (json) return yield* printJson(journey);
-      yield* printJourney(journey);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const publish = Command.make("publish", {
-  id: idArgument,
-  revision: revisionFlag,
-  json: jsonFlag,
-}).pipe(
+const publish = deriveOverride(
+  "publish",
+  { id: idArgument, revision: revisionFlag, json: jsonFlag },
+  {
+    mapInput: ({ id, revision }) => ({ id, revision }),
+    call: (request) => Journeys.publish(request),
+    failure: "Could not publish journey",
+    render: (journey) =>
+      Effect.gen(function* () {
+        yield* Effect.logInfo("Journey published.\n");
+        yield* printJourney(journey);
+      }),
+  },
+).pipe(
   Command.withDescription("Publish the draft as the next immutable version"),
   Command.withExamples([
     { command: "samva journeys publish jrny_7q2xk9mvt4znw8rh --revision <revision> --json" },
   ]),
-  Command.withHandler(({ id, revision, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const journey = yield* Journeys.publish({ id, revision }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not publish journey", error)),
-      );
-      if (json) return yield* printJson(journey);
-      yield* Effect.logInfo("Journey published.\n");
-      yield* printJourney(journey);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-type ClientServices = Effect.Services<ReturnType<typeof Journeys.pause>>;
-
-const transition = <E>(
-  name: "pause" | "resume",
-  description: string,
-  operation: (input: {
-    readonly id: string;
-  }) => Effect.Effect<Parameters<typeof printJourney>[0], E, ClientServices>,
-  failure: string,
-) =>
-  Command.make(name, { id: idArgument, json: jsonFlag }).pipe(
-    Command.withDescription(description),
-    Command.withExamples([{ command: `samva journeys ${name} jrny_7q2xk9mvt4znw8rh` }]),
-    Command.withHandler(({ id, json }) =>
-      Effect.gen(function* () {
-        const client = yield* getClientProvider;
-        const journey = yield* operation({ id }).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError(failure, error)),
-        );
-        if (json) return yield* printJson(journey);
-        yield* printJourney(journey);
-      }).pipe(quietWhenJson(json)),
-    ),
-  );
-
-const pause = transition(
+const pause = deriveOverride(
   "pause",
-  "Emergency stop: admit no new contacts and hold active runs before their next step",
-  Journeys.pause,
-  "Could not pause journey",
-);
-const resume = transition(
-  "resume",
-  "Resume enrollment and continue the runs a pause held",
-  Journeys.resume,
-  "Could not resume journey",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Journeys.pause(request),
+    failure: "Could not pause journey",
+    render: (journey) => printJourney(journey),
+  },
+).pipe(
+  Command.withDescription(
+    "Emergency stop: admit no new contacts and hold active runs before their next step",
+  ),
+  Command.withExamples([{ command: "samva journeys pause jrny_7q2xk9mvt4znw8rh" }]),
 );
 
-const destructive = <E>(
-  name: "archive" | "delete",
-  description: string,
-  warning: string,
-  run: (id: string) => Effect.Effect<{ readonly id: string }, E, ClientServices>,
-  failure: string,
-) =>
-  Command.make(name, {
+const resume = deriveOverride(
+  "resume",
+  { id: idArgument, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Journeys.resume(request),
+    failure: "Could not resume journey",
+    render: (journey) => printJourney(journey),
+  },
+).pipe(
+  Command.withDescription("Resume enrollment and continue the runs a pause held"),
+  Command.withExamples([{ command: "samva journeys resume jrny_7q2xk9mvt4znw8rh" }]),
+);
+
+const archive = deriveOverride(
+  "archive",
+  {
     id: idArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
     yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
     json: jsonFlag,
-  }).pipe(
-    Command.withDescription(description),
-    Command.withExamples([
-      { command: `samva journeys ${name} jrny_7q2xk9mvt4znw8rh --dry-run` },
-      { command: `samva journeys ${name} jrny_7q2xk9mvt4znw8rh --yes` },
-    ]),
-    Command.withHandler(({ id, dryRun, yes, json }) =>
-      Effect.gen(function* () {
-        if (dryRun)
-          return yield* json
-            ? printJson({ dryRun: true, action: `journeys.${name}`, id })
-            : Console.log(`[dry-run] Would ${name} journey ${id}.`);
-        yield* confirmDestructive({
-          yes,
-          json,
-          message: `${warning} Journey ${id}?`,
-          nonInteractiveMessage: `Journey ${name} requires --yes in non-interactive mode. Preview with --dry-run.`,
-        });
-        const client = yield* getClientProvider;
-        const result = yield* run(id).pipe(
-          client.provide,
-          Effect.mapError((error) => toCliApiError(failure, error)),
-        );
-        if (json) return yield* printJson(result);
-        yield* printFields([
-          ["ID", result.id],
-          ["Result", name === "delete" ? "deleted" : "archived"],
-        ]);
-      }).pipe(quietWhenJson(json)),
-    ),
-  );
-
-const archive = destructive(
-  "archive",
-  "Archive a journey and exit its active runs",
-  "Archive and exit every active run of",
-  (id) => Journeys.archive({ id }),
-  "Could not archive journey",
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Journeys.archive(request),
+    failure: "Could not archive journey",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "journeys.archive", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would archive journey ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Archive and exit every active run of Journey ${request.id}?`,
+      nonInteractiveMessage:
+        "Journey archive requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (result) =>
+      printFields([
+        ["ID", result.id],
+        ["Result", "archived"],
+      ]),
+  },
+).pipe(
+  Command.withDescription("Archive a journey and exit its active runs"),
+  Command.withExamples([
+    { command: "samva journeys archive jrny_7q2xk9mvt4znw8rh --dry-run" },
+    { command: "samva journeys archive jrny_7q2xk9mvt4znw8rh --yes" },
+  ]),
 );
-const remove = destructive(
+
+const remove = deriveOverride(
   "delete",
-  "Delete a never-published or archived journey with its versions and runs",
-  "Permanently delete",
-  (id) => Journeys.remove({ id }),
-  "Could not delete journey",
+  {
+    id: idArgument,
+    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => Journeys.remove(request),
+    failure: "Could not delete journey",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "journeys.delete", id: request.id }),
+      render: (request) => Console.log(`[dry-run] Would delete journey ${request.id}.`),
+    },
+    confirmation: (request) => ({
+      message: `Permanently delete Journey ${request.id}?`,
+      nonInteractiveMessage:
+        "Journey delete requires --yes in non-interactive mode. Preview with --dry-run.",
+    }),
+    render: (result) =>
+      printFields([
+        ["ID", result.id],
+        ["Result", "deleted"],
+      ]),
+  },
+).pipe(
+  Command.withDescription(
+    "Delete a never-published or archived journey with its versions and runs",
+  ),
+  Command.withExamples([
+    { command: "samva journeys delete jrny_7q2xk9mvt4znw8rh --dry-run" },
+    { command: "samva journeys delete jrny_7q2xk9mvt4znw8rh --yes" },
+  ]),
 );
 
-const getVersion = Command.make("version", {
-  id: idArgument,
-  version: Argument.Int("version").pipe(Argument.withDescription("Published version number")),
-  json: jsonFlag,
-}).pipe(
+const getVersion = deriveOverride(
+  "version",
+  {
+    id: idArgument,
+    version: Argument.Int("version").pipe(Argument.withDescription("Published version number")),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, version }) => ({ id, version: String(version) }),
+    call: (request) => Journeys.getVersion(request),
+    failure: "Could not fetch journey version",
+    render: printJson,
+  },
+).pipe(
   Command.withDescription("Show one immutable published definition"),
   Command.withExamples([{ command: "samva journeys version jrny_7q2xk9mvt4znw8rh 2 --json" }]),
-  Command.withHandler(({ id, version, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Journeys.getVersion({ id, version: String(version) }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch journey version", error)),
-      );
-      // A definition is a graph; the one-result contract is JSON in both modes.
-      yield* printJson(data);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const stats = Command.make("stats", {
-  id: idArgument,
-  version: Flag.Int("version").pipe(
-    Flag.withDescription("Published version (default: newest)"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+const stats = deriveOverride(
+  "stats",
+  {
+    id: idArgument,
+    version: Flag.Int("version").pipe(
+      Flag.withDescription("Published version (default: newest)"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, version }) => ({ id, version: Option.getOrUndefined(version) }),
+    call: (request) => Journeys.stats(request),
+    failure: "Could not fetch journey stats",
+    render: (data) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Version", data.version],
+          ["Active", data.runs.active],
+          ["Paused", data.runs.paused],
+          ["Exited", data.runs.exited],
+          ["Failed", data.runs.failed],
+        ]);
+        for (const node of data.nodes)
+          yield* Console.log(`${node.nodeId}  now ${node.current}  entered ${node.entered}`);
+      }),
+  },
+).pipe(
   Command.withDescription("Count a published version's runs by status and by node"),
   Command.withExamples([{ command: "samva journeys stats jrny_7q2xk9mvt4znw8rh --json" }]),
-  Command.withHandler(({ id, version, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Journeys.stats({
-        id,
-        version: Option.getOrUndefined(version),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch journey stats", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields([
-        ["Version", data.version],
-        ["Active", data.runs.active],
-        ["Paused", data.runs.paused],
-        ["Exited", data.runs.exited],
-        ["Failed", data.runs.failed],
-      ]);
-      for (const node of data.nodes)
-        yield* Console.log(`${node.nodeId}  now ${node.current}  entered ${node.entered}`);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
 const printRun = (run: {
@@ -520,93 +495,92 @@ const printRun = (run: {
     ["Ended", run.endedAt],
   ]);
 
-const runList = Command.make("list", {
-  id: idArgument,
-  status: Flag.Literals("status", RUN_STATUSES).pipe(
-    Flag.withDescription("Filter by run status"),
-    Flag.optional,
-  ),
-  contact: Flag.String("contact").pipe(Flag.withDescription("Filter by contact ID"), Flag.optional),
-  cursor: cursorFlag,
-  limit: limitFlag,
-  all: allFlag,
-  json: jsonFlag,
-}).pipe(
+const runList = deriveOverride(
+  "list",
+  {
+    id: idArgument,
+    status: Flag.Literals("status", RUN_STATUSES).pipe(
+      Flag.withDescription("Filter by run status"),
+      Flag.optional,
+    ),
+    contact: Flag.String("contact").pipe(
+      Flag.withDescription("Filter by contact ID"),
+      Flag.optional,
+    ),
+    cursor: cursorFlag,
+    limit: limitFlag,
+    all: allFlag,
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, status, contact, cursor, limit }) => ({
+      id,
+      status: Option.getOrUndefined(status),
+      contactId: Option.getOrUndefined(contact),
+      cursor: Option.getOrUndefined(cursor),
+      limit: Option.getOrUndefined(limit),
+    }),
+    call: (request) => Journeys.listRuns(request),
+    failure: (error, request) =>
+      toCliApiError("Could not list journey runs", error, { cursor: request.cursor ?? null }),
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+    },
+    render: (page) =>
+      Effect.gen(function* () {
+        if (page.items.length === 0) yield* Console.log("No runs found.");
+        for (const run of page.items) {
+          yield* printRun(run);
+          yield* Console.log("");
+        }
+        if (page.nextCursor !== null) yield* printFields([["Next cursor", page.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List a journey's runs, newest first"),
   Command.withExamples([
     { command: "samva journeys runs list jrny_7q2xk9mvt4znw8rh --status active --json" },
     { command: "samva journeys runs list jrny_7q2xk9mvt4znw8rh --all --jsonl" },
   ]),
-  Command.withHandler(({ id, status, contact, cursor, limit, all, json }) =>
-    Effect.gen(function* () {
-      const usage = requireJsonLines(all);
-      if (usage) return yield* usage;
-      const client = yield* getClientProvider;
-      let nextCursor = Option.getOrUndefined(cursor);
-      for (;;) {
-        const page = yield* Journeys.listRuns({
-          id,
-          status: Option.getOrUndefined(status),
-          contactId: Option.getOrUndefined(contact),
-          cursor: nextCursor,
-          limit: Option.getOrUndefined(limit),
-        }).pipe(
-          client.provide,
-          Effect.mapError((error) =>
-            toCliApiError("Could not list journey runs", error, { cursor: nextCursor ?? null }),
-          ),
-        );
-        if (isJsonLinesRequested()) {
-          for (const run of page.items) yield* printJsonLine(run);
-        } else if (json) return yield* printJson(page);
-        else {
-          if (page.items.length === 0) yield* Console.log("No runs found.");
-          for (const run of page.items) {
-            yield* printRun(run);
-            yield* Console.log("");
-          }
-          if (page.nextCursor !== null) yield* printFields([["Next cursor", page.nextCursor]]);
-        }
-        if (!all || page.nextCursor === null) return;
-        nextCursor = page.nextCursor;
-      }
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const runGet = Command.make("get", {
-  id: idArgument,
-  runId: Argument.String("run").pipe(Argument.withDescription("Run ID")),
-  json: jsonFlag,
-}).pipe(
+const runGet = deriveOverride(
+  "get",
+  {
+    id: idArgument,
+    runId: Argument.String("run").pipe(Argument.withDescription("Run ID")),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ id, runId }) => ({ id, runId }),
+    call: (request) => Journeys.getRun(request),
+    failure: "Could not fetch journey run",
+    render: (run) =>
+      Effect.gen(function* () {
+        yield* printRun(run);
+        yield* printFields([
+          ["Trigger event", `${run.trigger.eventName} (${run.trigger.eventId})`],
+        ]);
+        for (const step of run.steps) {
+          yield* Console.log("");
+          yield* printFields([
+            ["Node", `${step.nodeId} (${step.type})`],
+            ["Entered", step.enteredAt],
+            ["Completed", step.completedAt],
+            ["Outcome", step.outcome],
+            ["Next", step.nextNodeId],
+            ["Message", step.messageId],
+            ["Error", step.error],
+          ]);
+        }
+      }),
+  },
+).pipe(
   Command.withDescription("Show one run with every node it entered, in order"),
   Command.withExamples([
     { command: "samva journeys runs get jrny_7q2xk9mvt4znw8rh jrun_7q2xk9mvt4znw8rh --json" },
   ]),
-  Command.withHandler(({ id, runId, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const run = yield* Journeys.getRun({ id, runId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not fetch journey run", error)),
-      );
-      if (json) return yield* printJson(run);
-      yield* printRun(run);
-      yield* printFields([["Trigger event", `${run.trigger.eventName} (${run.trigger.eventId})`]]);
-      for (const step of run.steps) {
-        yield* Console.log("");
-        yield* printFields([
-          ["Node", `${step.nodeId} (${step.type})`],
-          ["Entered", step.enteredAt],
-          ["Completed", step.completedAt],
-          ["Outcome", step.outcome],
-          ["Next", step.nextNodeId],
-          ["Message", step.messageId],
-          ["Error", step.error],
-        ]);
-      }
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
 const runs = Command.make("runs").pipe(
@@ -614,125 +588,126 @@ const runs = Command.make("runs").pipe(
   Command.withSubcommands([runList, runGet]),
 );
 
-const recipes = Command.make("recipes", { json: jsonFlag }).pipe(
+const recipes = deriveOverride(
+  "recipes",
+  { json: jsonFlag },
+  {
+    call: () => IntegrationsCatalog.recipeCatalog(),
+    failure: "Could not read Shopify journey recipes",
+    render: (catalog) =>
+      Effect.gen(function* () {
+        for (const recipe of catalog.recipes) {
+          yield* printFields([
+            ["Recipe", recipe.title],
+            ["ID", recipe.id],
+            ["Starts on", recipe.trigger],
+            ["Stops on", recipe.stopEvent],
+            ["Wait", `${recipe.waitDays} days`],
+            ["Channels", recipe.channels.join(", ")],
+          ]);
+        }
+        yield* Console.log("Use --json for event schemas, binding paths, and sample data.");
+      }),
+  },
+).pipe(
   Command.withDescription("List Shopify journey recipes and discover their event inputs"),
   Command.withExamples([{ command: "samva journeys recipes --json" }]),
-  Command.withHandler(({ json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const catalog = yield* IntegrationsCatalog.recipeCatalog().pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read Shopify journey recipes", error)),
-      );
-      if (json) return yield* printJson(catalog);
-      for (const recipe of catalog.recipes) {
-        yield* printFields([
-          ["Recipe", recipe.title],
-          ["ID", recipe.id],
-          ["Starts on", recipe.trigger],
-          ["Stops on", recipe.stopEvent],
-          ["Wait", `${recipe.waitDays} days`],
-          ["Channels", recipe.channels.join(", ")],
-        ]);
-      }
-      yield* Console.log("Use --json for event schemas, binding paths, and sample data.");
-    }).pipe(quietWhenJson(json)),
-  ),
 );
 
-const readiness = Command.make("readiness", {
-  channel: Flag.Literals("channel", RecipeReadinessQuery.fields.channel.literals).pipe(
-    Flag.withDescription("Channel for the post-delivery check-in (email or whatsapp)"),
-  ),
-  integrationAccountId: Flag.String("integration-account-id").pipe(
-    Flag.withSchema(IntegrationAccountId),
-    Flag.withDescription("Shopify connection to check"),
-    Flag.optional,
-  ),
-  publicationId: Flag.String("publication-id").pipe(
-    Flag.withSchema(TemplatePublicationId),
-    Flag.withDescription("Exact template publication to check"),
-    Flag.optional,
-  ),
-  senderId: Flag.String("sender-id").pipe(
-    Flag.withSchema(EmailSenderId),
-    Flag.withDescription("Email sender to check instead of the organization default"),
-    Flag.optional,
-  ),
-  whatsappAccountId: Flag.String("whatsapp-account-id").pipe(
-    Flag.withSchema(WhatsAppBusinessAccountId),
-    Flag.withDescription("WhatsApp business account to check instead of the organization default"),
-    Flag.optional,
-  ),
-  registrationId: Flag.String("registration-id").pipe(
-    Flag.withSchema(TemplateRegistrationId),
-    Flag.withDescription("Exact WhatsApp template registration to check"),
-    Flag.optional,
-  ),
-  mailboxEndpointId: Flag.String("mailbox-endpoint-id").pipe(
-    Flag.withSchema(MailboxEndpointId),
-    Flag.withDescription("Mailbox endpoint to check for replies"),
-    Flag.optional,
-  ),
-  json: jsonFlag,
-}).pipe(
+const readiness = deriveOverride(
+  "readiness",
+  {
+    channel: Flag.Literals("channel", RecipeReadinessQuery.fields.channel.literals).pipe(
+      Flag.withDescription("Channel for the post-delivery check-in (email or whatsapp)"),
+    ),
+    integrationAccountId: Flag.String("integration-account-id").pipe(
+      Flag.withSchema(IntegrationAccountId),
+      Flag.withDescription("Shopify connection to check"),
+      Flag.optional,
+    ),
+    publicationId: Flag.String("publication-id").pipe(
+      Flag.withSchema(TemplatePublicationId),
+      Flag.withDescription("Exact template publication to check"),
+      Flag.optional,
+    ),
+    senderId: Flag.String("sender-id").pipe(
+      Flag.withSchema(EmailSenderId),
+      Flag.withDescription("Email sender to check instead of the organization default"),
+      Flag.optional,
+    ),
+    whatsappAccountId: Flag.String("whatsapp-account-id").pipe(
+      Flag.withSchema(WhatsAppBusinessAccountId),
+      Flag.withDescription(
+        "WhatsApp business account to check instead of the organization default",
+      ),
+      Flag.optional,
+    ),
+    registrationId: Flag.String("registration-id").pipe(
+      Flag.withSchema(TemplateRegistrationId),
+      Flag.withDescription("Exact WhatsApp template registration to check"),
+      Flag.optional,
+    ),
+    mailboxEndpointId: Flag.String("mailbox-endpoint-id").pipe(
+      Flag.withSchema(MailboxEndpointId),
+      Flag.withDescription("Mailbox endpoint to check for replies"),
+      Flag.optional,
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: (input) => ({
+      channel: input.channel,
+      integrationAccountId: Option.getOrUndefined(input.integrationAccountId),
+      publicationId: Option.getOrUndefined(input.publicationId),
+      senderId: Option.getOrUndefined(input.senderId),
+      whatsappAccountId: Option.getOrUndefined(input.whatsappAccountId),
+      registrationId: Option.getOrUndefined(input.registrationId),
+      mailboxEndpointId: Option.getOrUndefined(input.mailboxEndpointId),
+    }),
+    call: (request) => IntegrationsCatalog.recipeReadiness(request),
+    failure: "Could not check Shopify recipe readiness",
+    render: (result) =>
+      Effect.gen(function* () {
+        yield* printFields([
+          ["Ready", result.ready ? "Yes" : "No"],
+          ["Channel", result.channel],
+          ["Shopify availability", result.availability.shopify ? "Enabled" : "Disabled"],
+          ["Shopify connection", result.shopify?.status ?? "Unavailable"],
+          ["Shop", result.shopify?.shop],
+          ["Journeys availability", result.availability.journeys ? "Enabled" : "Disabled"],
+          ["Plan access", result.availability.plan ?? "Requires organization-wide access"],
+          ["Publication", result.publication?.id ?? "Unavailable"],
+          ...(result.channel === "email"
+            ? ([
+                ["Email sender", result.email?.status ?? "Unavailable"],
+                ["From address", result.email?.address],
+                ["Sending domain ID", result.email?.domainId],
+              ] as const)
+            : ([
+                ["WhatsApp availability", result.availability.whatsapp ? "Enabled" : "Disabled"],
+                ["WhatsApp account", result.whatsapp?.status ?? "Unavailable"],
+                ["Business number", result.whatsapp?.address],
+                ["Registration", result.whatsapp?.registration?.status ?? "Unavailable"],
+              ] as const)),
+          ["Reply route", result.reply?.status ?? "Unavailable"],
+          ["Reply address", result.reply?.address],
+          ["Reply mailbox ID", result.reply?.mailboxId],
+        ]);
+        // What the journey cannot supply to the selected publication, with the server's guidance.
+        const issues = result.publication?.inputIssues ?? [];
+        if (issues.length > 0) {
+          yield* Console.log(
+            ["", "Publication input issues:", ...issues.map((issue) => `  - ${issue}`)].join("\n"),
+          );
+        }
+      }),
+  },
+).pipe(
   Command.withDescription("Check live prerequisites for the Shopify post-delivery check-in"),
   Command.withExamples([
     { command: "samva journeys readiness --channel email" },
     { command: "samva journeys readiness --channel whatsapp --json" },
   ]),
-  Command.withHandler((input) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeReadiness({
-        channel: input.channel,
-        integrationAccountId: Option.getOrUndefined(input.integrationAccountId),
-        publicationId: Option.getOrUndefined(input.publicationId),
-        senderId: Option.getOrUndefined(input.senderId),
-        whatsappAccountId: Option.getOrUndefined(input.whatsappAccountId),
-        registrationId: Option.getOrUndefined(input.registrationId),
-        mailboxEndpointId: Option.getOrUndefined(input.mailboxEndpointId),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) =>
-          toCliApiError("Could not check Shopify recipe readiness", error),
-        ),
-      );
-      if (input.json) return yield* printJson(result);
-      yield* printFields([
-        ["Ready", result.ready ? "Yes" : "No"],
-        ["Channel", result.channel],
-        ["Shopify availability", result.availability.shopify ? "Enabled" : "Disabled"],
-        ["Shopify connection", result.shopify?.status ?? "Unavailable"],
-        ["Shop", result.shopify?.shop],
-        ["Journeys availability", result.availability.journeys ? "Enabled" : "Disabled"],
-        ["Plan access", result.availability.plan ?? "Requires organization-wide access"],
-        ["Publication", result.publication?.id ?? "Unavailable"],
-        ...(result.channel === "email"
-          ? ([
-              ["Email sender", result.email?.status ?? "Unavailable"],
-              ["From address", result.email?.address],
-              ["Sending domain ID", result.email?.domainId],
-            ] as const)
-          : ([
-              ["WhatsApp availability", result.availability.whatsapp ? "Enabled" : "Disabled"],
-              ["WhatsApp account", result.whatsapp?.status ?? "Unavailable"],
-              ["Business number", result.whatsapp?.address],
-              ["Registration", result.whatsapp?.registration?.status ?? "Unavailable"],
-            ] as const)),
-        ["Reply route", result.reply?.status ?? "Unavailable"],
-        ["Reply address", result.reply?.address],
-        ["Reply mailbox ID", result.reply?.mailboxId],
-      ]);
-      // What the journey cannot supply to the selected publication, with the server's guidance.
-      const issues = result.publication?.inputIssues ?? [];
-      if (issues.length > 0) {
-        yield* Console.log(
-          ["", "Publication input issues:", ...issues.map((issue) => `  - ${issue}`)].join("\n"),
-        );
-      }
-    }).pipe(quietWhenJson(input.json)),
-  ),
 );
 
 const recipeDataFlag = Flag.String("data").pipe(
@@ -753,179 +728,164 @@ const readRecipeData = <S extends Schema.ConstraintDecoder<unknown>>(schema: S, 
     ),
   );
 
-const recipePreview = Command.make("recipe-preview", { data: recipeDataFlag, json: jsonFlag }).pipe(
-  Command.withDescription("Render an exact publication with a sample order without sending"),
-  Command.withHandler(({ data, json }) =>
-    Effect.gen(function* () {
-      const payload = yield* readRecipeData(RecipePreviewPayload, data);
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipePreview(payload).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not render the recipe sample", error)),
-      );
-      if (json) return yield* printJson(result);
-      if (result.channel === "email")
-        return yield* printFields([
-          ["Sample", result.fixture],
-          ["Subject", result.content.subject],
-          ["Text", result.content.text],
-        ]);
-      return yield* printJson(result.content);
-    }).pipe(quietWhenJson(json)),
-  ),
-);
-const recipeConnect = Command.make("recipe-connect", {
-  provider: Argument.Literals("provider", ConnectionHandoffProvider.literals),
-  data: recipeDataFlag.pipe(Flag.optional),
-  json: jsonFlag,
-}).pipe(
+const recipePreview = deriveOverride(
+  "recipe-preview",
+  { data: recipeDataFlag, json: jsonFlag },
+  {
+    prepare: ({ data }) => readRecipeData(RecipePreviewPayload, data),
+    call: (request) => IntegrationsCatalog.recipePreview(request),
+    failure: "Could not render the recipe sample",
+    render: (result) =>
+      result.channel === "email"
+        ? printFields([
+            ["Sample", result.fixture],
+            ["Subject", result.content.subject],
+            ["Text", result.content.text],
+          ])
+        : printJson(result.content),
+  },
+).pipe(Command.withDescription("Render an exact publication with a sample order without sending"));
+
+const recipeConnect = deriveOverride(
+  "recipe-connect",
+  {
+    provider: Argument.Literals("provider", ConnectionHandoffProvider.literals),
+    data: recipeDataFlag.pipe(Flag.optional),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ provider, data }) =>
+      Option.isSome(data)
+        ? readRecipeData(ConnectionHandoffQuery, data.value).pipe(
+            Effect.map((query) => ({ provider, ...query })),
+          )
+        : Effect.succeed({ provider }),
+    call: (request) => IntegrationsCatalog.recipeConnectionHandoff(request),
+    failure: "Could not prepare the connection handoff",
+    render: (result) => Console.log(result.url),
+  },
+).pipe(
   Command.withDescription("Get the organization dashboard link for Shopify or WhatsApp connection"),
-  Command.withHandler(({ provider, data, json }) =>
-    Effect.gen(function* () {
-      const query = Option.isSome(data)
-        ? yield* readRecipeData(ConnectionHandoffQuery, data.value)
-        : {};
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeConnectionHandoff({
-        provider,
-        ...query,
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) =>
-          toCliApiError("Could not prepare the connection handoff", error),
-        ),
-      );
-      return json ? yield* printJson(result) : yield* Console.log(result.url);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
-const recipeTestHandoff = Command.make("recipe-test-handoff", {
-  data: recipeDataFlag,
-  json: jsonFlag,
-}).pipe(
+
+const recipeTestHandoff = deriveOverride(
+  "recipe-test-handoff",
+  { data: recipeDataFlag, json: jsonFlag },
+  {
+    prepare: ({ data }) => readRecipeData(TestHandoffQuery, data),
+    call: (request) => IntegrationsCatalog.recipeTestHandoff(request),
+    failure: "Could not prepare the owner test handoff",
+    render: (result) => Console.log(result.url),
+  },
+).pipe(
   Command.withDescription("Open a verified owner test for the exact selection in the dashboard"),
-  Command.withHandler(({ data, json }) =>
-    Effect.gen(function* () {
-      const query = yield* readRecipeData(TestHandoffQuery, data);
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeTestHandoff(query).pipe(
-        client.provide,
-        Effect.mapError((error) =>
-          toCliApiError("Could not prepare the owner test handoff", error),
-        ),
-      );
-      return json ? yield* printJson(result) : yield* Console.log(result.url);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
-const recipeTest = Command.make("recipe-test", {
-  data: recipeDataFlag,
-  yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm the test send to your verified identity"),
-  ),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Send a sample order to the signed-in owner's verified identity"),
-  Command.withHandler(({ data, yes, json }) =>
-    Effect.gen(function* () {
-      const payload = yield* readRecipeData(RecipeTestPayload, data);
-      yield* confirmDestructive({
-        yes,
-        json,
-        message: `Send a ${payload.channel === "email" ? "sample email" : "sample WhatsApp message"} to your verified owner destination?`,
-        nonInteractiveMessage:
-          "Confirm the owner test with --yes. Use the same requestId after an uncertain response.",
-      });
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeTest(payload).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not run the owner test", error)),
-      );
-      return json
-        ? yield* printJson(result)
-        : yield* printFields([["Message ID", result.messageId]]);
-    }).pipe(quietWhenJson(json)),
-  ),
-);
-const recipeTestReceipt = Command.make("recipe-test-receipt", {
-  requestId: Argument.String("request-id").pipe(Argument.withSchema(RecipeTestRequestId)),
-  json: jsonFlag,
-}).pipe(
-  Command.withDescription("Reconcile a test by original request ID without sending again"),
-  Command.withHandler(({ requestId, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeTestReceipt({ requestId }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read the owner test receipt", error)),
-      );
-      if (json) return yield* printJson(result);
-      if (result === null) return yield* Console.log("No test attempt found for that request ID.");
-      return yield* printFields([
-        ["Message ID", result.messageId],
-        ["Acceptance", result.state],
-      ]);
-    }).pipe(quietWhenJson(json)),
-  ),
-);
+
+const recipeTest = deriveOverride(
+  "recipe-test",
+  {
+    data: recipeDataFlag,
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDescription("Confirm the test send to your verified identity"),
+    ),
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ data }) => readRecipeData(RecipeTestPayload, data),
+    call: (request) => IntegrationsCatalog.recipeTest(request),
+    failure: "Could not run the owner test",
+    confirmation: (request) => ({
+      message: `Send a ${request.channel === "email" ? "sample email" : "sample WhatsApp message"} to your verified owner destination?`,
+      nonInteractiveMessage:
+        "Confirm the owner test with --yes. Use the same requestId after an uncertain response.",
+    }),
+    render: (result) => printFields([["Message ID", result.messageId]]),
+  },
+).pipe(Command.withDescription("Send a sample order to the signed-in owner's verified identity"));
+
+const recipeTestReceipt = deriveOverride(
+  "recipe-test-receipt",
+  {
+    requestId: Argument.String("request-id").pipe(Argument.withSchema(RecipeTestRequestId)),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ requestId }) => ({ requestId }),
+    call: (request) => IntegrationsCatalog.recipeTestReceipt(request),
+    failure: "Could not read the owner test receipt",
+    render: (result) =>
+      result === null
+        ? Console.log("No test attempt found for that request ID.")
+        : printFields([
+            ["Message ID", result.messageId],
+            ["Acceptance", result.state],
+          ]),
+  },
+).pipe(Command.withDescription("Reconcile a test by original request ID without sending again"));
+
 const setupId = Argument.String("id").pipe(Argument.withSchema(RecipeSetupId));
-const recipeSetupsList = Command.make("list", { json: jsonFlag }).pipe(
-  Command.withDescription("List recent recipe setup selections"),
-  Command.withHandler(({ json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeSetupsList().pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list recipe setups", error)),
-      );
-      if (json) return yield* printJson(result);
-      for (const item of result.items)
-        yield* printFields([
-          ["ID", item.id],
-          ["Revision", item.revision],
-          ["Channel", item.references.channel],
-        ]);
-    }).pipe(quietWhenJson(json)),
-  ),
-);
-const recipeSetupGet = Command.make("get", { id: setupId, json: jsonFlag }).pipe(
-  Command.withDescription("Read the references and revision of a saved setup"),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeSetupGet({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read the recipe setup", error)),
-      );
-      return yield* printJson(result);
-    }).pipe(quietWhenJson(json)),
-  ),
-);
-const recipeSetupReplace = Command.make("save", {
-  id: setupId,
-  data: recipeDataFlag,
-  json: jsonFlag,
-}).pipe(
+const recipeSetupsList = deriveOverride(
+  "list",
+  { json: jsonFlag },
+  {
+    call: () => IntegrationsCatalog.recipeSetupsList(),
+    failure: "Could not list recipe setups",
+    render: (result) =>
+      Effect.gen(function* () {
+        for (const item of result.items)
+          yield* printFields([
+            ["ID", item.id],
+            ["Revision", item.revision],
+            ["Channel", item.references.channel],
+          ]);
+      }),
+  },
+).pipe(Command.withDescription("List recent recipe setup selections"));
+
+const recipeSetupGet = deriveOverride(
+  "get",
+  { id: setupId, json: jsonFlag },
+  {
+    mapInput: ({ id }) => ({ id }),
+    call: (request) => IntegrationsCatalog.recipeSetupGet(request),
+    failure: "Could not read the recipe setup",
+    render: printJson,
+  },
+).pipe(Command.withDescription("Read the references and revision of a saved setup"));
+
+const recipeSetupReplace = deriveOverride(
+  "save",
+  { id: setupId, data: recipeDataFlag, json: jsonFlag },
+  {
+    prepare: ({ id, data }) =>
+      readRecipeData(ReplaceRecipeSetup, data).pipe(Effect.map((payload) => ({ id, ...payload }))),
+    call: (request) => IntegrationsCatalog.recipeSetupReplace(request),
+    failure: "Could not save the recipe setup",
+    render: printJson,
+  },
+).pipe(
   Command.withDescription(
     "Save references with a new UUID and null revision or replace the current revision",
   ),
-  Command.withHandler(({ id, data, json }) =>
-    Effect.gen(function* () {
-      const payload = yield* readRecipeData(ReplaceRecipeSetup, data);
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeSetupReplace({ id, ...payload }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not save the recipe setup", error)),
-      );
-      return yield* printJson(result);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
-const recipeSetupActivate = Command.make("activate", {
-  id: setupId,
-  data: recipeDataFlag,
-  json: jsonFlag,
-}).pipe(
+
+const recipeSetupActivate = deriveOverride(
+  "activate",
+  { id: setupId, data: recipeDataFlag, json: jsonFlag },
+  {
+    prepare: ({ id, data }) =>
+      readRecipeData(ActivateRecipeSetup, data).pipe(Effect.map((payload) => ({ id, ...payload }))),
+    call: (request) => IntegrationsCatalog.recipeSetupActivate(request),
+    failure: "Could not activate the recipe setup",
+    render: (result) =>
+      printFields([
+        ["Journey", result.journey.id],
+        ["Status", result.journey.status],
+        ["Published version", result.journey.publishedVersion],
+        ["Setup revision", result.setup.revision],
+      ]),
+  },
+).pipe(
   Command.withDescription("Publish the reviewed selection on the setup's journey"),
   Command.withExamples([
     {
@@ -934,24 +894,8 @@ const recipeSetupActivate = Command.make("activate", {
       description: "Pass the saved revision and reviewed send selection.",
     },
   ]),
-  Command.withHandler(({ id, data, json }) =>
-    Effect.gen(function* () {
-      const payload = yield* readRecipeData(ActivateRecipeSetup, data);
-      const client = yield* getClientProvider;
-      const result = yield* IntegrationsCatalog.recipeSetupActivate({ id, ...payload }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not activate the recipe setup", error)),
-      );
-      if (json) return yield* printJson(result);
-      return yield* printFields([
-        ["Journey", result.journey.id],
-        ["Status", result.journey.status],
-        ["Published version", result.journey.publishedVersion],
-        ["Setup revision", result.setup.revision],
-      ]);
-    }).pipe(quietWhenJson(json)),
-  ),
 );
+
 const recipeSetups = Command.make("recipe-setups").pipe(
   Command.withDescription("Save, read, and activate Shopify recipe selections"),
   Command.withSubcommands([

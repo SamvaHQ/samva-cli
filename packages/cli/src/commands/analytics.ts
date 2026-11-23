@@ -1,14 +1,11 @@
 import { AbsoluteInstantFromString } from "@samva/core/shared/wire";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
-import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Analytics from "samva/effect/analytics";
 
-import { toCliApiError } from "../errors";
-import { getClientProvider } from "../lib/client";
+import { withContractRead } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
-import { jsonFlag, objectRows, printFields, printJson } from "../lib/output";
+import { jsonFlag } from "../lib/output";
 
 const rangeFlags = {
   namespace: namespaceFlag("list"),
@@ -26,29 +23,27 @@ const rangeFlags = {
   json: jsonFlag,
 };
 
-const stats = Command.make("stats", {
+const statsFlags = {
   ...rangeFlags,
   groupBy: Flag.Literals("group-by", ["day", "week", "month"]).pipe(Flag.optional),
-}).pipe(
+};
+
+type RangeInput = Command.Command.Config.Infer<typeof rangeFlags>;
+type StatsInput = Command.Command.Config.Infer<typeof statsFlags>;
+
+const rangeQuery = ({ namespace, after, before, channel }: RangeInput) => ({
+  ...namespaceField(namespace),
+  after: Option.getOrUndefined(after),
+  before: Option.getOrUndefined(before),
+  channel: Option.getOrUndefined(channel),
+});
+
+const stats = Command.make("stats", statsFlags).pipe(
   Command.withDescription("Read outbound message volume within the caller's scope"),
   Command.withExamples([{ command: "samva analytics stats --namespace ns_abc123 --json" }]),
-  Command.withHandler(({ namespace, after, before, channel, groupBy, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Analytics.getStats({
-        ...namespaceField(namespace),
-        after: Option.getOrUndefined(after),
-        before: Option.getOrUndefined(before),
-        channel: Option.getOrUndefined(channel),
-        groupBy: Option.getOrUndefined(groupBy),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read analytics", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields(objectRows(data));
-    }),
-  ),
+  withContractRead("analytics.getStats", "Could not read analytics", (input: StatsInput) => ({
+    query: { ...rangeQuery(input), groupBy: Option.getOrUndefined(input.groupBy) },
+  })),
 );
 
 const deliveryMetrics = Command.make("delivery-metrics", rangeFlags).pipe(
@@ -56,20 +51,11 @@ const deliveryMetrics = Command.make("delivery-metrics", rangeFlags).pipe(
   Command.withExamples([
     { command: "samva analytics delivery-metrics --namespace ns_abc123 --channel email --json" },
   ]),
-  Command.withHandler(({ namespace, after, before, channel, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Analytics.getDeliveryMetrics({
-        ...namespaceField(namespace),
-        after: Option.getOrUndefined(after),
-        before: Option.getOrUndefined(before),
-        channel: Option.getOrUndefined(channel),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not read delivery metrics", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields(objectRows(data));
+  withContractRead(
+    "analytics.getDeliveryMetrics",
+    "Could not read delivery metrics",
+    (input: RangeInput) => ({
+      query: rangeQuery(input),
     }),
   ),
 );

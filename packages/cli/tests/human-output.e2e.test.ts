@@ -501,11 +501,15 @@ describe("the raw-JSON guard", () => {
             : [],
       );
     const users = files(sourceRoot)
-      .filter((file) => !file.endsWith(join("lib", "output.ts")))
-      .filter((file) =>
-        /\bprintJsonDocument\(|\bprintJsonDocument\b[^(]/.test(readFileSync(file, "utf8")),
+      .map((file) => relative(sourceRoot, file))
+      .filter(
+        (file) => file !== join("lib", "output.ts") && file !== join("lib", "derive", "curated.ts"),
       )
-      .map((file) => relative(sourceRoot, file));
+      .filter((file) =>
+        /\bprintJsonDocument\b|\bdocument:\s*true\b/.test(
+          readFileSync(join(sourceRoot, file), "utf8"),
+        ),
+      );
     expect(users.sort()).toEqual(Object.keys(jsonByDesign).sort());
   });
 });

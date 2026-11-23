@@ -25,6 +25,7 @@ import * as Templates from "samva/effect/templates";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { deriveOverride, withContractRead } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, objectRows, printFields, printJson, printJsonLine } from "../lib/output";
 import { isJsonLinesRequested, outputModeFromArgv } from "../lib/runtime";
@@ -705,112 +706,151 @@ const sharedFilterFlag = Flag.Literals("shared", ["true", "false"]).pipe(
   Flag.optional,
 );
 
-const listRemote = Command.make("list", {
-  cursor: Flag.String("cursor").pipe(
-    Flag.withDescription("Resume after this nextCursor from a previous page"),
-    Flag.optional,
-  ),
-  limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
-  namespace: namespaceFlag("list"),
-  shared: sharedFilterFlag,
-  all: Flag.Boolean("all").pipe(
-    Flag.withDescription("Traverse every page (requires --jsonl)"),
-    Flag.withDefault(false),
-  ),
-  json: jsonFlag,
-}).pipe(
+const listRemote = deriveOverride(
+  "list",
+  {
+    cursor: Flag.String("cursor").pipe(
+      Flag.withDescription("Resume after this nextCursor from a previous page"),
+      Flag.optional,
+    ),
+    limit: Flag.Int("limit").pipe(Flag.withDescription("Items per page"), Flag.optional),
+    namespace: namespaceFlag("list"),
+    shared: sharedFilterFlag,
+    all: Flag.Boolean("all").pipe(
+      Flag.withDescription("Traverse every page (requires --jsonl)"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  {
+    mapInput: ({ cursor, limit, namespace, shared }) => ({
+      cursor: Option.getOrUndefined(cursor),
+      limit: Option.getOrUndefined(limit),
+      ...namespaceField(namespace),
+      ...Option.match(shared, {
+        onNone: () => ({}),
+        onSome: (value) => ({ shared: value === "true" }),
+      }),
+    }),
+    call: (request) => Templates.list(request),
+    failure: "Could not list templates",
+    paginate: {
+      withCursor: (request, cursor) => ({ ...request, cursor }),
+      start: (request) => request.cursor,
+    },
+    render: (data) =>
+      Effect.gen(function* () {
+        for (const item of data.items)
+          yield* printFields([
+            ["ID", item.id],
+            ["Name", item.name],
+            ["Slug", item.slug],
+            ["Status", item.status],
+            ["Namespace", item.namespaceId ?? "organization"],
+            ["Shared", item.shared ? "yes" : "no"],
+          ]);
+        if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
+      }),
+  },
+).pipe(
   Command.withDescription("List remote templates"),
   Command.withExamples([
     { command: "samva templates list --json" },
     { command: "samva templates list --shared true --json" },
   ]),
-  Command.withHandler(({ cursor, limit, namespace, shared, all, json }) =>
-    Effect.gen(function* () {
-      if (all && !isJsonLinesRequested())
-        return yield* new CliUsageError({
-          code: "all_requires_jsonl",
-          message: "--all is an unbounded traversal and requires --jsonl.",
-        });
-      const client = yield* getClientProvider;
-      const cursorValue = Option.getOrUndefined(cursor);
-      const limitValue = Option.getOrUndefined(limit);
-      const query = {
-        cursor: cursorValue,
-        limit: limitValue,
-        ...namespaceField(namespace),
-        ...Option.match(shared, {
-          onNone: () => ({}),
-          onSome: (value) => ({ shared: value === "true" }),
-        }),
-      };
-      if (all) {
-        let nextCursor = cursorValue;
-        for (;;) {
-          const data = yield* Templates.list({ ...query, cursor: nextCursor }).pipe(
-            client.provide,
-            Effect.mapError((error) => toCliApiError("Could not list templates", error)),
-          );
-          for (const item of data.items) yield* printJsonLine(item);
-          if (data.nextCursor === null) return;
-          nextCursor = data.nextCursor;
-        }
-      }
-      const data = yield* Templates.list(query).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not list templates", error)),
-      );
-      if (isJsonLinesRequested()) {
-        for (const item of data.items) yield* printJsonLine(item);
-        return;
-      }
-      if (json) return yield* printJson(data);
-      for (const item of data.items)
-        yield* printFields([
-          ["ID", item.id],
-          ["Name", item.name],
-          ["Slug", item.slug],
-          ["Status", item.status],
-          ["Namespace", item.namespaceId ?? "organization"],
-          ["Shared", item.shared ? "yes" : "no"],
-        ]);
-      if (data.nextCursor !== null) yield* printFields([["Next cursor", data.nextCursor]]);
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const getRemote = Command.make("get", { id: templateIdArgument, json: jsonFlag }).pipe(
+const getFlags = { id: templateIdArgument, json: jsonFlag };
+
+const getRemote = Command.make("get", getFlags).pipe(
   Command.withDescription("Get a remote template"),
   Command.withExamples([{ command: "samva templates get tmpl_abc123 --json" }]),
-  Command.withHandler(({ id, json }) =>
-    Effect.gen(function* () {
-      const client = yield* getClientProvider;
-      const data = yield* Templates.getById({ id }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not get template", error)),
-      );
-      if (json) return yield* printJson(data);
-      yield* printFields(objectRows(data));
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
+  withContractRead(
+    "templates.getById",
+    "Could not get template",
+    ({ id }: Command.Command.Config.Infer<typeof getFlags>) => ({ params: { id } }),
   ),
 );
 
-const createRemote = Command.make("create", {
-  data: Flag.String("data").pipe(Flag.withDescription("Complete template JSON payload")),
-  namespace: namespaceFlag("create"),
-  idempotencyKey: Flag.String("idempotency-key").pipe(
-    Flag.withSchema(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255))),
-    Flag.withDescription("Stable retry key; generated per call when omitted"),
-    Flag.optional,
-  ),
-  shared: Flag.Boolean("shared").pipe(
-    Flag.withDescription(
-      "Share the new organization-level project with every namespace; namespace-scoped keys read and send it but cannot change it",
+const createRemote = deriveOverride(
+  "create",
+  {
+    data: Flag.String("data").pipe(Flag.withDescription("Complete template JSON payload")),
+    namespace: namespaceFlag("create"),
+    idempotencyKey: Flag.String("idempotency-key").pipe(
+      Flag.withSchema(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255))),
+      Flag.withDescription("Stable retry key; generated per call when omitted"),
+      Flag.optional,
     ),
-    Flag.withDefault(false),
-  ),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+    shared: Flag.Boolean("shared").pipe(
+      Flag.withDescription(
+        "Share the new organization-level project with every namespace; namespace-scoped keys read and send it but cannot change it",
+      ),
+      Flag.withDefault(false),
+    ),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ data, namespace, shared }) =>
+      Effect.gen(function* () {
+        const decoded = yield* decodePayload(data, "--data", Templates.CreatePayload);
+        if (decoded.shareLinkSlug === undefined && decoded.name === undefined)
+          return yield* new CliUsageError({
+            code: "template_name_required",
+            message:
+              "Provide name for a named/gallery project, or only shareLinkSlug to copy a share link.",
+          });
+        if (
+          decoded.shareLinkSlug !== undefined &&
+          Object.keys(decoded).some((key) => key !== "shareLinkSlug")
+        )
+          return yield* new CliUsageError({
+            code: "share_link_source_only",
+            message: "Copy a share link with only shareLinkSlug in --data.",
+          });
+        if (shared && decoded.shared === false)
+          return yield* new CliUsageError({
+            code: "shared_conflict",
+            message: "--shared and shared: false in --data disagree.",
+          });
+        if (shared && (Option.isSome(namespace) || decoded.namespaceId != null))
+          return yield* new CliUsageError({
+            code: "shared_namespace_conflict",
+            message: "--shared shares an organization-level project; it cannot have a namespace.",
+          });
+        if (
+          Option.isSome(namespace) &&
+          decoded.namespaceId != null &&
+          decoded.namespaceId !== namespace.value
+        )
+          return yield* new CliUsageError({
+            code: "namespace_conflict",
+            message: "--namespace and the namespaceId in --data name different namespaces.",
+          });
+        if (decoded.shareLinkSlug !== undefined && (shared || Option.isSome(namespace)))
+          return yield* new CliUsageError({
+            code: "share_link_source_only",
+            message:
+              "Copy a share link with only shareLinkSlug in --data; omit --namespace and --shared.",
+          });
+        return {
+          ...decoded,
+          ...namespaceField(namespace),
+          ...(shared ? { shared: true } : {}),
+        };
+      }),
+    call: (request, input) =>
+      Templates.create(request, { idempotencyKey: Option.getOrUndefined(input.idempotencyKey) }),
+    failure: "Could not create template",
+    preview: {
+      data: (request) => ({ dryRun: true, action: "templates.create", request }),
+      render: (request) =>
+        printFields([["Action", "templates.create"], ...objectRows(request, { explicit: true })]),
+    },
+    render: (result) => printFields(objectRows(result)),
+  },
+).pipe(
   Command.withDescription("Create a remote template, or copy a share link with only shareLinkSlug"),
   Command.withExamples([
     {
@@ -821,129 +861,73 @@ const createRemote = Command.make("create", {
       description: "Open this organization's copy of every email in a share link",
     },
   ]),
-  Command.withHandler(({ data, namespace, idempotencyKey, shared, dryRun, json }) =>
-    Effect.gen(function* () {
-      const decoded = yield* decodePayload(data, "--data", Templates.CreatePayload);
-      if (decoded.shareLinkSlug === undefined && decoded.name === undefined)
-        return yield* new CliUsageError({
-          code: "template_name_required",
-          message:
-            "Provide name for a named/gallery project, or only shareLinkSlug to copy a share link.",
-        });
-      if (
-        decoded.shareLinkSlug !== undefined &&
-        Object.keys(decoded).some((key) => key !== "shareLinkSlug")
-      )
-        return yield* new CliUsageError({
-          code: "share_link_source_only",
-          message: "Copy a share link with only shareLinkSlug in --data.",
-        });
-      if (shared && decoded.shared === false)
-        return yield* new CliUsageError({
-          code: "shared_conflict",
-          message: "--shared and shared: false in --data disagree.",
-        });
-      if (shared && (Option.isSome(namespace) || decoded.namespaceId != null))
-        return yield* new CliUsageError({
-          code: "shared_namespace_conflict",
-          message: "--shared shares an organization-level project; it cannot have a namespace.",
-        });
-      if (
-        Option.isSome(namespace) &&
-        decoded.namespaceId != null &&
-        decoded.namespaceId !== namespace.value
-      )
-        return yield* new CliUsageError({
-          code: "namespace_conflict",
-          message: "--namespace and the namespaceId in --data name different namespaces.",
-        });
-      if (decoded.shareLinkSlug !== undefined && (shared || Option.isSome(namespace)))
-        return yield* new CliUsageError({
-          code: "share_link_source_only",
-          message:
-            "Copy a share link with only shareLinkSlug in --data; omit --namespace and --shared.",
-        });
-      const payload = {
-        ...decoded,
-        ...namespaceField(namespace),
-        ...(shared ? { shared: true } : {}),
-      };
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "templates.create", request: payload })
-          : printFields([
-              ["Action", "templates.create"],
-              ...objectRows(payload, { explicit: true }),
-            ]);
-      const client = yield* getClientProvider;
-      const result = yield* Templates.create(payload, {
-        idempotencyKey: Option.getOrUndefined(idempotencyKey),
-      }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not create template", error)),
-      );
-      if (json) return yield* printJson(result);
-      yield* printFields(objectRows(result));
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
-const updateRemote = Command.make("update", {
-  id: templateIdArgument,
-  data: Flag.String("data").pipe(Flag.withDescription("JSON object of template fields to update")),
-  shared: Flag.Literals("shared", ["true", "false"]).pipe(
-    Flag.withDescription(
-      "Share the template's organization-level project with every namespace (true) or stop sharing it (false); applies to every entry in the project",
+const updateRemote = deriveOverride(
+  "update",
+  {
+    id: templateIdArgument,
+    data: Flag.String("data").pipe(
+      Flag.withDescription("JSON object of template fields to update"),
     ),
-    Flag.optional,
-  ),
-  dryRun: dryRunFlag,
-  json: jsonFlag,
-}).pipe(
+    shared: Flag.Literals("shared", ["true", "false"]).pipe(
+      Flag.withDescription(
+        "Share the template's organization-level project with every namespace (true) or stop sharing it (false); applies to every entry in the project",
+      ),
+      Flag.optional,
+    ),
+    dryRun: dryRunFlag,
+    json: jsonFlag,
+  },
+  {
+    prepare: ({ id, data, shared }) =>
+      Effect.gen(function* () {
+        const parsed = yield* parseObject(data, "--data");
+        const sharedValue = Option.map(shared, (value) => value === "true");
+        if (
+          Option.isSome(sharedValue) &&
+          parsed.shared !== undefined &&
+          parsed.shared !== sharedValue.value
+        )
+          return yield* new CliUsageError({
+            code: "shared_conflict",
+            message: "--shared and shared in --data disagree.",
+          });
+        const changes = Option.isSome(sharedValue)
+          ? { ...parsed, shared: sharedValue.value }
+          : parsed;
+        const payload = yield* decodePayload(
+          JSON.stringify({ data: changes }),
+          "--data",
+          Templates.UpdatePayload,
+        );
+        return { id, ...payload };
+      }),
+    call: (request) => Templates.update(request),
+    failure: "Could not update template",
+    preview: {
+      data: (request, input) => {
+        const { id: _id, ...payload } = request;
+        return { dryRun: true, action: "templates.update", id: input.id, request: payload };
+      },
+      render: (request, input) => {
+        const { id: _id, ...payload } = request;
+        return printFields([
+          ["Action", "templates.update"],
+          ["Template", input.id],
+          ...objectRows(payload, { explicit: true }),
+        ]);
+      },
+    },
+    render: (result) => printFields(objectRows(result)),
+  },
+).pipe(
   Command.withDescription("Update a remote template from JSON"),
   Command.withExamples([
     {
       command: `samva templates update tmpl_abc123 --data '{"name":"Welcome back"}' --dry-run`,
     },
   ]),
-  Command.withHandler(({ id, data, shared, dryRun, json }) =>
-    Effect.gen(function* () {
-      const parsed = yield* parseObject(data, "--data");
-      const sharedValue = Option.map(shared, (value) => value === "true");
-      if (
-        Option.isSome(sharedValue) &&
-        parsed.shared !== undefined &&
-        parsed.shared !== sharedValue.value
-      )
-        return yield* new CliUsageError({
-          code: "shared_conflict",
-          message: "--shared and shared in --data disagree.",
-        });
-      const changes = Option.isSome(sharedValue)
-        ? { ...parsed, shared: sharedValue.value }
-        : parsed;
-      const payload = yield* decodePayload(
-        JSON.stringify({ data: changes }),
-        "--data",
-        Templates.UpdatePayload,
-      );
-      if (dryRun)
-        return yield* json
-          ? printJson({ dryRun: true, action: "templates.update", id, request: payload })
-          : printFields([
-              ["Action", "templates.update"],
-              ["Template", id],
-              ...objectRows(payload, { explicit: true }),
-            ]);
-      const client = yield* getClientProvider;
-      const result = yield* Templates.update({ id, ...payload }).pipe(
-        client.provide,
-        Effect.mapError((error) => toCliApiError("Could not update template", error)),
-      );
-      if (json) return yield* printJson(result);
-      yield* printFields(objectRows(result));
-    }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
-  ),
 );
 
 const deleteRemote = Command.make("delete", {
