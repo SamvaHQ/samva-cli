@@ -33,6 +33,7 @@ import * as IntegrationsCatalog from "samva/effect/integrations-catalog";
 import * as Journeys from "samva/effect/journeys";
 
 import { CliUsageError, toCliApiError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { holdFields } from "../lib/run-hold";
@@ -350,7 +351,7 @@ const archive = deriveOverride(
   {
     id: idArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -385,7 +386,7 @@ const remove = deriveOverride(
   {
     id: idArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -785,9 +786,7 @@ const recipeTest = deriveOverride(
   "recipe-test",
   {
     data: recipeDataFlag,
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm the test send to your verified identity"),
-    ),
+    yes: yesFlag("Confirm the test send to your verified identity"),
     json: jsonFlag,
   },
   {

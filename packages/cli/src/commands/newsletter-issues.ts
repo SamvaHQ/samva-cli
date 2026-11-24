@@ -9,6 +9,7 @@ import * as Issues from "samva/effect/newsletter-issues";
 
 import { SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printJsonDocument } from "../lib/output";
 import { readStdinUtf8 } from "../lib/stdin";
@@ -197,10 +198,7 @@ const remove = deriveOverride(
     revision: revisionFlag,
     idempotencyKey: keyFlag,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm removal without prompting"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm removal"),
   },
   {
     mapInput: (input) => ({ id: input.id, path: input.path, expectedRevision: input.revision }),

@@ -157,6 +157,34 @@ describe("template authoring commands", () => {
     30_000,
   );
 
+  it("prints the check, build, and render --out results to stdout when piped", async () => {
+    const root = await project(email);
+    const checked = await run(root, ["check"]);
+    expect(checked.code, checked.stderr).toBe(0);
+    expect(checked.stdout).toMatch(/\S/);
+    expect(checked.stderr).toBe("");
+
+    const built = await run(root, ["build", "--out", "dist/templates.json"]);
+    expect(built.code, built.stderr).toBe(0);
+    expect(built.stdout).toContain(`to ${join(root, "dist/templates.json")}`);
+    expect(built.stderr).toBe("");
+
+    const rendered = await run(root, [
+      "render",
+      "people",
+      "--fixture",
+      "default",
+      "--format",
+      "html",
+      "--out",
+      "out/people.html",
+    ]);
+    expect(rendered.code, rendered.stderr).toBe(0);
+    expect(rendered.stdout.trim()).toBe(`Wrote ${join(root, "out/people.html")}`);
+    expect(rendered.stderr).toBe("");
+    expect(await readFile(join(root, "out/people.html"), "utf8")).toContain("<html");
+  });
+
   it("exports pages themed by the project's theme.css and its samva:brand import", async () => {
     const root = await project(
       email.replace(

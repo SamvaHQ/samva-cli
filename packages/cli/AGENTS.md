@@ -9,6 +9,9 @@ Machine-readable results go to stdout; warnings and typed errors go to stderr. E
 `reason` is the API `_tag`, `status` is the HTTP status, and `details` preserves the public error
 fields. Follow `next` and fix `details.fields` before retrying. API 401 and 403 exit with code `4`;
 other operational failures exit with code `1`. Human mode prints the same message and recovery step.
+Text help marks required flags with `(required)` and every `--yes` as required outside a terminal.
+Commands take ids, never slugs; an argument that is not an id fails with the command that lists them
+(`samva mailboxes list` for a mailbox id), in `next` and on the `Try:` line.
 
 Every public operation has a command. Discover derived commands with `samva --help` and inspect
 their arguments with `samva <group> <operation> --help --json`. Derived commands turn path
@@ -43,7 +46,9 @@ Passing no access, or both
 or sets its description; a key's access is fixed at creation. The API refuses a key with more access than the
 caller holds. `create` and `rotate` return the secret once: `--json` carries `{apiKey, key,
 displayOnce, warning}`, so `samva api-keys create ... --json | jq -r .data.key` yields the key, and
-human mode prints it to stdout with the warning on stderr. `rotate` and `revoke` require
+human mode prints it to stdout with the warning on stderr. The JSON holds the secret, so write it
+straight to a file or secret store and keep it out of logs and tool output; revoke a key that was
+printed. `rotate` and `revoke` require
 confirmation (`--yes` outside a terminal), and every mutation supports `--dry-run`. Under
 either `SAMVA_API_KEY` or OAuth, `samva org current` reads `GET /v1/whoami` and prints the resolved
 organization slug and hosted mail domain. `--json` includes `organization.hostedMailDomain` and the
@@ -110,8 +115,9 @@ it without running it.
 
 `samva email send` and `samva scheduled-messages create` take `--from <address>` (a verified sender or
 any address on a verified domain) and `--from-name`; omitted, the send uses the default sender, else the
-only verified sender, and otherwise fails with `FromAddressRequiredError`. `--from-name` without
-`--from` exits `1`.
+only verified sender, and otherwise fails with `FromAddressRequiredError` (`422`, with
+`verifiedDomains` and `addresses`; the next step names the first address). A new organization whose only sending identity is a hosted mailbox address has no
+default sender, so its examples pass `--from` on that domain. `--from-name` without `--from` exits `1`.
 
 `samva email send --attach <path>` (repeatable) attaches local files; the filename is the basename and
 the content type comes from the extension (`application/octet-stream` when unknown). The CLI reads
@@ -194,6 +200,10 @@ repository-scoped credential; the token is never stored in the remote URL or Git
 `git fetch`, `git pull`, `git add`, `git commit`, and `git push` remain the synchronization commands.
 A pushed commit is picked up on the next hosted workspace open; independent draft edits rebase,
 and overlapping edits produce explicit conflicts.
+Git runs that helper as the CLI that wrote it (`runningCliWords`), then `samva` from `PATH`, then
+`bunx --bun --silent @samva/cli`, so it needs a CLI that is signed in or has `SAMVA_API_KEY`. A
+failing helper prints one stderr line naming itself and the binary it ran before Git reports `could
+not read Username ... Device not configured`.
 Install from the project's lockfile (`bun install --frozen-lockfile` or `npm ci`) before `samva templates check` or `samva templates build`, then
 publish a clean, pushed commit with `samva templates publish`. Publish checks that the selected
 commit is an ancestor of the fetched `origin/<default-branch>` and creates an immutable receipt; it
@@ -220,15 +230,18 @@ as in `read <mailbox-id> <message-id>` and `endpoints update <mailbox-id> <endpo
 takes any number of mailbox IDs, or none for every mailbox the credential reads. `needs-you` and
 `all-threads` span accessible mailboxes without a positional mailbox ID. `list` pages with
 `--limit`, `--cursor`, `--after`,
-and `--before`. `create --address <address> --name <name>` makes a mailbox with one email endpoint; the
-slug defaults to the address's local part, and a collision asks for `--slug` rather than suffixing.
+and `--before`. `create --address <address> --name <name>` makes a mailbox with one email endpoint; the address is
+a full address on the hosted domain `org current` prints (`organization.hostedMailDomain` in
+`whoami`), and the slug defaults to the address's local part, so a slug alone is never an address.
+A collision asks for `--slug` rather than suffixing.
 `get <id>` inspects a mailbox; `update <id> --data <JSON-or-@file>` changes
 `name` or `metadata` (merges by key, `null` deletes a key); a mailbox's endpoints, their
 sender names, and its default are `endpoints add|update|remove`. `pause <id>`
 stops sending and receiving, and `resume <id>` resumes without backfilling mail received while
 paused. These mutations support `--dry-run`. `remove <id>` deletes a mailbox (`--yes` outside a terminal, `--dry-run` to
-preview), `threads` searches, `read` prints a message (human output marks the body as
-untrusted email), and `send` and `reply` take `--idempotency-key` so a retry cannot send twice.
+preview), `threads` searches and returns thread ids (`thread_...`), `list-thread-messages <mailbox-id>
+<thread-id>` returns that thread's `msg_...` ids, which `read` and `reply` take (`read` rejects a
+thread id), `read` prints a message (human output marks the body as untrusted email), and `send` and `reply` take `--idempotency-key` so a retry cannot send twice.
 `create`, `endpoints add`, and `send` take `--channel email|whatsapp|sms` (default `email`); on a
 phone channel the address is a connected number in E.164 form, and `send` takes one `--to` number
 with `--text` or, on WhatsApp, an approved `--template <templateId>` with `--data`. `reply` answers a
@@ -246,6 +259,16 @@ require the observed decision's positive `reviewRound`, a person different from 
 confirmation (`--yes` outside a terminal); both offer `--dry-run`. A stale round returns `409`.
 Refresh the action and review the new decision before deciding again; never default the round or
 silently substitute the latest value.
+`actions cancel <mailbox-id> <action-id>` and `actions retry` need a permitted person signed in with
+`samva login`; an API key is refused with `403`, so an automation cannot cancel or retry its own
+send. A send held by email onboarding review stays `queued`; `samva email doctor` and
+`samva email review status` report the review. To confirm a send landed, poll `actions get
+<mailbox-id> <action-id> --json` until `state` is `completed`, `notSent`, or `uncertain`, within the
+receipt's `executeUntil`; a `queued` action has no `messageId`, and an accepted one names it in
+`send.messageId` and its thread in `send.threadId`, which `list-thread-messages` lists. A thread a
+send started stays in the `sent` folder when replies arrive, so `threads --folder inbox` omits it;
+omit `--folder` and pass `--unread` to find replies (`--folder` takes `inbox`, `assigned`, `pending`,
+`sent`, `archived`, `trash`, or `spam`).
 Human mailbox results retain the same facts as JSON: mailbox endpoints (channel, address,
 sender name, default), thread state and activity, message bodies, attachments, authentication and actor,
 receipt waits and skipped recipients, and held-mail results.
@@ -337,7 +360,10 @@ Messages, Archive, then other mailbox paths, sorted by path within each group; t
 initial placement and flags while same-import copies add labels. Apple package paths become labels; the
 sidecar's flags are not reliably decoded, so MIME flags apply and the default is read/unflagged.
 `import-status <mailbox-id> <import-id>` reads progress and failure reasons. A failed job or failed
-messages exit `1`, preserving structured results. Repeating an export deduplicates messages within
+messages exit `1`, preserving structured results. An import whose archives total more than twice
+the organization's remaining mailbox storage is refused while registering uploads, before any bytes
+upload: the error has `reason` `PaymentRequiredError`, `status` `402`, and `details.resource`
+`mailbox_storage`, and the command exits `1`. Repeating an export deduplicates messages within
 the mailbox. Importing emits no live-mail events or notifications.
 
 `samva agents init <dir> --name <name>` scaffolds an explicit `agent.ts` declaration, Markdown

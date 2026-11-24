@@ -51,10 +51,18 @@ for (const operation of derivedOperations) {
   node.operation = operation;
 }
 
+/** The group that holds derived operations beside a command's hand-written, grouped ones. */
+const DERIVED_GROUP = "API operations";
+
+interface Group {
+  readonly group: string | undefined;
+  readonly commands: ReadonlyArray<Command.Command.Any>;
+}
+
 const addSubcommands = (
-  existing: ReadonlyArray<Command.Command.Any>,
+  groups: ReadonlyArray<Group>,
   additions: ReadonlyMap<string, CommandBranch>,
-): ReadonlyArray<Command.Command.Any> => {
+): ReadonlyArray<Command.Command.SubcommandEntry> => {
   const merge = (
     name: string,
     node: CommandBranch,
@@ -66,20 +74,34 @@ const addSubcommands = (
     const parent =
       command ??
       Command.make(name).pipe(Command.withDescription(`Manage ${name.replaceAll("-", " ")}`));
-    const children = parent.subcommands.flatMap((group) => group.commands);
-    return Command.withSubcommands(parent, addSubcommands(children, node.children));
+    return Command.withSubcommands(parent, addSubcommands(parent.subcommands, node.children));
   };
 
-  return [
-    ...existing.map((command) => {
+  const existing = new Set(groups.flatMap((group) => group.commands.map(({ name }) => name)));
+  const added = Array.from(additions)
+    .filter(([name]) => !existing.has(name))
+    .map(([name, node]) => merge(name, node));
+  const merged = groups.map(({ commands }) =>
+    commands.map((command) => {
       const node = additions.get(command.name);
       return node === undefined ? command : merge(command.name, node, command);
     }),
-    ...Array.from(additions)
-      .filter(([name]) => !existing.some((command) => command.name === name))
-      .map(([name, node]) => merge(name, node)),
-  ];
+  );
+  const entries: Array<Command.Command.SubcommandEntry> = [];
+  groups.forEach(({ group }, index) => {
+    const commands = merged[index] ?? [];
+    if (group === undefined) entries.push(...commands);
+    else if (commands.length > 0) entries.push({ group, commands });
+  });
+  const grouped = groups.some(({ group }) => group !== undefined);
+  if (added.length === 0) return entries;
+  return grouped ? [...entries, { group: DERIVED_GROUP, commands: added }] : [...entries, ...added];
 };
 
-export const addDerivedCommands = (existing: ReadonlyArray<Command.Command.Any>) =>
-  addSubcommands(existing, derivedTree.children);
+/** The root has no groups, so merging into it yields plain commands. */
+export const addDerivedCommands = (
+  existing: ReadonlyArray<Command.Command.Any>,
+): ReadonlyArray<Command.Command.Any> =>
+  addSubcommands([{ group: undefined, commands: existing }], derivedTree.children).flatMap(
+    (entry) => ("group" in entry ? entry.commands : [entry]),
+  );

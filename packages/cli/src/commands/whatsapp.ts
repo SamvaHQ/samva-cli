@@ -13,6 +13,7 @@ import * as WhatsApp from "samva/effect/whatsapp";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getAuthenticatedJson, postAuthenticatedJson } from "../lib/client";
+import { yesFlag } from "../lib/confirm";
 import { connectOperation, deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { waitingLine } from "./messages";
@@ -587,7 +588,7 @@ const setDefault = deriveOverride(
   "set-default",
   {
     id: Argument.String("account-id").pipe(Argument.withSchema(WhatsAppBusinessAccountId)),
-    yes: Flag.Boolean("yes"),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

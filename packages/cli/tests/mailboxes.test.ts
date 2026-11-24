@@ -739,7 +739,7 @@ describe("mailbox command HTTP contracts", () => {
       expect(error.next).toContain(
         scenario.args[0] === "actions" && scenario.args[1] !== "list"
           ? "samva login"
-          : "required scope",
+          : "Follow the next step the message ends with",
       );
       expect(result.stdout).toBe("");
     });
@@ -1687,7 +1687,7 @@ describe("mailbox command HTTP contracts", () => {
       403,
     );
     expect(result.code, result.stderr).toBe(4);
-    expect(envelope(result.stderr).next).toContain("required scope");
+    expect(envelope(result.stderr).next).toContain("not a broader key");
   });
   it("exits 4 on an unauthorized credential", async () => {
     const result = await run(

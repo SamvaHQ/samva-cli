@@ -10,6 +10,7 @@ import type { JsonValue } from "samva/effect";
 import * as ScheduledMessages from "samva/effect/scheduled-messages";
 
 import { SamvaCliError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields, truncateForDisplay } from "../lib/output";
@@ -466,7 +467,7 @@ const cancel = deriveOverride(
   {
     id: Argument.String("id"),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -511,6 +512,10 @@ const resume = deriveOverride(
       Flag.withDescription("New absolute future send instant"),
       Flag.optional,
     ),
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDescription("Print the planned resume without calling the API"),
+      Flag.withDefault(false),
+    ),
     json: jsonFlag,
   },
   {
@@ -532,6 +537,21 @@ const resume = deriveOverride(
           ? { id: input.id, choice: "send_now" as const }
           : { id: input.id, choice: "new_time" as const, scheduledFor: new Date(atValue) };
       }),
+    preview: {
+      data: (request) => ({
+        dryRun: true,
+        action: "scheduled.resume",
+        id: request.id,
+        choice: request.choice,
+        ...(request.choice === "new_time" ? { scheduledFor: request.scheduledFor } : {}),
+      }),
+      render: (request) =>
+        Console.log(
+          request.choice === "send_now"
+            ? `[dry-run] Would resume scheduled message ${request.id} and send it now.`
+            : `[dry-run] Would resume scheduled message ${request.id} for ${request.scheduledFor.toISOString()}.`,
+        ),
+    },
     call: (request) => ScheduledMessages.resume(request),
     failure: "Could not resume scheduled message",
     render: (data) =>
@@ -545,6 +565,7 @@ const resume = deriveOverride(
 ).pipe(
   Command.withDescription("Resume a scheduled message paused by email review"),
   Command.withExamples([
+    { command: "samva scheduled-messages resume sched_abc123 --send-now --dry-run" },
     { command: "samva scheduled-messages resume sched_abc123 --send-now" },
     {
       command: "samva scheduled-messages resume sched_abc123 --at 2026-10-01T09:00:00Z --json",

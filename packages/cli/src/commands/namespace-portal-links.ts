@@ -3,6 +3,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import * as Namespaces from "samva/effect/namespaces";
 
 import { CliUsageError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields } from "../lib/output";
 
@@ -141,7 +142,7 @@ const revoke = deriveOverride(
   {
     id: namespace,
     linkId: Argument.String("link-id").pipe(Argument.withDescription("Portal link id (npl_…)")),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     dryRun: dryRunFlag,
     json: jsonFlag,
   },

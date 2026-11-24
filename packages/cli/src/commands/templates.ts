@@ -25,6 +25,7 @@ import * as Templates from "samva/effect/templates";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride, withContractRead } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, objectRows, printFields, printJson, printJsonLine } from "../lib/output";
@@ -603,7 +604,7 @@ const check = Command.make("check", {
       if (json) {
         yield* printJson(observation.payload);
       } else {
-        yield* Effect.logInfo(observation.message);
+        yield* Console.log(observation.message);
       }
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
@@ -689,7 +690,7 @@ const build = Command.make("build", {
       if (json) {
         yield* printJson(result);
       } else {
-        yield* Effect.logInfo(
+        yield* Console.log(
           `Built ${built.files.length} template file(s) with compiler ${artifact.compilerVersion} to ${target}`,
         );
       }
@@ -933,10 +934,7 @@ const updateRemote = deriveOverride(
 const deleteRemote = Command.make("delete", {
   id: templateIdArgument,
   dryRun: dryRunFlag,
-  yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm permanent deletion"),
-    Flag.withDefault(false),
-  ),
+  yes: yesFlag("Confirm permanent deletion"),
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
@@ -987,10 +985,7 @@ const deleteRemote = Command.make("delete", {
 const deleteProject = Command.make("delete", {
   id: Argument.String("id").pipe(Argument.withDescription("Remote template project id")),
   dryRun: dryRunFlag,
-  yes: Flag.Boolean("yes").pipe(
-    Flag.withDescription("Confirm permanent deletion of the project and every template in it"),
-    Flag.withDefault(false),
-  ),
+  yes: yesFlag("Confirm permanent deletion of the project and every template in it"),
   json: jsonFlag,
 }).pipe(
   Command.withDescription(

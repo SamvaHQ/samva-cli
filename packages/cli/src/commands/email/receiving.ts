@@ -83,7 +83,6 @@ const enable = deriveOverride(
   "enable",
   {
     domainId: Argument.String("domain-id").pipe(Argument.withDescription("Sending domain id")),
-    domain: Flag.String("domain").pipe(Flag.withDescription("Verified domain name")),
     address: Flag.String("address").pipe(
       Flag.withDescription("Exact recipient address to receive (repeatable)"),
       Flag.atLeast(0),
@@ -107,7 +106,7 @@ const enable = deriveOverride(
     json: jsonFlag,
   },
   {
-    prepare: ({ domainId, domain, address, catchAll, endpoint }) =>
+    prepare: ({ domainId, address, catchAll, endpoint }) =>
       Effect.gen(function* () {
         if (address.length === 0 && !catchAll) {
           return yield* new SamvaCliError({
@@ -123,7 +122,6 @@ const enable = deriveOverride(
         }
         return {
           id: domainId,
-          domain,
           catchAll,
           addresses: [...address],
           ...(endpointId === undefined ? {} : { endpointId }),
@@ -137,7 +135,6 @@ const enable = deriveOverride(
         action: "email.receiving.enable",
         domainId: request.id,
         request: {
-          domain: request.domain,
           catchAll: request.catchAll,
           addresses: request.addresses,
           ...(request.endpointId === undefined ? {} : { endpointId: request.endpointId }),
@@ -145,7 +142,7 @@ const enable = deriveOverride(
       }),
       render: (request) =>
         Console.log(
-          `[dry-run] Would enable receiving for ${request.domain} (${request.catchAll ? "catch-all" : request.addresses.join(", ")}).`,
+          `[dry-run] Would enable receiving for ${request.id} (${request.catchAll ? "catch-all" : request.addresses.join(", ")}).`,
         ),
     },
     render: (data) => printFields([["Recipients", data.recipients.join(", ")]]),
@@ -156,19 +153,16 @@ const enable = deriveOverride(
   ),
   Command.withExamples([
     {
-      command:
-        "samva email receiving enable dom_abc123 --domain example.com --catch-all --endpoint wep_abc123",
+      command: "samva email receiving enable dom_abc123 --catch-all --endpoint wep_abc123",
     },
     {
-      command: "samva email receiving enable dom_abc123 --domain example.com --catch-all",
+      command: "samva email receiving enable dom_abc123 --catch-all",
     },
     {
-      command:
-        "samva email receiving enable dom_abc123 --domain example.com --address replies@example.com --dry-run",
+      command: "samva email receiving enable dom_abc123 --address replies@example.com --dry-run",
     },
     {
-      command:
-        "samva email receiving enable dom_abc123 --domain example.com --address replies@example.com",
+      command: "samva email receiving enable dom_abc123 --address replies@example.com",
     },
   ]),
 );

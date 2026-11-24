@@ -22,8 +22,6 @@ const campaign = {
   definition: { state: "editable", frozenAt: null },
   latestRun: null,
   createdBy: null,
-  actorEmail: "owner@example.com",
-  memberRole: "owner",
   createdAt: AT,
   updatedAt: AT,
 };
@@ -79,8 +77,6 @@ const startApi = async () => {
         lastContactId: null,
         idempotencyKey: "run-1",
         createdBy: null,
-        actorEmail: "owner@example.com",
-        memberRole: "owner",
         createdAt: AT,
         updatedAt: AT,
       };

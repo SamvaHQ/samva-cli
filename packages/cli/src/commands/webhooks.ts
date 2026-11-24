@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import * as Webhooks from "samva/effect/webhooks";
 
 import { CliUsageError, SamvaCliError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, objectRows, printFields } from "../lib/output";
 
@@ -380,7 +381,7 @@ const rotate = deriveOverride(
   {
     id: idArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -506,7 +507,7 @@ const remove = deriveOverride(
   {
     id: idArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

@@ -13,7 +13,7 @@ import {
   writeConfig,
 } from "../config/store";
 import { CliUsageError } from "../errors";
-import { confirmDestructive } from "../lib/confirm";
+import { confirmDestructive, yesFlag } from "../lib/confirm";
 import { printJson, printResult } from "../lib/output";
 import { Json, JsonLines } from "../lib/runtime";
 
@@ -110,7 +110,7 @@ const use = Command.make("use", { name: Argument.String("name") }).pipe(
 
 const remove = Command.make("delete", {
   name: Argument.String("name"),
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+  yes: yesFlag(),
 }).pipe(
   Command.withDescription("Delete a profile and its OS-keyring credential"),
   Command.withHandler(

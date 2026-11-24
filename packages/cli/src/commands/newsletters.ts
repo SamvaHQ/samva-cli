@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Domains from "samva/effect/newsletter-domains";
 import * as Newsletters from "samva/effect/newsletters";
 
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag } from "../lib/output";
 import { issuesCommand } from "./newsletter-issues";
@@ -123,10 +124,7 @@ const remove = deriveOverride(
     id: idArgument,
     idempotencyKey: key,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm deletion"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm deletion"),
     json: jsonFlag,
   },
   {
@@ -218,7 +216,7 @@ const removeDomain = deriveOverride(
     hostname: hostnameArgument,
     idempotencyKey: key,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(Flag.withDescription("Confirm removal"), Flag.withDefault(false)),
+    yes: yesFlag("Confirm removal"),
     json: jsonFlag,
   },
   {

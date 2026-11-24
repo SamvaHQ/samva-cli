@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Templates from "samva/effect/templates";
 
+import { yesFlag } from "../../lib/confirm";
 import { deriveOverride } from "../../lib/derive/curated";
 import { namespaceField, namespaceFlag, placementLabel } from "../../lib/namespace";
 import { jsonFlag, printFields } from "../../lib/output";
@@ -144,7 +145,7 @@ const detach = deriveOverride(
   {
     id: idArgument,
     templateId: templateArgument,
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
     json: jsonFlag,
   },

@@ -10,6 +10,7 @@ import * as Email from "samva/effect/email";
 
 import { CliUsageError, getConflictError, toCliApiError } from "../../errors";
 import { getClientProvider } from "../../lib/client";
+import { yesFlag } from "../../lib/confirm";
 import { deriveOverride } from "../../lib/derive/curated";
 import {
   namespaceField,
@@ -396,10 +397,7 @@ const remove = deriveOverride(
       Flag.withDescription("Print the deletion plan without calling the API"),
       Flag.withDefault(false),
     ),
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm permanent deletion (required for non-interactive use)"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm permanent deletion"),
     json: jsonFlag,
   },
   {
@@ -587,10 +585,7 @@ const customDisable = deriveOverride(
       Flag.withDescription("Print the teardown plan without calling the API"),
       Flag.withDefault(false),
     ),
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm teardown (required for non-interactive use)"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm teardown"),
     json: jsonFlag,
   },
   {

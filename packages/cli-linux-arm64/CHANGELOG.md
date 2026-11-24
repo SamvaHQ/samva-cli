@@ -1,3 +1,44 @@
+## @samva/cli-linux-arm64@0.45.0
+
+### Responses no longer carry member emails
+
+**Breaking.** Scheduled messages, campaigns, and campaign runs no longer return `actorEmail` or
+`memberRole`, and an API key's `owner` no longer returns `email`. Read `createdBy`, the creating
+member's user id, for attribution; for a schedule or campaign created with an API key it is the
+key owner's user id. An API key's `owner` keeps `id` and `name`.
+
+`samva api-keys get` shows the owner's name without an email address.
+
+### Enable receiving with the domain id alone
+
+**Breaking.** `email.enableReceiving` no longer takes `domain`: the `id` names the domain. Remove
+`domain` from the call, or the request is rejected as an unexpected field:
+
+```ts
+await samva.email.enableReceiving({ id: domain.id, catchAll: true });
+```
+
+`samva email receiving enable <domain-id>` no longer takes `--domain`.
+
+### See a domain that is being removed
+
+Domain reads (`email.listDomains`, `email.getDomainById`, and `email.addDomain`'s response) carry
+`deleting`. It is `true` once `email.removeDomain` is accepted: removal finishes in the background,
+the domain sends nothing meanwhile, and once teardown completes the domain reads as not found.
+
+When Samva answers with a server error that carries no error details, such as a gateway `503`, the
+CLI says the service is temporarily unavailable and that the request may already have been
+applied, instead of printing a decode failure.
+
+### Results on stdout, clearer help, safer Git push
+
+`samva templates check`, `build`, `publish` and `render --out` print their result to stdout when
+piped, where they printed nothing before. Text help marks required flags with `(required)` and every
+`--yes` as required outside a terminal. `samva mailboxes --help` groups its commands, and derived
+commands show one-line summaries. An argument that is not an id fails with the command that lists
+the right ids. `samva scheduled-messages resume` takes `--dry-run`. A template project's Git
+credential helper runs the CLI that configured it and names itself when it fails.
+
 ## @samva/cli-linux-arm64@0.44.0
 
 ### Mail imports check plan storage before uploading

@@ -2,11 +2,14 @@ import { MailboxSendReceipt } from "@samva/core/mailboxes/send";
 import { formatReportedDiagnostic } from "@samva/core/shared/template-diagnostics";
 import { TemplateSourceError } from "@samva/core/templates/source-error";
 import * as CliError from "effect/cli/CliError";
+import * as HttpClientError from "effect/http/HttpClientError";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
 import { ConflictError } from "samva/effect";
+
+import { idListGuidance } from "./lib/id-guidance";
 
 const ApiErrorGuidanceSchema = Schema.Struct({
   reason: Schema.String,
@@ -96,9 +99,19 @@ export const processErrorReason = (error: unknown): string => {
   return apiErrorGuidance(error)?.reason ?? "operational_failure";
 };
 
+/** Everything an error says about its input, for recognising an id that failed its shape check. */
+const inputProblemText = (error: unknown): string => {
+  if (Schema.is(CliError.ShowHelp)(error))
+    return error.errors.map(({ message }) => message).join("\n");
+  const message = Predicate.isObject(error) && "message" in error ? String(error.message) : "";
+  const fields = apiErrorGuidance(error)?.details.fields;
+  return Predicate.isObject(fields) ? `${message}\n${JSON.stringify(fields)}` : message;
+};
+
 export const processErrorNext = (error: unknown): string | undefined =>
   apiErrorGuidance(error)?.next ??
-  (Schema.is(CliMessageLifecycleError)(error) ? error.next : undefined);
+  (Schema.is(CliMessageLifecycleError)(error) ? error.next : undefined) ??
+  idListGuidance(inputProblemText(error));
 
 const apiStatuses: Readonly<Record<string, number>> = {
   ValidationError: 422,
@@ -144,12 +157,33 @@ const apiStatuses: Readonly<Record<string, number>> = {
 
 export type ApiErrorGuidance = typeof ApiErrorGuidanceSchema.Type;
 
+/**
+ * A 5xx the operation does not declare carries no Samva error body: a gateway or the runtime
+ * answered, not the handler. The handler may already have committed the request.
+ */
+const undeclaredServerStatus = (error: unknown): number | undefined => {
+  if (!HttpClientError.isHttpClientError(error)) return;
+  if (error.reason._tag !== "DecodeError" || error.reason.description !== "undeclared status code")
+    return;
+  const status = error.response?.status;
+  return status !== undefined && status >= 500 ? status : undefined;
+};
+
 export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined => {
   if (
     (Schema.is(SamvaCliError)(error) || Schema.is(CliMessageLifecycleError)(error)) &&
     error.api !== undefined
   ) {
     return error.api;
+  }
+  const undeclared = undeclaredServerStatus(error);
+  if (undeclared !== undefined) {
+    return {
+      reason: "unexpected_status",
+      status: undeclared,
+      details: {},
+      next: "Samva may have applied the request before this answer. Read or list the resource to check before retrying.",
+    };
   }
   if (!Predicate.isObject(error) || !("_tag" in error) || typeof error._tag !== "string") return;
   const status =
@@ -179,9 +213,14 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
   let next: string | undefined;
   switch (error._tag) {
     case "ValidationError":
-    case "AnalyticsQueryError":
-      next = "Fix the listed fields before retrying.";
+    case "AnalyticsQueryError": {
+      const list = idListGuidance(JSON.stringify(details.fields ?? ""));
+      next =
+        list === undefined
+          ? "Fix the listed fields before retrying."
+          : `Fix the listed fields before retrying; ${list} shows valid ids.`;
       break;
+    }
     case "MalformedRequestError":
       next =
         "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.";
@@ -205,7 +244,8 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
       next = "Run samva login, or set SAMVA_API_KEY to an active key.";
       break;
     case "ForbiddenError":
-      next = "Use a key with the required scope and follow the API message.";
+      next =
+        "Follow the next step the message ends with. A missing permission needs a key that holds it; a person-only operation or a policy refusal needs a person signed in with samva login, not a broader key.";
       break;
     case "RateLimitedError":
     case "ServiceUnavailableError":
@@ -220,12 +260,16 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
           ? `Wait ${details.retryAfterSeconds} seconds before retrying.`
           : "Wait for the sending identity to be ready before retrying.";
       break;
-    case "FromAddressRequiredError":
+    case "FromAddressRequiredError": {
+      const addresses = Array.isArray(details.addresses) ? details.addresses : [];
       next =
-        Array.isArray(details.verifiedDomains) && details.verifiedDomains.length > 0
-          ? `Pass --from with an address on ${details.verifiedDomains.join(", ")}, or add a sender there and run samva email senders set-default.`
-          : "Verify a domain or a sender (samva email domains add, samva email senders add), then set a default sender.";
+        addresses.length > 0
+          ? `Pass --from ${String(addresses[0])}${addresses.length > 1 ? `, or another of: ${addresses.join(", ")}` : ""}; or run samva email senders set-default.`
+          : Array.isArray(details.verifiedDomains) && details.verifiedDomains.length > 0
+            ? `Pass --from with an address on ${details.verifiedDomains.join(", ")}, or add a sender there and run samva email senders set-default.`
+            : "Verify a domain or a sender (samva email domains add, samva email senders add), then set a default sender.";
       break;
+    }
     case "CursorExpiredError":
       next = "Read current state from the API, then retry without the cursor.";
       break;
@@ -276,6 +320,9 @@ export const toCliApiError = (
   });
 
 export const formatApiError = (prefix: string, error: unknown): string => {
+  const undeclared = undeclaredServerStatus(error);
+  if (undeclared !== undefined)
+    return `${prefix}: Samva is temporarily unavailable (HTTP ${undeclared}), and the request may still have been applied.`;
   if (
     Predicate.isObject(error) &&
     "message" in error &&

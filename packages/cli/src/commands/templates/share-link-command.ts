@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as TemplateShareLinks from "samva/effect/template-share-links";
 
 import { CliUsageError } from "../../errors";
+import { yesFlag } from "../../lib/confirm";
 import { deriveOverride } from "../../lib/derive/curated";
 import { jsonFlag, objectRows, printFields } from "../../lib/output";
 
@@ -146,10 +147,7 @@ const deleteCommand = deriveOverride(
   {
     projectId: projectArgument,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm disabling the share link; existing copies remain"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm disabling the share link; existing copies remain"),
     json: jsonFlag,
   },
   {

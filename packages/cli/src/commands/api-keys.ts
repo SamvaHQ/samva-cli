@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 import * as ApiKeys from "samva/effect/api-keys";
 
 import { CliUsageError, toCliApiError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields } from "../lib/output";
 
@@ -33,11 +34,6 @@ const dryRunFlag = Flag.Boolean("dry-run").pipe(
   Flag.withDescription("Print the request without sending it"),
   Flag.withDefault(false),
 );
-const yesFlag = Flag.Boolean("yes").pipe(
-  Flag.withDescription("Confirm without prompting (required outside a terminal)"),
-  Flag.withDefault(false),
-);
-
 const GRANT_LEVELS = ["read", "write"] as const;
 type GrantLevel = (typeof GRANT_LEVELS)[number];
 
@@ -229,7 +225,7 @@ interface KeyRow {
   readonly lastUsedAt: string | null;
   readonly isActive: boolean;
   readonly access: KeyAccess;
-  readonly owner: { readonly name: string; readonly email: string } | null;
+  readonly owner: { readonly name: string } | null;
 }
 
 const keyFields = (key: KeyRow): ReadonlyArray<readonly [string, unknown]> => [
@@ -239,7 +235,7 @@ const keyFields = (key: KeyRow): ReadonlyArray<readonly [string, unknown]> => [
   ["Prefix", key.start],
   ["Status", key.isActive ? "active" : "revoked"],
   ["Access", describeAccess(key.access)],
-  ["Owner", key.owner === null ? undefined : `${key.owner.name} <${key.owner.email}>`],
+  ["Owner", key.owner?.name],
   ["Created", key.createdAt],
   ["Expires", key.expiresAt],
   ["Last used", key.lastUsedAt],
@@ -501,7 +497,7 @@ const revoke = deriveOverride(
   {
     id: idArgument,
     dryRun: dryRunFlag,
-    yes: yesFlag,
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -534,7 +530,7 @@ const rotate = deriveOverride(
   {
     id: idArgument,
     dryRun: dryRunFlag,
-    yes: yesFlag,
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

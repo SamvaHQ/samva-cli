@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Topics from "samva/effect/topics";
 
 import { CliUsageError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields } from "../lib/output";
 
@@ -192,7 +193,7 @@ const remove = deriveOverride(
   {
     id: idArgument,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

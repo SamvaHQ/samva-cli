@@ -16,6 +16,7 @@ import * as Brands from "samva/effect/brands";
 
 import { CliResultError, CliUsageError, SamvaCliError, toCliApiError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson, truncateForDisplay } from "../lib/output";
 
@@ -312,11 +313,6 @@ const dryRunFlag = Flag.Boolean("dry-run").pipe(
   Flag.withDefault(false),
 );
 
-const yesFlag = Flag.Boolean("yes").pipe(
-  Flag.withDescription("Confirm without prompting (required outside a terminal)"),
-  Flag.withDefault(false),
-);
-
 const makeDefault = deriveOverride(
   "default",
   {
@@ -356,7 +352,7 @@ const remove = deriveOverride(
   {
     slug: requiredSlugArgument,
     dryRun: dryRunFlag,
-    yes: yesFlag,
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

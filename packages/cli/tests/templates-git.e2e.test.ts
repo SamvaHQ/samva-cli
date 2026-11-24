@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type AddressInfo, createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 
-import { credentialHelperCommand } from "../src/commands/templates/project";
+import { credentialHelperCommand, runningCliWords } from "../src/commands/templates/project";
 
 // Never called: puts the spawned entry in this file's import graph for `vitest --changed`.
 void (() => import("../src/bin.ts"));
@@ -65,18 +65,108 @@ afterAll(async () => {
 });
 
 describe("templates Git credential helper", () => {
-  it("uses a PATH-resolved CLI with a Bun package fallback", () => {
-    const command = credentialHelperCommand(["templates", "credential", TEMPLATE_ID]);
+  it("runs the CLI that configured the repository, then PATH, then the Bun package", () => {
+    const command = credentialHelperCommand(
+      ["templates", "credential", TEMPLATE_ID],
+      ["/opt/samva/bin/samva"],
+    );
 
-    expect(command).toContain("command -v samva");
-    expect(command).toContain("exec 'samva' 'templates' 'credential'");
-    expect(command).toContain("exec 'bunx' '--bun' '--silent' '@samva/cli'");
+    const running = command.indexOf("[ -x '/opt/samva/bin/samva' ]");
+    const onPath = command.indexOf("command -v samva");
+    const fallback = command.indexOf("'bunx' '--bun' '--silent' '@samva/cli'");
+    expect(running).toBeGreaterThan(-1);
+    expect(running).toBeLessThan(onPath);
+    expect(onPath).toBeLessThan(fallback);
+    expect(command).toContain("'/opt/samva/bin/samva' 'templates' 'credential'");
     expect(command).not.toContain("--no-install");
     expect(command).toContain("samva_credential() {");
     expect(command).toContain('"$1"');
     expect(command.endsWith("; samva_credential")).toBe(true);
     expect(command).not.toContain("npx");
     expect(command).not.toContain("/tmp/");
+  });
+
+  describe("as Git runs it", () => {
+    const run = (
+      command: string,
+      path: string,
+    ): Promise<{ code: number; stdout: string; stderr: string }> =>
+      new Promise((resolve, reject) => {
+        // Git runs a `!` helper through the shell with the credential operation appended.
+        const child = spawn("sh", ["-c", `${command.slice(1)} get`], {
+          env: { PATH: path, HOME: configHome },
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+        child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+        child.stdin.end("protocol=https\n");
+      });
+    const script = async (name: string, body: string) => {
+      const path = join(configHome, name);
+      await writeFile(path, `#!/bin/sh\n${body}\n`);
+      await chmod(path, 0o755);
+      return path;
+    };
+
+    it("prefers the running CLI over a different samva on PATH", async () => {
+      const running = await script("running-cli", 'echo "running $*"');
+      const bin = join(configHome, "path-bin");
+      await mkdir(bin, { recursive: true });
+      await script("path-bin/samva", 'echo "path $*"');
+
+      const result = await run(
+        credentialHelperCommand(["templates", "credential", TEMPLATE_ID], [running]),
+        `${bin}:/usr/bin:/bin`,
+      );
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).toBe(`running templates credential ${TEMPLATE_ID} get\n`);
+      expect(result.stderr).toBe("");
+    });
+
+    it("falls back to the samva on PATH when the running CLI is gone", async () => {
+      const bin = join(configHome, "fallback-bin");
+      await mkdir(bin, { recursive: true });
+      await script("fallback-bin/samva", 'echo "path $*"');
+
+      const result = await run(
+        credentialHelperCommand(
+          ["templates", "credential", TEMPLATE_ID],
+          [join(configHome, "removed-cli")],
+        ),
+        `${bin}:/usr/bin:/bin`,
+      );
+
+      expect(result.stdout).toBe(`path templates credential ${TEMPLATE_ID} get\n`);
+    });
+
+    it("names itself, the binary and the fix when the helper fails", async () => {
+      const running = await script("failing-cli", 'echo "Invalid or expired session" >&2; exit 3');
+
+      const result = await run(
+        credentialHelperCommand(["templates", "credential", TEMPLATE_ID], [running]),
+        "/usr/bin:/bin",
+      );
+
+      expect(result.code).toBe(3);
+      expect(result.stderr).toContain("Invalid or expired session");
+      expect(result.stderr).toContain(
+        `samva: the Git credential helper for this repository failed (exit 3) running ${running}.`,
+      );
+      expect(result.stderr).toContain("Run samva login, or update the CLI, then retry.");
+    });
+  });
+
+  it("embeds the running executable in the helper a project configures", () => {
+    const words = runningCliWords();
+    const command = credentialHelperCommand(["templates", "credential", TEMPLATE_ID]);
+
+    expect(words[0]).toBe(process.execPath);
+    expect(command).toContain(`[ -x '${process.execPath}' ]`);
   });
 
   it("writes only Git's credential protocol and obtains a fresh repository token", async () => {

@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as Contacts from "samva/effect/contacts";
 
 import { CliUsageError, toCliApiError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields } from "../lib/output";
@@ -229,10 +230,7 @@ const merge = deriveOverride(
   {
     id: Argument.String("id").pipe(Argument.withDescription("Contact ID to keep")),
     from: Flag.String("from").pipe(Flag.withDescription("Contact ID to absorb")),
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm the merge"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm the merge"),
     dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription("Preview without merging"),
       Flag.withDefault(false),
@@ -291,7 +289,7 @@ const consent = deriveOverride(
       Flag.withSchema(SetContactConsent.fields.capturedAt),
       Flag.withDescription("ISO 8601 time at which the contact gave or withdrew consent"),
     ),
-    yes: Flag.Boolean("yes"),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

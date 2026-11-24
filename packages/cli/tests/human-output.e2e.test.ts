@@ -127,7 +127,7 @@ const apiKey = {
   lastUsedAt: null,
   isActive: true,
   access: { mode: "restricted", resources: { email: "write" } },
-  owner: { id: "user_1", name: "Ada Lovelace", email: "ada@example.com" },
+  owner: { id: "user_1", name: "Ada Lovelace" },
 };
 const day = (date: string) => ({ date, pending: 1, delivered: 2, exhausted: 3, cancelled: 4 });
 

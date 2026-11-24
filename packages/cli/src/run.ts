@@ -21,7 +21,7 @@ import {
   processErrorNext,
   formatErrorDetails,
 } from "./errors";
-import { helpDocJson } from "./lib/help-json";
+import { helpDocJson, markRequiredFlags } from "./lib/help-json";
 import { printJsonError, resultEnvelope, writeOutput } from "./lib/output";
 import {
   commandNameFromArgv,
@@ -106,8 +106,10 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
    * resulting empty write inside the buffer. Help-doc rendering is untouched, so
    * `--help` and bare-command help are unaffected.
    */
+  const defaultFormatter = CliOutput.defaultFormatter();
   const formatter: CliOutput.Formatter = {
-    ...CliOutput.defaultFormatter(),
+    ...defaultFormatter,
+    formatHelpDoc: (doc) => defaultFormatter.formatHelpDoc(markRequiredFlags(doc, cli)),
     formatError: () => "",
     formatErrors: () => "",
     // Machine callers asking for help get the command's structured help as the
@@ -267,10 +269,10 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
       }
       const message =
         Schema.is(CliError.ShowHelp)(error) && error.errors.length > 0
-          ? `${error.errors[0]?.message ?? "Invalid command input."}\nTry: ${error.commandPath.join(" ")} --help`
+          ? `${error.errors[0]?.message ?? "Invalid command input."}\nTry: ${processErrorNext(error) ?? `${error.commandPath.join(" ")} --help`}`
           : messageFor(error);
       if (!machineMode) {
-        const next = processErrorNext(error);
+        const next = Schema.is(CliError.ShowHelp)(error) ? undefined : processErrorNext(error);
         yield* Console.error(
           `✗ ${message}${formatErrorDetails(error)}${next === undefined ? "" : `\nTry: ${next}`}`,
         );

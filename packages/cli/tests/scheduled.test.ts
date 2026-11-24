@@ -1,6 +1,11 @@
-import { describe, expect, it } from "@effect/vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 
 import { assembleScheduledEmailPayload } from "../src/commands/scheduled";
+import { runCli } from "./support/run-cli";
 
 describe("samva scheduled command helpers", () => {
   it("assembles an email schedule payload from resolved flags", () => {
@@ -86,5 +91,45 @@ describe("samva scheduled command helpers", () => {
     expect(payload.send).toMatchObject({
       email: { subject: "Welcome", templateSlug: "welcome-email", templateData: { name: "Ada" } },
     });
+  });
+});
+
+describe("samva scheduled-messages resume --dry-run", () => {
+  const id = "sched_7q2xk9mvt4znw8rh";
+  let configHome: string;
+  beforeAll(async () => {
+    configHome = await mkdtemp(join(tmpdir(), "samva-cli-resume-"));
+  });
+  afterAll(async () => {
+    await rm(configHome, { recursive: true, force: true });
+  });
+
+  it("previews the resume without credentials or a request", async () => {
+    const sendNow = await runCli(["scheduled-messages", "resume", id, "--send-now", "--dry-run"], {
+      configHome,
+    });
+    expect(sendNow.code, sendNow.stderr).toBe(0);
+    expect(sendNow.stdout).toBe(
+      `[dry-run] Would resume scheduled message ${id} and send it now.\n`,
+    );
+
+    const later = await runCli(
+      ["scheduled-messages", "resume", id, "--at", "2026-10-01T09:00:00Z", "--dry-run", "--json"],
+      { configHome },
+    );
+    expect(later.code, later.stderr).toBe(0);
+    expect(JSON.parse(later.stdout).data).toEqual({
+      dryRun: true,
+      action: "scheduled.resume",
+      id,
+      choice: "new_time",
+      scheduledFor: "2026-10-01T09:00:00.000Z",
+    });
+  });
+
+  it("still requires exactly one of --send-now or --at", async () => {
+    const result = await runCli(["scheduled-messages", "resume", id, "--dry-run"], { configHome });
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("Choose exactly one of --send-now or --at.");
   });
 });

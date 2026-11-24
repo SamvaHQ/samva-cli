@@ -434,6 +434,9 @@ export const agentsCommand = Command.make("agents").pipe(
       Command.withSubcommands([replace]),
     ),
     publish,
-    Command.make("tests").pipe(Command.withSubcommands([rerun])),
+    Command.make("tests").pipe(
+      Command.withDescription("Run an agent's saved tests again"),
+      Command.withSubcommands([rerun]),
+    ),
   ]),
 );

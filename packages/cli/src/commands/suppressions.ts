@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Email from "samva/effect/email";
 
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, objectRows, printFields } from "../lib/output";
@@ -71,10 +72,7 @@ const remove = deriveOverride(
       Flag.withDescription("Preview removal without calling the API"),
       Flag.withDefault(false),
     ),
-    yes: Flag.Boolean("yes").pipe(
-      Flag.withDescription("Confirm removal without a prompt"),
-      Flag.withDefault(false),
-    ),
+    yes: yesFlag("Confirm removal"),
     json: jsonFlag,
   },
   {

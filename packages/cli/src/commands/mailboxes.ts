@@ -23,6 +23,7 @@ import * as Mailboxes from "samva/effect/mailboxes";
 
 import { CliUsageError, SamvaCliError } from "../errors";
 import { getClientProvider } from "../lib/client";
+import { yesFlag } from "../lib/confirm";
 import { connectOperation, deriveOverride } from "../lib/derive/curated";
 import { mailboxApiError } from "../lib/mailbox-errors";
 import {
@@ -48,7 +49,10 @@ import { jsonFlag, printFields, printJson } from "../lib/output";
 import { mailboxesEventsCommand } from "./mailboxes-events";
 import { mailboxesImportCommand, mailboxesImportStatusCommand } from "./mailboxes-import";
 
-const mailboxIdArgument = Argument.String("mailbox-id").pipe(Argument.withSchema(MailboxId));
+const mailboxIdArgument = Argument.String("mailbox-id").pipe(
+  Argument.withDescription("Mailbox id (mbx_...), not its slug; `samva mailboxes list` shows it"),
+  Argument.withSchema(MailboxId),
+);
 const messageIdArgument = Argument.String("message-id").pipe(Argument.withSchema(MessageId));
 /** A mailbox write that may answer through the SDK or the raw wire, kept apart for rendering. */
 type MailboxTransportResult =
@@ -236,7 +240,7 @@ const createFlags = {
       "The mailbox's address: an email address such as support@acme.samva.email, or on whatsapp and sms a number you connected, in E.164 form such as +14155550123",
     ),
   ),
-  name: Flag.String("name"),
+  name: Flag.String("name").pipe(Flag.withDescription("Display name for the mailbox")),
   idempotencyKey: optional("idempotency-key"),
   slug: Flag.String("slug").pipe(
     Flag.withDescription("Defaults to the address's local part, or a phone number's digits"),
@@ -696,7 +700,7 @@ const endpointRemove = deriveOverride(
     mailbox: mailboxIdArgument,
     endpointId: endpointIdArgument,
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -804,7 +808,7 @@ const actionDecision = (verb: "approve" | "deny") => {
   };
   const tail = {
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   };
   if (verb === "deny")
@@ -933,7 +937,7 @@ const remove = deriveOverride(
   {
     id: Argument.String("mailbox-id").pipe(Argument.withSchema(MailboxId)),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -966,7 +970,7 @@ const remove = deriveOverride(
 const trashFlags = {
   mailbox: mailboxIdArgument,
   dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-  yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+  yes: yesFlag(),
   json: jsonFlag,
 };
 
@@ -1587,7 +1591,7 @@ const discard = deriveOverride(
   "discard",
   {
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     mailbox: mailboxIdArgument,
     messageId: messageIdArgument,
     json: jsonFlag,
@@ -1625,39 +1629,55 @@ const discard = deriveOverride(
 export const mailboxesCommand = Command.make("mailboxes").pipe(
   Command.withDescription("Mailbox reading and governed sending"),
   Command.withSubcommands([
-    mailboxesEventsCommand,
-    mailboxesImportCommand,
-    mailboxesImportStatusCommand,
-    list,
-    create,
-    get,
-    update,
-    lifecycle("pause"),
-    lifecycle("resume"),
-    Command.make("endpoints").pipe(
-      Command.withSubcommands([endpointAdd, endpointUpdate, endpointRemove]),
-    ),
-    Command.make("actions").pipe(
-      Command.withSubcommands([
-        actionsList,
-        actionDecision("approve"),
-        actionDecision("deny"),
-        actionGet,
-        actionCancel,
-        actionRetry,
-      ]),
-    ),
-    remove,
-    threads.pipe(Command.withSubcommands([deleteThread])),
-    Command.make("trash").pipe(Command.withSubcommands([emptyFolder("trash")])),
-    allThreads,
-    needsYou,
-    threadUpdate,
-    read,
-    send,
-    reply,
-    Command.make("spam").pipe(
-      Command.withSubcommands([quarantineList, discard, emptyFolder("spam")]),
-    ),
+    {
+      group: "Everyday",
+      commands: [
+        list,
+        create,
+        get,
+        send,
+        reply,
+        threads.pipe(Command.withSubcommands([deleteThread])),
+        read,
+        allThreads,
+        needsYou,
+        threadUpdate,
+        mailboxesEventsCommand,
+      ],
+    },
+    {
+      group: "Mailbox admin",
+      commands: [
+        update,
+        lifecycle("pause"),
+        lifecycle("resume"),
+        Command.make("endpoints").pipe(
+          Command.withDescription("Add, update or remove a mailbox's sending addresses"),
+          Command.withSubcommands([endpointAdd, endpointUpdate, endpointRemove]),
+        ),
+        Command.make("actions").pipe(
+          Command.withDescription("Review, approve, deny, cancel or retry sends held by policy"),
+          Command.withSubcommands([
+            actionsList,
+            actionDecision("approve"),
+            actionDecision("deny"),
+            actionGet,
+            actionCancel,
+            actionRetry,
+          ]),
+        ),
+        Command.make("trash").pipe(
+          Command.withDescription("Empty a mailbox's Trash"),
+          Command.withSubcommands([emptyFolder("trash")]),
+        ),
+        Command.make("spam").pipe(
+          Command.withDescription("Review quarantined mail, discard it, or empty Spam"),
+          Command.withSubcommands([quarantineList, discard, emptyFolder("spam")]),
+        ),
+        mailboxesImportCommand,
+        mailboxesImportStatusCommand,
+        remove,
+      ],
+    },
   ]),
 );

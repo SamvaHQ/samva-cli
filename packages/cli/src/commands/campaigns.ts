@@ -11,6 +11,7 @@ import type { JsonValue } from "samva/effect";
 import * as Campaigns from "samva/effect/campaigns";
 
 import { CliUsageError, SamvaCliError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, truncateForDisplay, withoutSeries } from "../lib/output";
 import { campaignPacingFields } from "../lib/run-hold";
@@ -688,7 +689,7 @@ const archive = deriveOverride(
   {
     id: Argument.String("id"),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {
@@ -1160,7 +1161,7 @@ const runCancel = deriveOverride(
     campaignId: Argument.String("campaignId"),
     runId: Argument.String("runId"),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Namespaces from "samva/effect/namespaces";
 
 import { CliUsageError, toCliApiError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields } from "../lib/output";
 import { namespacePortalLinks } from "./namespace-portal-links";
@@ -284,7 +285,7 @@ const remove = deriveOverride(
   {
     id: idArgument,
     dryRun: dryRunFlag,
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

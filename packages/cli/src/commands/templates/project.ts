@@ -5,6 +5,7 @@ import { declaredTemplateId } from "@samva/core/templates/declared-id";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
+import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Option from "effect/Option";
@@ -65,20 +66,49 @@ export const runGit = (
 
 const shellWord = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
-export const credentialHelperCommand = (cliArgs: ReadonlyArray<string>): string => {
+/**
+ * The words that start this running CLI again: the compiled executable itself, or the JavaScript
+ * runtime with the script it is running. The Git helper runs these first so a repository keeps the
+ * CLI that configured it, however many other `samva` binaries are on PATH.
+ */
+export const runningCliWords = (): ReadonlyArray<string> => {
+  const entry = process.argv[1] ?? "";
+  return entry.startsWith("/$bunfs/")
+    ? [process.execPath]
+    : [process.execPath, "--no-env-file", entry];
+};
+
+export const credentialHelperCommand = (
+  cliArgs: ReadonlyArray<string>,
+  running: ReadonlyArray<string> = runningCliWords(),
+): string => {
   // Git appends `get`, `store`, or `erase` to a `!` helper's shell command.
   // End with a function invocation so that operation becomes `$1` instead of
   // invalid syntax after the final `fi`.
   const operation = '"$1"';
-  const direct = [...["samva", ...cliArgs].map(shellWord), operation].join(" ");
+  const invoke = (words: ReadonlyArray<string>) =>
+    [...words.map(shellWord), ...cliArgs.map(shellWord), operation].join(" ");
+  // The running binary and the script it was started with must both still exist; otherwise
+  // fall back to the CLI on PATH, then to the published selector.
+  const runningExists = running
+    .filter((word) => word.startsWith("/"))
+    .map((path, index) => `[ ${index === 0 ? "-x" : "-e"} ${shellWord(path)} ]`)
+    .join(" && ");
   // Let Bun resolve the selector from its shared cache, installing it when a
   // later Git operation outlives the CLI installation that configured the repo.
   // Keep installation chatter off stdout: Git expects only credential fields.
-  const packageFallback = ["bunx", "--bun", "--silent", "@samva/cli", ...cliArgs]
-    .map(shellWord)
-    .concat(operation)
-    .join(" ");
-  return `!samva_credential() { if command -v samva >/dev/null 2>&1; then exec ${direct}; else exec ${packageFallback}; fi; }; samva_credential`;
+  const packageFallback = invoke(["bunx", "--bun", "--silent", "@samva/cli"]);
+  // Git shows the helper's stderr but not its name, so a failure says which helper ran and how to fix it.
+  const report =
+    'printf \'samva: the Git credential helper for this repository failed (exit %s) running %s. Run samva login, or update the CLI, then retry.\\n\' "$status" "$bin" >&2';
+  return [
+    "!samva_credential() {",
+    `if ${runningExists}; then bin=${shellWord(running[0] ?? "samva")}; ${invoke(running)};`,
+    `elif command -v samva >/dev/null 2>&1; then bin=samva; ${invoke(["samva"])};`,
+    `else bin=bunx; ${packageFallback}; fi;`,
+    `status=$?; if [ "$status" -ne 0 ]; then ${report}; fi; return "$status"; };`,
+    "samva_credential",
+  ].join(" ");
 };
 
 const helperCommand = Effect.fn("Templates.helperCommand")(function* (
@@ -822,7 +852,7 @@ export const publish = Command.make("publish", {
         });
       }
       if (json) return yield* printJson(result);
-      yield* Effect.logInfo(`Commit ${commitSha}\n${lines.join("\n")}`);
+      yield* Console.log(`Commit ${commitSha}\n${lines.join("\n")}`);
     }).pipe(json ? Effect.provideService(References.MinimumLogLevel, "None") : identity),
   ),
 );

@@ -129,8 +129,6 @@ describe("namespace reach at the CLI request boundary", () => {
       failureReason: null,
       attempts: 0,
       createdBy: null,
-      actorEmail: "owner@example.com",
-      memberRole: "owner",
       createdAt: date,
       updatedAt: date,
     };

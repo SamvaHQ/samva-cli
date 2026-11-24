@@ -14,6 +14,7 @@ export const emailDomainFixture = (
   domain: "example.com",
   phase: "ready",
   isDefault: false,
+  deleting: false,
   deliverability: { bounceRate: 0, complaintRate: 0, windowSends: 0, sendingStatus: "unknown" },
   series: Array.from({ length: 14 }, () => 0),
   createdAt: "2026-07-01T00:00:00.000Z",

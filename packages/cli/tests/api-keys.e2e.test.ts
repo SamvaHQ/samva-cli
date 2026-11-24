@@ -29,7 +29,7 @@ const key = {
   lastUsedAt: null,
   isActive: true,
   access: { mode: "restricted", resources: { email: "write" } },
-  owner: { id: "user_1", name: "Ada Lovelace", email: "ada@example.com" },
+  owner: { id: "user_1", name: "Ada Lovelace" },
 };
 
 let requests: Array<Recorded> = [];

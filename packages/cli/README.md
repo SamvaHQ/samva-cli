@@ -14,6 +14,10 @@ npm install -g @samva/cli
 samva --help
 ```
 
+In a project, install it locally with `npm install @samva/cli` and run it as `npx samva --help`, or
+run it without installing as `npx @samva/cli --help`. A local install puts the binary in
+`node_modules/.bin`, so use the `npx samva` form for every command in this guide.
+
 The npm package prefers the matching macOS or Linux executable. If npm omits
 optional dependencies, the same command falls back to the packaged JavaScript
 implementation when Bun is installed. Native executables for each platform, with a `SHA256SUMS`
@@ -37,9 +41,32 @@ samva mailboxes events mbx_...
 `org current` prints labelled fields. To capture only the slug in a script, use
 `org_slug=$(samva org current --json | jq -r .data.activeOrgSlug)`.
 
-`create` prints the mailbox ID the other commands take. `events` prints each received, sent, and
+`create` prints the mailbox ID the other commands take. `mailboxes create` takes a full address on
+the hosted domain that `org current` prints (a slug alone is not an address). `events` prints each received, sent, and
 held message as a JSON line until you press Ctrl+C. See the
 [mailbox CLI guide](https://samva.dev/docs/mailboxes/cli?utm_source=readme&utm_medium=cli) for replies, approvals, and quarantine.
+
+To read a conversation, `samva mailboxes threads mbx_... --json` lists thread ids (`thread_...`) and
+`samva mailboxes list-thread-messages mbx_... thread_... --json` lists that thread's `msg_...` ids,
+the ids `read` and `reply` take; `read` rejects a thread id. A thread you started with a send stays
+in the `sent` folder when replies arrive, so `threads --folder inbox` omits it: leave `--folder`
+off and add `--unread` to find new replies. `--folder` takes `inbox`, `assigned`, `pending`, `sent`,
+`archived`, `trash`, or `spam`.
+
+A send returns an action receipt, not a delivery. A new organization's first sends can wait on email
+onboarding review; the action stays `queued` until the review decides. `samva email doctor` and
+`samva email review status` report the review state.
+
+`samva mailboxes actions cancel` and `actions retry` need a permitted person signed in with
+`samva login`. An API key is refused with `403`, so an automation cannot cancel or retry its own
+send.
+
+To confirm a send landed, keep the receipt's `actionId` and poll
+`samva mailboxes actions get mbx_... mbxact_... --json` until `state` is `completed`, `notSent`, or
+`uncertain`, no later than the receipt's `executeUntil`. A `queued` action has no `messageId` yet;
+once it is accepted, `send.messageId` names the sent message and `send.threadId` its thread, so
+`list-thread-messages` shows it there. Delivery to the recipient arrives later as
+`mailbox.message.delivered`: use `samva mailboxes events` or a webhook for long waits.
 
 ## Shell completions
 
@@ -149,23 +176,23 @@ protects every namespace. Review the reason before `samva suppressions remove <i
 ## Common operations
 
 ```sh
-# Send an inline email. --to is repeatable.
-samva email send --to ada@example.com --subject "Hello" --text "Hi!"
+# Send an inline email. --to is repeatable. --from is any address on a verified domain.
+samva email send --from hello@yourdomain.com --to ada@example.com --subject "Hello" --text "Hi!"
 
 # Pipe the plain-text body from stdin.
 printf 'Hi from a pipeline' | samva email send \
-  --to ada@example.com --subject "Hello" --text -
+  --from hello@yourdomain.com --to ada@example.com --subject "Hello" --text -
 
 # Pipe a rendered HTML body from stdin.
 render-email | samva email send \
-  --to ada@example.com --subject "Hello" --html -
+  --from hello@yourdomain.com --to ada@example.com --subject "Hello" --html -
 
 # Render a published template.
-samva email send --to ada@example.com --template-slug welcome-email \
+samva email send --from hello@yourdomain.com --to ada@example.com --template-slug welcome-email \
   --template-data '{"name":"Ada"}'
 
 # Wait for delivery or a terminal delivery outcome.
-samva email send --to ada@example.com --subject "Hello" --text "Hi!" \
+samva email send --from hello@yourdomain.com --to ada@example.com --subject "Hello" --text "Hi!" \
   --wait --timeout 2m
 
 # Inspect a message and its events.
@@ -180,6 +207,12 @@ samva email tracking defaults get
 samva email tracking defaults set --opens on --clicks off
 
 ```
+
+`--from` takes a bare address (`--from-name` adds a display name). Omit it only when the template
+sets `fromDefault`, the organization has a default sender (`samva email senders set-default`), or
+it has exactly one verified sender. A new organization whose only sending identity is a hosted
+mailbox address has none of these, so the send fails with `FromAddressRequiredError` (`422`) and
+its `verifiedDomains` and `addresses`; pass `--from` with the first address its next step names, or any address on one of those domains.
 
 ## DKIM rotation
 
@@ -221,6 +254,9 @@ check, render, and build use the compiler version recorded in that lockfile. A p
 `origin`; its repository-local credential helper obtains a one-hour, repository-scoped Artifact
 credential from Samva when Git needs one. The credential is not written to the remote URL or Git
 configuration.
+
+`init` and `clone` do not install dependencies; run `npm install` or `bun install` in the project
+before `templates check`, `render`, or `dev`.
 
 ```sh
 samva templates dev
@@ -291,6 +327,12 @@ matching the project's repository, then exchanges the current Samva credential f
 Artifact credential. `samva templates credential` is an internal helper command, not a general
 credential store. Local OAuth credentials remain in the OS keyring; `SAMVA_API_KEY` remains the
 automation path.
+
+Git runs the helper as the CLI that wrote it, then as `samva` from `PATH` if that file has moved,
+then as `bunx --bun --silent @samva/cli`. The CLI that runs must be signed in (`samva login` or
+`SAMVA_API_KEY` in the environment). When it fails, the helper prints one line to stderr naming
+itself, the binary it ran, and the fix, before Git reports `could not read Username ... Device not
+configured` on `git push`, `git pull`, or `git fetch`.
 
 `samva templates dev [--dir <dir>] [--port <n>] [--host <name>] [--open]` starts the local visual
 editor from the project's `@samva/vite/dev` under Node.js, with no `vite.config.ts`. It prints the
@@ -414,7 +456,8 @@ samva campaigns runs recipients <campaign-id> <run-id> --status failed
 ```
 
 `--at` is an absolute ISO 8601 instant. `--timezone` is display and audit metadata for a
-scheduled message. Campaign definitions freeze after their first run. Cancelling a scheduled
+scheduled message; it never changes `--at`. `--from` names the sender, a verified sender or an address
+on a verified domain; omitted, the schedule uses the default sender, else the only verified sender. Campaign definitions freeze after their first run. Cancelling a scheduled
 message or campaign run requires confirmation, and dispatch already in progress may still finish.
 
 ## Contacts
@@ -498,9 +541,14 @@ samva help --json
 samva email send --help
 ```
 
-Released top-level commands are `login`, `logout`, `org`, `email`, `messages`, `campaigns`,
-`contacts`, `conversations`, `analytics`, `knowledge`, `scheduled-messages`, `templates`, `brands`, `webhooks`, `profile`, and `help`. Use `samva <command> --help`
-for flags and runnable examples.
+Run `samva --help` for the full command list. The command families cover sign-in and
+organizations (`login`, `logout`, `org`, `profile`), sending and receiving (`email`, `messages`,
+`whatsapp`, `mailboxes`, `agents`, `scheduled-messages`), audiences and campaigns (`contacts`,
+`campaigns`, `journeys`, `newsletters`, `topics`, `subscriptions`, `suppressions`), content
+(`templates`, `brands`, `knowledge`), and account administration (`webhooks`, `api-keys`,
+`namespaces`, `policies`, `analytics`, `conversations`, `events`, `feedback`). Each public API
+operation without a hand-written command runs as a derived one, named from its group and
+operation. Use `samva <command> --help` for flags and runnable examples.
 
 Test a configured webhook against its real endpoint with an optional JSON payload. `--data` accepts
 inline JSON or `@file`; omit it for Samva's default test event. `--dry-run` validates and previews
@@ -526,7 +574,7 @@ exits `1` if any check failed and `0` otherwise. The `--json` result's `data` ad
 Use `samva email receiving status <domain-id>` to read a domain's receiving prerequisites in
 order: sending verified, receiving enabled, and the inbound MX, which it looks up
 live and names when mail is routed elsewhere.
-`samva email receiving enable <domain-id> --domain <name> --catch-all [--endpoint <webhook-id>]`
+`samva email receiving enable <domain-id> --catch-all [--endpoint <webhook-id>]`
 accepts every address on a verified domain. Mail without a webhook, forwarding rule, or active
 mailbox goes to the domain's chosen unknown-address mailbox, or is dropped by default. Pass
 `--address` for exact recipients instead. The command acts by default; its `--dry-run` is offline

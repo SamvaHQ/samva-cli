@@ -383,8 +383,6 @@ const startApi = (): Promise<{
       failureReason: null,
       attempts: 0,
       createdBy: "user_test",
-      actorEmail: "owner@example.com",
-      memberRole: "owner",
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
     };
@@ -399,8 +397,6 @@ const startApi = (): Promise<{
       latestRun: null,
       createdBy: "user_test",
       status: "draft",
-      actorEmail: "owner@example.com",
-      memberRole: "owner",
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
       series: zeroSeries,
@@ -430,8 +426,6 @@ const startApi = (): Promise<{
       capacityWarning: null,
       lastContactId: null,
       createdBy: "user_test",
-      actorEmail: "owner@example.com",
-      memberRole: "owner",
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
     };
@@ -2349,8 +2343,6 @@ describe("email launch mutation contracts", () => {
       "receiving",
       "enable",
       "dom_abc123",
-      "--domain",
-      "example.com",
       "--address",
       "replies@example.com",
       "--catch-all",
@@ -2362,7 +2354,8 @@ describe("email launch mutation contracts", () => {
     expect(parseResult(result.stdout)).toMatchObject({
       dryRun: true,
       action: "email.receiving.enable",
-      request: { domain: "example.com", catchAll: true, addresses: ["replies@example.com"] },
+      domainId: "dom_abc123",
+      request: { catchAll: true, addresses: ["replies@example.com"] },
     });
   });
 
@@ -2372,8 +2365,6 @@ describe("email launch mutation contracts", () => {
       "receiving",
       "enable",
       "dom_abc123",
-      "--domain",
-      "example.com",
       "--catch-all",
       "--endpoint",
       "wep_1234567890abcdef",
@@ -2383,7 +2374,6 @@ describe("email launch mutation contracts", () => {
     expect(result.code).toBe(0);
     expect(parseResult(result.stdout)).toMatchObject({
       request: {
-        domain: "example.com",
         catchAll: true,
         addresses: [],
         endpointId: "wep_1234567890abcdef",
@@ -2404,8 +2394,6 @@ describe("email launch mutation contracts", () => {
       "receiving",
       "enable",
       "dom_abc123",
-      "--domain",
-      "example.com",
       ...flags,
       "--dry-run",
     ]);
@@ -2443,8 +2431,6 @@ describe("email launch mutation contracts", () => {
           "receiving",
           "enable",
           "dom_1234567890abcdefgh",
-          "--domain",
-          "example.com",
           "--address",
           "replies@example.com",
           "--json",
@@ -2885,6 +2871,39 @@ describe("API failure recovery envelopes", () => {
         expect(human.stderr).toContain("email.tracking.typo: Unexpected property");
       if (status === 401) expect(human.stderr).toContain("samva login");
       if (status === 500) expect(human.stderr).toContain("samva feedback send");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+describe("undeclared server statuses", () => {
+  it("reports a gateway 503 as unavailable and possibly applied, not a decode failure", async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ message: "Service Unavailable" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const env = { SAMVA_API_KEY: "samva_sk_test_x", SAMVA_API_URL: `http://127.0.0.1:${port}` };
+    const command = ["email", "domains", "remove", "dom_1234567890abcdefgh", "--yes"];
+    try {
+      const json = await runCli([...command, "--json"], { env });
+      expect(json.code).toBe(1);
+      expect(json.stdout).toBe("");
+      const envelope = JSON.parse(json.stderr);
+      expect(envelope).toMatchObject({
+        type: "error",
+        reason: "unexpected_status",
+        status: 503,
+        next: expect.stringContaining("Read or list the resource"),
+      });
+      expect(envelope.message).toContain("may still have been applied");
+      expect(envelope.message).not.toContain("Decode");
+      const human = await runCli(command, { env });
+      expect(human.code).toBe(1);
+      expect(human.stderr).toContain("Could not remove domain: Samva is temporarily unavailable");
+      expect(human.stderr).not.toContain("undeclared status code");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

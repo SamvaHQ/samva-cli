@@ -332,6 +332,15 @@ describe("samva templates publish --all", () => {
     expect(calls.some(({ route }) => route.endsWith("/publications"))).toBe(false);
   });
 
+  it("prints each entry's result to stdout when piped", async () => {
+    const result = await cli(["templates", "publish", "templates/welcome.tsx"]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Commit ${head}`);
+    expect(result.stdout).toContain(`published     templates/welcome.tsx  welcome  tpub_`);
+    expect(result.stderr).toBe("");
+  });
+
   it("publishes one named entry and refuses an unregistered one", async () => {
     const one = await cli(["templates", "publish", "templates/welcome.tsx", "--json"]);
     expect(one.code, one.stderr).toBe(0);

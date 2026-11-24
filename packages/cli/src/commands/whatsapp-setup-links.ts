@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import * as WhatsAppSetupLinks from "samva/effect/whatsapp-setup-links";
 
 import { CliUsageError, SamvaCliError, toCliApiError } from "../errors";
+import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields } from "../lib/output";
 
@@ -271,7 +272,7 @@ const revoke = deriveOverride(
   "revoke",
   {
     id: linkIdArgument,
-    yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
+    yes: yesFlag(),
     json: jsonFlag,
   },
   {

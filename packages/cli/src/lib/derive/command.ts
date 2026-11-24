@@ -2,8 +2,10 @@ import { operationHints, type PublicOperation } from "@samva/contracts/surface/o
 import { Effect, FileSystem, Option, Schema, SchemaAST } from "effect";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
+import { identity } from "effect/Function";
 
 import { CliUsageError } from "../../errors";
+import { yesFlag } from "../confirm";
 import { readStdinUtf8 } from "../stdin";
 import { derivedClient, type DerivedRequest } from "./client";
 import { deriveOverride } from "./curated";
@@ -119,7 +121,7 @@ export const deriveCommand = (operation: PublicOperation, name = kebab(operation
           ),
         }),
     ...(operation.paginated ? { all: toggle("all", "Follow every page of results") } : {}),
-    ...(destructive ? { yes: toggle("yes", "Confirm the destructive action") } : {}),
+    ...(destructive ? { yes: yesFlag() } : {}),
     ...(readOnly
       ? {}
       : { dryRun: toggle("dry-run", "Validate and preview the request without sending it") }),
@@ -211,5 +213,10 @@ export const deriveCommand = (operation: PublicOperation, name = kebab(operation
           },
         }
       : {}),
-  }).pipe(Command.withDescription(operation.description ?? operation.summary ?? ""));
+  }).pipe(
+    Command.withDescription(operation.description ?? operation.summary ?? ""),
+    // A parent's subcommand list shows the one-line summary; the full description stays on the
+    // command's own help.
+    operation.summary === undefined ? identity : Command.withShortDescription(operation.summary),
+  );
 };

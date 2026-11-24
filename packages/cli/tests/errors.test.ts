@@ -298,6 +298,35 @@ describe("API recovery metadata", () => {
       next: "Send only the fields the operation declares. `details.fields` names each unexpected one and the declared fields.",
     });
   });
+  it("names the first usable address for FromAddressRequiredError", () => {
+    const hint = (addresses: ReadonlyArray<string>) =>
+      apiErrorGuidance(
+        toCliApiError("Could not send", {
+          _tag: "FromAddressRequiredError",
+          message: "No default sender for this organization.",
+          verifiedDomains: ["acme.test"],
+          addresses,
+        }),
+      )?.next;
+    expect(hint(["support@acme.test", "billing@acme.test"])).toBe(
+      "Pass --from support@acme.test, or another of: support@acme.test, billing@acme.test; or run samva email senders set-default.",
+    );
+    expect(hint(["support@acme.test"])).toBe(
+      "Pass --from support@acme.test; or run samva email senders set-default.",
+    );
+    expect(hint([])).toContain("Pass --from with an address on acme.test");
+  });
+  it("defers a ForbiddenError hint to the message instead of a broader key", () => {
+    const next = apiErrorGuidance(
+      toCliApiError("Could not set policy", {
+        _tag: "ForbiddenError",
+        message: "An API key cannot change its own policy. Sign in as a person to change it.",
+      }),
+    )?.next;
+    expect(next).toContain("Follow the next step the message ends with");
+    expect(next).toContain("signed in with samva login");
+    expect(next).not.toContain("required scope");
+  });
   it("names the verified domains for FromAddressRequiredError", () => {
     const error = toCliApiError("Could not send", {
       _tag: "FromAddressRequiredError",

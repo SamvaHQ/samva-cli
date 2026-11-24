@@ -1,10 +1,21 @@
 import { isatty } from "node:tty";
 
+import * as Flag from "effect/cli/Flag";
 import * as Prompt from "effect/cli/Prompt";
 import * as Effect from "effect/Effect";
 
 import { CliUsageError } from "../errors";
 import { NoInput } from "./runtime";
+
+/** Suffix every `--yes` description carries so help shows where confirmation is mandatory. */
+export const YES_REQUIRED_NOTE = "(required outside a terminal)";
+
+/** The `--yes` flag that {@link confirmDestructive} reads; its help says automation must pass it. */
+export const yesFlag = (action = "Confirm the destructive action") =>
+  Flag.Boolean("yes").pipe(
+    Flag.withDescription(`${action} ${YES_REQUIRED_NOTE}`),
+    Flag.withDefault(false),
+  );
 
 /** Confirm a destructive action in a real TTY; automation must pass --yes. */
 export const confirmDestructive = (options: {

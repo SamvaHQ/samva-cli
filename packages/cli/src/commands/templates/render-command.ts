@@ -171,7 +171,7 @@ export const renderCommand = Command.make("render", {
             formatReportedDiagnostic(reportDiagnostic(diagnostic, { file: "." })),
           );
         }
-        if (outPath !== undefined) return yield* Effect.logInfo(`Wrote ${outPath}`);
+        if (outPath !== undefined) return yield* Console.log(`Wrote ${outPath}`);
         yield* Console.log(renderedBody(result, format));
       }).pipe(
         json || format === "json"
