@@ -127,6 +127,8 @@ export const curatedOverrides: Readonly<Record<string, string>> = {
   "journeys.stats": "journeys stats",
   "journeys.listRuns": "journeys runs list",
   "journeys.getRun": "journeys runs get",
+  "logs.list": "logs",
+  "logs.get": "logs show",
   "messages.list": "messages list",
   "messages.get": "messages get",
   "messages.getEvents": "messages events",

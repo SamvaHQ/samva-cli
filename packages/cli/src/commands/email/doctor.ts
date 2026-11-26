@@ -1,3 +1,4 @@
+import { onboardingReviewBlockMessage } from "@samva/core/shared/errors";
 import * as Command from "effect/cli/Command";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -85,8 +86,12 @@ const sendReview = getClientProvider.pipe(
             ? "failed"
             : "unavailable",
         detail: review.canSend
-          ? `${review.decision}; trust tier ${review.trustTier}`
-          : `${review.code}; next action: ${review.nextAction}`,
+          ? review.trustTier === "established"
+            ? "Sending on the plan's limits."
+            : "Sending on the starting limits for new organizations."
+          : review.code === null || review.nextAction === null
+            ? "Sending is not available."
+            : onboardingReviewBlockMessage(review.code, review.nextAction),
       })),
     ),
   ),

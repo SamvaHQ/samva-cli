@@ -16,8 +16,9 @@ const runnablePaths = (node: CommandNode, prefix: ReadonlyArray<string>): Array<
   const path = [...prefix, node.name];
   const children = node.subcommands.flatMap((group) => group.commands);
   const joined = path.join(" ");
-  // The thread-list command runs directly and also hosts a delete subcommand.
-  const runnable = children.length === 0 || joined === "mailboxes threads" ? [joined] : [];
+  // These command groups also run a list when called directly.
+  const runnable =
+    children.length === 0 || joined === "mailboxes threads" || joined === "logs" ? [joined] : [];
   return [...runnable, ...children.flatMap((child) => runnablePaths(child, path))];
 };
 

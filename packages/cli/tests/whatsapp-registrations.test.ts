@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
-import { FlagDisabledError } from "samva/effect";
 
 import {
   registrationError,
@@ -171,12 +170,5 @@ describe("registrationError", () => {
     });
     expect(error.api?.status).toBe(409);
     expect(error.api?.next).toContain("samva templates publish");
-  });
-
-  it("names a disabled channel", () => {
-    const error = registrationError("list template registrations")(
-      new FlagDisabledError({ flag: "whatsapp", message: "Feature 'whatsapp' is not enabled." }),
-    );
-    expect(error.api?.next).toBe("WhatsApp is not enabled for this organization.");
   });
 });

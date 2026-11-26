@@ -1,5 +1,4 @@
 import { describe, expect, it } from "@effect/vitest";
-import { FlagDisabledError } from "samva/effect";
 
 import {
   createFlowPayload,
@@ -243,12 +242,5 @@ describe("flowError", () => {
     const error = flowError("create the flow")({ _tag: "ConflictError", message: "Taken." });
     expect(error.api?.status).toBe(409);
     expect(error.api?.next).toContain("unique");
-  });
-
-  it("names a disabled channel", () => {
-    const error = flowError("list flows")(
-      new FlagDisabledError({ flag: "whatsapp", message: "Feature 'whatsapp' is not enabled." }),
-    );
-    expect(error.api?.next).toBe("WhatsApp is not enabled for this organization.");
   });
 });

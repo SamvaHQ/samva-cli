@@ -20,9 +20,7 @@ import { jsonFlag, printFields } from "../lib/output";
  * `samva whatsapp setup-links create | list | get | revoke` — hosted links a platform hands its
  * own customer to connect a WhatsApp number into a namespace, without a Samva account.
  *
- * The setup-links API is published in OpenAPI and the SDK, with runtime access controlled by the
- * `whatsapp` flag. These commands use authenticated JSON requests. A namespace-scoped key is
- * confined to its namespace by the API.
+ * The API confines a namespace-scoped key to its namespace.
  */
 
 /** Links as the API wire carries them: dates stay ISO strings. */
@@ -97,7 +95,6 @@ const SETUP_LINK_NEXT: Readonly<Record<string, string>> = {
   ValidationError:
     "Read the reason in the message: the redirect URL must be an absolute https URL, the expiry at most 30 days ahead, and metadata plain string values.",
   ForbiddenError: "The API key cannot create or read setup links for that namespace.",
-  FlagDisabledError: "WhatsApp is not enabled for this organization.",
 };
 
 /** A failed setup-links call with the recovery step that names the cause. */

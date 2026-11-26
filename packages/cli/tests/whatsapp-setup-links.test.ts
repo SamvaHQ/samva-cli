@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { FlagDisabledError } from "samva/effect";
 
 import {
   createSetupLinkPayload,
@@ -99,12 +98,5 @@ describe("setupLinkError", () => {
     });
     expect(error.api?.status).toBe(410);
     expect(error.api?.next).toContain("pending");
-  });
-
-  it("names a disabled channel", () => {
-    const error = setupLinkError("list setup links")(
-      new FlagDisabledError({ flag: "whatsapp", message: "Feature 'whatsapp' is not enabled." }),
-    );
-    expect(error.api?.next).toBe("WhatsApp is not enabled for this organization.");
   });
 });

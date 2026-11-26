@@ -137,9 +137,8 @@ creating a resource; topic subscription checks use it when resolving an address.
 
 `samva namespaces assign <namespace-id>` moves exactly one resource into a
 namespace, and `unassign` returns it to organization level. Select it with
-`--domain`, `--sender`, `--contact`, or `--template`. WhatsApp and SMS numbers use
-`--whatsapp-number` and `--sms-number` when their channel is enabled. Both commands
-support `--dry-run`.
+`--domain`, `--sender`, `--contact`, `--template`, or `--whatsapp-number`. Use
+`--sms-number` when SMS is enabled. Both commands support `--dry-run`.
 
 A scheduled message keeps its namespace when it sends later, including retries and resumes.
 Analytics and conversations remain confined to a namespace key's own namespace.
@@ -630,7 +629,7 @@ After creating the campaign, `samva campaigns runs create <campaign-id> --at <in
 --idempotency-key <key>` schedules its pinned definition; scheduling takes no content override.
 `render` takes `--fixture <name> --target email|web`. `history --limit 20`
 returns a bounded set of commits. Writes support `--dry-run`; `delete` requires `--yes` outside
-a terminal. Namespace grants and the `newsletters` and `email` flags are enforced by the API.
+a terminal. The API enforces namespace grants for issue workspace and send operations.
 
 Topic mutations accept `--dry-run`. Removal uses `topics remove <id> --yes` outside a terminal.
 `topics subscriptions list <id> --limit 20 --json` reads one page; `--all --jsonl` streams every page.

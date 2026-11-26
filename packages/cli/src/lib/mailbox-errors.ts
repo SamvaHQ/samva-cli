@@ -31,12 +31,12 @@ export const mailboxApiError = (
 ): SamvaCliError => {
   const failure = toCliApiError(prefix, error);
   const flag = failure.api?.details.flag;
-  if (failure.api?.reason === "FlagDisabledError" && (flag === "whatsapp" || flag === "sms"))
+  if (failure.api?.reason === "FlagDisabledError" && flag === "sms")
     return new SamvaCliError({
       message: failure.message,
       api: {
         ...failure.api,
-        next: `${flag === "sms" ? "SMS" : "WhatsApp"} is not enabled for this organization. Mailboxes work on email until it is.`,
+        next: "SMS is not enabled for this organization. Mailboxes can still use email and WhatsApp.",
       },
     });
   if (options.personOnly !== undefined && failure.api?.reason === "ForbiddenError")

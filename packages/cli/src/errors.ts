@@ -1,4 +1,5 @@
 import { MailboxSendReceipt } from "@samva/core/mailboxes/send";
+import { onboardingReviewNextStep } from "@samva/core/shared/errors";
 import { formatReportedDiagnostic } from "@samva/core/shared/template-diagnostics";
 import { TemplateSourceError } from "@samva/core/templates/source-error";
 import * as CliError from "effect/cli/CliError";
@@ -169,6 +170,13 @@ const undeclaredServerStatus = (error: unknown): number | undefined => {
   return status !== undefined && status >= 500 ? status : undefined;
 };
 
+const responseRequestId = (error: unknown): string | undefined =>
+  Predicate.hasProperty(error, "requestId") &&
+  typeof error.requestId === "string" &&
+  /^req_[a-zA-Z0-9_-]+$/.test(error.requestId)
+    ? error.requestId
+    : undefined;
+
 export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined => {
   if (
     (Schema.is(SamvaCliError)(error) || Schema.is(CliMessageLifecycleError)(error)) &&
@@ -178,10 +186,11 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
   }
   const undeclared = undeclaredServerStatus(error);
   if (undeclared !== undefined) {
+    const requestId = responseRequestId(error);
     return {
       reason: "unexpected_status",
       status: undeclared,
-      details: {},
+      details: requestId === undefined ? {} : { requestId },
       next: "Samva may have applied the request before this answer. Read or list the resource to check before retrying.",
     };
   }
@@ -277,7 +286,7 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
       next = "List the resource to find a valid id before retrying.";
       break;
     case "OnboardingReviewRequiredError":
-      next = String(details.nextAction);
+      next = `${onboardingReviewNextStep(details.nextAction)} Run samva email review status to follow the review.`;
       break;
     case "PaymentRequiredError":
       next = "Review your plan and limits in the dashboard billing page.";
@@ -299,11 +308,14 @@ export const apiErrorGuidance = (error: unknown): ApiErrorGuidance | undefined =
         "Free-form WhatsApp text needs the customer's open 24-hour service window. Send an approved template instead: --template <templateId> with --data.";
       break;
     case "ConflictError":
-      next = "Read the resource and resolve the conflict before retrying.";
+      if (details.resource !== "Message")
+        next = "Read the resource and resolve the conflict before retrying.";
       break;
     default:
       next = "Retry once; if it still fails, run samva feedback send and name the command.";
   }
+  const requestId = responseRequestId(error);
+  if (next === undefined && requestId !== undefined) next = `samva logs show ${requestId}`;
   return { reason: error._tag, status, details, next };
 };
 
@@ -321,8 +333,10 @@ export const toCliApiError = (
 
 export const formatApiError = (prefix: string, error: unknown): string => {
   const undeclared = undeclaredServerStatus(error);
-  if (undeclared !== undefined)
-    return `${prefix}: Samva is temporarily unavailable (HTTP ${undeclared}), and the request may still have been applied.`;
+  if (undeclared !== undefined) {
+    const requestId = responseRequestId(error);
+    return `${prefix}: Samva is temporarily unavailable (HTTP ${undeclared}), and the request may still have been applied.${requestId === undefined ? "" : `\nrequest: ${requestId}`}`;
+  }
   if (
     Predicate.isObject(error) &&
     "message" in error &&

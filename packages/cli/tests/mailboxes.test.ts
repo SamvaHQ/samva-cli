@@ -783,7 +783,7 @@ describe("mailbox command HTTP contracts", () => {
       },
       status: 403,
       exit: 4,
-      next: "wait_for_review",
+      next: "Wait for the review to approve it, then send again. Run samva email review status to follow the review.",
     },
   ]) {
     for (const args of [
@@ -1391,6 +1391,21 @@ describe("mailbox command HTTP contracts", () => {
     });
     expect(JSON.parse(result.stdout)).toEqual(response);
   });
+  it.each([["threads", mailboxId], ["all-threads"]])(
+    "forwards wake order from %s",
+    async (...command) => {
+      const result = await run([...command, "--snoozed", "--order", "wake", "--json"], {
+        items: [],
+        nextCursor: null,
+      });
+      expect(result.code, result.stderr).toBe(0);
+      const url = new URL(requests[0]!.path, apiUrl);
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        snoozed: "true",
+        order: "wake",
+      });
+    },
+  );
   it("requires JSONL before unbounded thread traversal", async () => {
     const result = await run(["threads", mailboxId, "--all", "--json"], {});
     expect(result.code).toBe(2);

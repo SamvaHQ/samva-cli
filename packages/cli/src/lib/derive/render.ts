@@ -27,8 +27,8 @@ export const renderHuman = (value: unknown, verdict?: string) =>
         ? value.items
         : undefined;
     if (items !== undefined) {
-      if (items.length === 0) return yield* Console.log("No results.");
-      yield* Console.table(items.map(row));
+      if (items.length === 0) yield* Console.log("No results.");
+      else yield* Console.table(items.map(row));
       if (Predicate.isObject(value) && typeof value.nextCursor === "string") {
         yield* printFields([["Next cursor", value.nextCursor]]);
       }

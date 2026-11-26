@@ -91,6 +91,10 @@ supports an offline `--dry-run`; `--json` carries the complete result. A taken s
 
 `samva templates check --watch` is the continuous authoring gate. Human mode prints observations;
 machine watch output uses `--jsonl`. `--json` remains one-shot.
+Use `samva logs -f --jsonl` to follow message log events. The CLI prints recent lines, then
+streams a JSON object per new line and reconnects from the last stream position. Ctrl+C exits 130.
+For older events, use `samva logs --since <time>`.
+
 `samva mailboxes events` is a stream: human mode prints one raw record per line, `--jsonl` one result
 envelope per event, `--quiet` nothing, and `--json` is refused (exit 2) with a pointer to `--jsonl`.
 A dropped connection reconnects from the last handled cursor, so an event can repeat but none is
@@ -179,7 +183,7 @@ with the template and the JSON pointer rather than generated as `unknown`.
 result, including the revision or saved commit the next fenced operation consumes. Read the latest
 revision with `list` or `open`, name it with `--revision` for edits, and use `save` to obtain the
 commit for a campaign's `--issue-path` and `--issue-commit`. Creating or updating a draft does not
-send email. The API requires the `newsletters` and `email` features for the organization.
+send email.
 
 `samva newsletters domains list <newsletter-id> --limit 20 --cursor <nextCursor>` discovers
 archive domains. It returns `{ items, nextCursor }`; omit `--cursor` for the first page. `domains get`
@@ -204,7 +208,7 @@ Git runs that helper as the CLI that wrote it (`runningCliWords`), then `samva` 
 `bunx --bun --silent @samva/cli`, so it needs a CLI that is signed in or has `SAMVA_API_KEY`. A
 failing helper prints one stderr line naming itself and the binary it ran before Git reports `could
 not read Username ... Device not configured`.
-Install from the project's lockfile (`bun install --frozen-lockfile` or `npm ci`) before `samva templates check` or `samva templates build`, then
+Install from the project's lockfile (`bun install --frozen-lockfile`; `bun.lock` is its only tracked lockfile) before `samva templates check` or `samva templates build`, then
 publish a clean, pushed commit with `samva templates publish`. Publish checks that the selected
 commit is an ancestor of the fetched `origin/<default-branch>` and creates an immutable receipt; it
 does not push or rewrite history. A project holds several emails: `samva templates add
@@ -248,9 +252,10 @@ with `--text` or, on WhatsApp, an approved `--template <templateId>` with `--dat
 WhatsApp or SMS message on its thread; a bare `--text` reply reads the message first to learn its
 channel. Free-form WhatsApp text outside the customer's 24-hour window fails with
 `WhatsAppServiceWindowClosedError`; send a template. These commands call the API directly.
-Quarantine `list` pages the same way, bounded by `--after` and `--before` on when a message was
-held; `release` and `discard` take the held message's `id` and require a person signed in with
-`samva login`. Discard requires confirmation (`--yes` outside a terminal) and supports `--dry-run`.
+`mailboxes spam list` pages through held malware metadata. Its `--after` and `--before` filters
+apply to when the message was held. `mailboxes spam discard` takes the held message’s `id` and
+requires a person signed in with `samva login`. Discard requires confirmation (`--yes` outside a
+terminal) and supports `--dry-run`. To recover readable Spam, move the thread to Inbox.
 `actions list <mailbox-id>` filters by `--state` and pages with `--limit`, `--cursor`, and
 `--all --jsonl`. Read the action with `actions get` or `needs-you` and review its decision before
 approving or denying. `actions approve <mailbox-id> <action-id> --review-round <observed-round>`
@@ -304,8 +309,7 @@ directional unique-recipient counts with machine observations excluded; `--json`
 marker, activity, quality, and messaging tier and limit. `--page` and `--limit` select a bounded page;
 `--json` returns `{items, pagination}` inside the result envelope, using the API field names.
 An empty organization succeeds with no items; human output points to the dashboard or
-`samva whatsapp setup-links create` to connect a number. A disabled channel returns
-`FlagDisabledError` (exit `4`). `samva whatsapp message status <id>` reads a WhatsApp message's
+`samva whatsapp setup-links create` to connect a number. `samva whatsapp message status <id>` reads a WhatsApp message's
 lifecycle status and waiting reason; `--json` returns `{id, channel, status, waitReason,
 reviewExpectedAt, createdAt, updatedAt}`. An id belonging to another channel exits `1`.
 

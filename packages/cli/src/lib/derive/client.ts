@@ -26,6 +26,9 @@ const authorizationClient = HttpApiMiddleware.layerClient(Authorization, ({ next
   next(request),
 );
 
+// Match the SDK default for one HTTP attempt, including response decoding.
+const ATTEMPT_TIMEOUT_MS = 30_000;
+
 type Operation = Pick<PublicOperation, "operationId" | "group" | "endpoint">;
 
 export const derivedClient = Effect.fn("CliDerived.client")(function* (
@@ -65,5 +68,15 @@ export const derivedClient = Effect.fn("CliDerived.client")(function* (
             })
           : toCliApiError(failureMessage, error),
       ),
+      Effect.timeoutOrElse({
+        duration: ATTEMPT_TIMEOUT_MS,
+        orElse: () =>
+          Effect.fail(
+            new CliTimeoutError({
+              code: "request_timeout",
+              message: `Samva request did not finish within ${ATTEMPT_TIMEOUT_MS} ms`,
+            }),
+          ),
+      }),
     );
 });

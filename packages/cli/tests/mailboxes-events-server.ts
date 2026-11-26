@@ -8,6 +8,7 @@ import { Schema } from "effect";
 const decodeFrame = Schema.decodeUnknownSync(Schema.fromJsonString(MailboxEventStreamClientFrame));
 interface Scenario {
   frames?: unknown[];
+  logHistory?: unknown[];
   refusal?: number;
   /** The refusal body: an API error object, or a string sent as text. Default: the status's tag. */
   refusalBody?: unknown;
@@ -54,6 +55,12 @@ const server = Bun.serve({
       return Response.json({ ok: true });
     }
     if (url.pathname === "/state") return Response.json({ handshakes, acks, closes });
+    if (scenario.logHistory !== undefined) {
+      if (url.pathname === "/v1/logs") {
+        return Response.json({ items: scenario.logHistory, nextCursor: null });
+      }
+      if (url.searchParams.get("head") === "1") return Response.json({ cursor: "1" });
+    }
     handshakes.push({ url: request.url, headers: Object.fromEntries(request.headers) });
     if (scenario.refusal) {
       const body = scenario.refusalBody ?? {

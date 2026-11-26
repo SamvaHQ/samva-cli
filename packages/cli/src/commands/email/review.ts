@@ -1,3 +1,4 @@
+import { onboardingReviewBlockMessage } from "@samva/core/shared/errors";
 import * as Command from "effect/cli/Command";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -18,6 +19,24 @@ const readStatus = Effect.gen(function* () {
   );
 });
 
+type ReviewStatus = Effect.Success<ReturnType<typeof Email.getOnboardingReview>>;
+
+/** Which sending limits apply, in the words the dashboard and docs use. */
+const limitsLabel = (tier: ReviewStatus["trustTier"]) =>
+  tier === "established"
+    ? "plan limits"
+    : tier === "probation"
+      ? "starting limits for new organizations"
+      : "none until Samva's review approves the organization";
+
+/** The human verdict line: whether email sends, and if not, why and what happens next. */
+const reviewVerdict = (data: ReviewStatus) =>
+  data.canSend
+    ? "Email can send."
+    : data.code === null || data.nextAction === null
+      ? "Email cannot send yet."
+      : onboardingReviewBlockMessage(data.code, data.nextAction);
+
 const status = deriveOverride(
   "status",
   { json: jsonFlag },
@@ -26,10 +45,12 @@ const status = deriveOverride(
     failure: "Could not get email review status",
     render: (data) =>
       Effect.gen(function* () {
+        yield* Console.log(reviewVerdict(data));
         yield* printFields([
           ["Decision", data.decision],
           ["Stage", data.stage],
           ["Can send", data.canSend ? "yes" : "no"],
+          ["Limits", limitsLabel(data.trustTier)],
           ["Reason", data.code],
           ["Next action", data.nextAction],
           ["Generation", data.generation],
@@ -47,7 +68,9 @@ const status = deriveOverride(
       }),
   },
 ).pipe(
-  Command.withDescription("Get organization and sending-identity review status"),
+  Command.withDescription(
+    "Show whether email can send, what Samva's review decided, and the next step",
+  ),
   Command.withExamples([{ command: "samva email review status --json" }]),
 );
 
@@ -77,6 +100,6 @@ const reapply = Command.make("reapply", { json: jsonFlag }).pipe(
 );
 
 export const reviewCommand = Command.make("review").pipe(
-  Command.withDescription("Inspect or resubmit email onboarding review"),
+  Command.withDescription("Check Samva's review of the organization's email sending, or reapply"),
   Command.withSubcommands([status, reapply]),
 );

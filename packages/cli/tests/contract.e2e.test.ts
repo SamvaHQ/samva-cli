@@ -2926,7 +2926,7 @@ describe("send acceptance guidance", () => {
       });
       const human = await runCli(args, { env });
       expect(human.code).toBe(0);
-      expect(human.stdout).toContain("content review");
+      expect(human.stdout).toContain("review of this email's content");
       expect(human.stdout).toContain("2026-07-21T00:10:00.000Z");
       expect(human.stdout).toContain("blocked@example.com (bounce)");
     } finally {

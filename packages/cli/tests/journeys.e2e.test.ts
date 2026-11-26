@@ -42,7 +42,7 @@ const catalog = {
 const readiness = {
   ready: false,
   channel: "whatsapp",
-  availability: { shopify: true, journeys: true, whatsapp: false, plan: "denied" },
+  availability: { plan: "denied" },
   shopify: null,
   publication: null,
   email: null,
@@ -53,7 +53,7 @@ const inputIssue = "Delivered order: storeName: is required";
 const emailReadiness = {
   ready: false,
   channel: "email",
-  availability: { shopify: true, journeys: true, whatsapp: true, plan: "granted" },
+  availability: { plan: "granted" },
   shopify: null,
   publication: {
     id: "tpub_aaaaaaaaaaaaaaaa",

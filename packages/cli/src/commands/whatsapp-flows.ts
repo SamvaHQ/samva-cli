@@ -31,8 +31,7 @@ import { firstProjectTemplate, gitConfig, runGit } from "./templates/project";
  *
  * A flow's file is `flows/<handle>.json` in a template project. `publish` records one commit of
  * that file as the flow's next version, and `register` creates that version as a Meta flow and
- * publishes it. The flows API is published in OpenAPI and the SDK, with runtime access controlled
- * by the `whatsapp` flag. These commands use authenticated JSON requests.
+ * publishes it.
  */
 
 /** Flows as the API wire carries them: dates stay ISO strings. */
@@ -93,7 +92,6 @@ const FLOW_NEXT: Readonly<Record<string, string>> = {
     "The WhatsApp credentials need attention. Reconnect the business account in the dashboard, then retry.",
   ResourceNotFoundError:
     "Check the ids: `samva whatsapp flows list` shows flows, and `samva templates list` shows template projects.",
-  FlagDisabledError: "WhatsApp is not enabled for this organization.",
 };
 
 /** A failed flows call with the recovery step that names the flow cause. */

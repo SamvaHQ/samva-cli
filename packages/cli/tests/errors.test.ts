@@ -25,6 +25,15 @@ import {
 } from "../src/errors";
 import { validateProcessArgs } from "../src/lib/runtime";
 
+it("surfaces the server's instructions for a send still in progress", () => {
+  const error = new ConflictError({
+    message: "Wait 2 seconds and retry with the same idempotency key and request body.",
+    resource: "Message",
+  });
+  expect(formatApiError("Could not send email", error)).toBe(error.message);
+  expect(apiErrorGuidance(error)?.next).toBeUndefined();
+});
+
 interface FormattingCase {
   readonly name: string;
   readonly prefix: string;

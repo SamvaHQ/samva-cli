@@ -21,6 +21,7 @@ import {
 import { getClientProvider } from "../lib/client";
 import { deriveOverride } from "../lib/derive/curated";
 import { jsonFlag, printFields, printJson } from "../lib/output";
+import { waitReasonPhrase } from "../lib/wait-reason";
 
 type Message = Effect.Success<ReturnType<typeof Messages.get>>;
 type MessageReceipt = Effect.Success<ReturnType<typeof Messages.send>>;
@@ -108,7 +109,7 @@ export const waitingLine = (
   message: Pick<MessageProjection, "waitReason" | "reviewExpectedAt">,
 ): string | null => {
   if (message.waitReason === null) return null;
-  const reason = message.waitReason.replaceAll("-", " ");
+  const reason = waitReasonPhrase(message.waitReason);
   return message.reviewExpectedAt === null
     ? reason
     : `${reason} (expected by ${message.reviewExpectedAt})`;
@@ -152,7 +153,7 @@ const printSummary = (message: MessageSummary) =>
     ["From", message.from],
     ["To", message.to.join(", ")],
     ["Subject", message.subject],
-    ["Waiting", message.waitReason?.replaceAll("-", " ") ?? null],
+    ["Waiting", message.waitReason === null ? null : waitReasonPhrase(message.waitReason)],
     ["Created", message.createdAt],
   ]);
 

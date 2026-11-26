@@ -24,7 +24,6 @@ const account = {
   messagingLimit: "TIER_2K",
   currentLimit: 2000,
 };
-const pagination = { page: 1, limit: 20, total: 1, totalPages: 1 };
 const message = {
   id: "msg_test",
   channel: "whatsapp",
@@ -42,7 +41,7 @@ let origin: string;
 let server: ReturnType<typeof createServer>;
 
 beforeEach(async () => {
-  body = { items: [account], pagination };
+  body = { items: [account], nextCursor: null };
   status = 200;
   requests = [];
   configHome = await mkdtemp(join(tmpdir(), "samva-whatsapp-status-"));
@@ -73,7 +72,7 @@ describe("WhatsApp status", () => {
         account,
         { ...account, id: "waba_other", phoneNumber: "+14155550124", isDefault: false },
       ],
-      pagination: { ...pagination, total: 2 },
+      nextCursor: null,
     };
     const result = await run(["status"]);
     expect(result.code).toBe(0);
@@ -91,10 +90,10 @@ describe("WhatsApp status", () => {
       "green",
     ])
       expect(result.stdout).toContain(value);
-    expect(requests).toEqual(["GET /v1/whatsapp/business-accounts?page=1&limit=20"]);
+    expect(requests).toEqual(["GET /v1/whatsapp/business-accounts?limit=20"]);
   });
   it("succeeds for an empty organization and gives a connection step", async () => {
-    body = { items: [], pagination: { ...pagination, total: 0, totalPages: 0 } };
+    body = { items: [], nextCursor: null };
     const result = await run(["status"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("No WhatsApp numbers connected");
@@ -111,7 +110,7 @@ describe("WhatsApp status", () => {
   it("returns the stable account projection as JSON", async () => {
     body = {
       items: [{ ...account, organizationId: "org_test", webhookUrl: "https://example.test" }],
-      pagination,
+      nextCursor: null,
     };
     const result = await run(["status", "--json"]);
     expect(result.code).toBe(0);
@@ -119,45 +118,22 @@ describe("WhatsApp status", () => {
       schemaVersion: 1,
       type: "result",
       command: "whatsapp.status",
-      data: { items: [account], pagination },
+      data: { items: [account], nextCursor: null },
     });
   });
-  it("keeps pagination bounded and points to the next page", async () => {
+  it("passes the current cursor and prints the continuation", async () => {
     body = {
       items: [account],
-      pagination: { ...pagination, page: 2, limit: 1, total: 3, totalPages: 3 },
+      nextCursor: "following",
     };
-    const result = await run(["status", "--page", "2", "--limit", "1"]);
+    const result = await run(["status", "--cursor", "previous", "--limit", "1"]);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("--page 3 --limit 1");
-    expect(requests).toEqual(["GET /v1/whatsapp/business-accounts?page=2&limit=1"]);
-  });
-  it("maps a disabled flag to a clear human error and exit 4", async () => {
-    status = 403;
-    body = {
-      _tag: "FlagDisabledError",
-      flag: "whatsapp",
-      message: "WhatsApp is not enabled for this organization.",
-    };
-    const human = await run(["status"]);
-    expect(human.code).toBe(4);
-    expect(human.stderr).toContain("WhatsApp is not enabled");
-    const result = await run(["status", "--json"]);
-    expect(result.code).toBe(4);
-    expect(result.stdout).toBe("");
-    expect(JSON.parse(result.stderr)).toEqual({
-      schemaVersion: 1,
-      type: "error",
-      command: "whatsapp.status",
-      message: "WhatsApp is not enabled for this organization.",
-      details: { flag: "whatsapp" },
-      next: "Use an enabled feature for this organization.",
-      reason: "FlagDisabledError",
-      status: 403,
-    });
+    expect(result.stdout).toContain("Next cursor");
+    expect(result.stdout).toContain("following");
+    expect(requests).toEqual(["GET /v1/whatsapp/business-accounts?limit=1&cursor=previous"]);
   });
   it("rejects a malformed account response", async () => {
-    body = { items: [{}], pagination };
+    body = { items: [{}], nextCursor: null };
     const result = await run(["status", "--json"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("unreadable WhatsApp account list");

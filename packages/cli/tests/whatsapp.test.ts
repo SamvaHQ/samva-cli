@@ -1,5 +1,4 @@
 import { describe, expect, it } from "@effect/vitest";
-import { FlagDisabledError } from "samva/effect";
 
 import { whatsappSendError, whatsappTemplatesPath } from "../src/commands/whatsapp";
 
@@ -31,14 +30,6 @@ describe("whatsappSendError", () => {
     const error = whatsappSendError({ _tag: "SenderNotReadyError", message: "Not ready." });
     expect(error.api?.status).toBe(503);
     expect(error.api?.next).toContain("Finish WhatsApp signup");
-  });
-
-  it("names a disabled channel", () => {
-    const error = whatsappSendError(
-      new FlagDisabledError({ flag: "whatsapp", message: "Feature 'whatsapp' is not enabled." }),
-    );
-    expect(error.api?.reason).toBe("FlagDisabledError");
-    expect(error.api?.next).toBe("WhatsApp is not enabled for this organization.");
   });
 
   it("leaves other failures with the shared guidance", () => {

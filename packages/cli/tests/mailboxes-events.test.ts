@@ -427,3 +427,93 @@ describe("mailbox events over a Bun WebSocket", () => {
     expect((await state()).closes[0]?.code).toBe(1000);
   });
 });
+
+describe("message log follow", () => {
+  it("rejects --json before opening an API or stream connection", async () => {
+    await configure({ logHistory: [] });
+    const result = await runCli(["logs", "-f", "--json"], { ...options(), executable: undefined });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("--json cannot be combined with --follow");
+    expect((await state()).handshakes).toEqual([]);
+  });
+
+  it("prints the recent lines once, resumes after a disconnect and exits 130 on SIGINT", async () => {
+    const mailboxId = "mbx_1234567890123456";
+    const makeLine = (id: number, eventName: string) => ({
+      id: `mevt_${id}`,
+      cursor: `list-cursor-${id}`,
+      event: eventName,
+      timestamp: "2026-11-25T10:38:13.790Z",
+      messageId: "msg_1234567890abcdef",
+      channel: "email",
+      direction: "outbound",
+      origin: "mailbox",
+      from: null,
+      recipient: "recipient@example.test",
+      subject: "Subject with spaces",
+      submission: null,
+      requestId: null,
+      reason: null,
+      errorTag: null,
+    });
+    const frame = (
+      cursor: number,
+      line: ReturnType<typeof makeLine>,
+      mailboxIds = [mailboxId],
+    ) => ({
+      kind: "event",
+      cursor: String(cursor),
+      id: line.id,
+      event: {
+        type: "log.line",
+        timestamp: line.timestamp,
+        data: line,
+        match: { mailboxIds, senderAddresses: ["sender@example.test"], credential: "unattributed" },
+      },
+    });
+    const recent = makeLine(1, "failed");
+    const replayed = makeLine(2, "failed");
+    const newLine = makeLine(3, "failed");
+    await configure({
+      logHistory: [recent],
+      frames: [frame(2, recent), frame(3, replayed), frame(4, makeLine(4, "delivered"))],
+      terminate: 1,
+      reconnectFrames: [frame(5, makeLine(5, "failed"), []), frame(6, newLine)],
+    });
+    const child = spawnCli(
+      [
+        "logs",
+        "-f",
+        "--jsonl",
+        "status:failed",
+        `mailbox:${mailboxId}`,
+        "from:Sender@example.test",
+      ],
+      { ...options(), executable: undefined, env: { ...options().env, SAMVA_API_URL: origin } },
+    );
+    let stdout = "";
+    let stderr = "";
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.stdout.on("data", (data) => {
+        stdout += String(data);
+        if (stdout.includes('"cursor":"list-cursor-3"')) child.kill("SIGINT");
+      });
+      child.stderr.on("data", (data) => {
+        stderr += String(data);
+      });
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+    expect(code, stderr).toBe(130);
+    expect(lines(stdout)).toEqual([recent, replayed, newLine]);
+    expect(
+      (await state()).handshakes.map(({ url }) => {
+        const handshake = new URL(url);
+        return [handshake.pathname, handshake.searchParams.get("cursor")];
+      }),
+    ).toEqual([
+      ["/v1/logs/events", "1"],
+      ["/v1/logs/events", "4"],
+    ]);
+  });
+});

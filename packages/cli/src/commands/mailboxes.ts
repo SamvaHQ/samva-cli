@@ -1031,11 +1031,15 @@ const threadsFlags = {
   ...pageFlags,
   query: Flag.String("query").pipe(
     Flag.withDescription(
-      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit for recent activity.",
+      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit to use the list order.",
     ),
     Flag.optional,
   ),
   snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
+  order: Flag.Literals("order", ["wake"]).pipe(
+    Flag.withDescription("With --snoozed and no --query, list earliest wake first"),
+    Flag.optional,
+  ),
   folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
   label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
   unread: Flag.Boolean("unread").pipe(Flag.withDefault(false)),
@@ -1054,6 +1058,7 @@ const threadsRequest = ({
   cursor,
   query,
   snoozed,
+  order,
   folder,
   label,
   unread,
@@ -1067,6 +1072,7 @@ const threadsRequest = ({
   limit: Option.getOrUndefined(limit),
   q: Option.getOrUndefined(query),
   snoozed: Option.getOrUndefined(snoozed),
+  order: Option.getOrUndefined(order),
   folder: Option.getOrUndefined(folder),
   label: Option.getOrUndefined(label),
   unread: unread ? true : undefined,
@@ -1085,6 +1091,7 @@ const threads = deriveOverride("threads", threadsFlags, {
         limit: request.limit,
         q: request.q,
         snoozed: request.snoozed,
+        order: request.order,
         folder: request.folder,
         label: request.label,
         unread: request.unread,
@@ -1123,11 +1130,15 @@ const allThreadsFlags = {
   ...pageFlags,
   query: Flag.String("query").pipe(
     Flag.withDescription(
-      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit for recent activity.",
+      "Semantic and keyword search; filters narrow results, ranked by relevance across at most 100 threads. New mail can take a few seconds to appear. Omit to use the list order.",
     ),
     Flag.optional,
   ),
   snoozed: Flag.Boolean("snoozed").pipe(Flag.optional),
+  order: Flag.Literals("order", ["wake"]).pipe(
+    Flag.withDescription("With --snoozed and no --query, list earliest wake first"),
+    Flag.optional,
+  ),
   folder: Flag.Literals("folder", MailboxThreadFolder.literals).pipe(Flag.optional),
   label: Flag.String("label").pipe(Flag.withSchema(MailboxLabelId), Flag.optional),
   unread: Flag.Boolean("unread").pipe(Flag.withDefault(false)),
@@ -1147,6 +1158,7 @@ const allThreadsRequest = ({
   cursor,
   query,
   snoozed,
+  order,
   folder,
   label,
   unread,
@@ -1161,6 +1173,7 @@ const allThreadsRequest = ({
   limit: Option.getOrUndefined(limit),
   q: Option.getOrUndefined(query),
   snoozed: Option.getOrUndefined(snoozed),
+  order: Option.getOrUndefined(order),
   folder: Option.getOrUndefined(folder),
   label: Option.getOrUndefined(label),
   unread: unread ? true : undefined,
@@ -1181,6 +1194,7 @@ const allThreads = deriveOverride("all-threads", allThreadsFlags, {
         limit: request.limit,
         q: request.q,
         snoozed: request.snoozed,
+        order: request.order,
         folder: request.folder,
         label: request.label,
         unread: request.unread,
@@ -1294,7 +1308,7 @@ const needsYou = deriveOverride(
       }),
   },
 ).pipe(
-  Command.withDescription("List held actions you may approve and quarantined mail you may release"),
+  Command.withDescription("List held actions you may approve"),
   Command.withExamples([{ command: "samva mailboxes needs-you --limit 20 --json" }]),
 );
 const read = deriveOverride(
@@ -1671,7 +1685,7 @@ export const mailboxesCommand = Command.make("mailboxes").pipe(
           Command.withSubcommands([emptyFolder("trash")]),
         ),
         Command.make("spam").pipe(
-          Command.withDescription("Review quarantined mail, discard it, or empty Spam"),
+          Command.withDescription("List or discard held malware, or empty Spam"),
           Command.withSubcommands([quarantineList, discard, emptyFolder("spam")]),
         ),
         mailboxesImportCommand,

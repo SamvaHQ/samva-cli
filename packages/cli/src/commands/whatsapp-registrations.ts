@@ -22,7 +22,7 @@ import { jsonFlag, printFields } from "../lib/output";
  *
  * WhatsApp sends a business's first message only from a template Meta approved, so a published
  * template is submitted for review here and its status read back. The registrations API is
- * published in OpenAPI and the SDK, with runtime access controlled by the `whatsapp` flag.
+ * published in OpenAPI and the SDK.
  * These commands use authenticated JSON requests.
  */
 
@@ -80,7 +80,6 @@ const REGISTRATION_NEXT: Readonly<Record<string, string>> = {
     "The WhatsApp credentials need attention. Reconnect the business account in the dashboard, then retry.",
   ResourceNotFoundError:
     "Check the id: `samva templates list` shows templates, and `samva whatsapp templates registrations <template-id>` shows its registrations.",
-  FlagDisabledError: "WhatsApp is not enabled for this organization.",
 };
 
 /** A failed registrations call with the recovery step that names the registration cause. */

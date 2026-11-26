@@ -15,6 +15,7 @@ import { journeysCommand } from "../commands/journeys";
 import { knowledgeCommand } from "../commands/knowledge";
 import { loginCommand } from "../commands/login";
 import { logoutCommand } from "../commands/logout";
+import { logsCommand } from "../commands/logs";
 import { mailboxesCommand } from "../commands/mailboxes";
 import { messagesCommand } from "../commands/messages";
 import { namespacesCommand } from "../commands/namespaces";
@@ -39,6 +40,7 @@ const curatedRootCommands = [
   orgCommand,
   emailCommand,
   messagesCommand,
+  logsCommand,
   whatsappCommand,
   contactsCommand,
   eventsCommand,

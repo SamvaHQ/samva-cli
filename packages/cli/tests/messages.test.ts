@@ -36,12 +36,18 @@ describe("message waiting line", () => {
   it("names a content review with the time Samva expects to decide it", () => {
     expect(
       waitingLine({ waitReason: "content-review", reviewExpectedAt: "2026-09-25T14:00:00.000Z" }),
-    ).toBe("content review (expected by 2026-09-25T14:00:00.000Z)");
+    ).toBe("Samva's review of this email's content (expected by 2026-09-25T14:00:00.000Z)");
   });
 
   it("names any other wait without a time", () => {
     expect(waitingLine({ waitReason: "sending-paused", reviewExpectedAt: null })).toBe(
-      "sending paused",
+      "sending to resume",
+    );
+  });
+
+  it("says a send held by email review goes out once Samva approves the organization", () => {
+    expect(waitingLine({ waitReason: "onboarding-review", reviewExpectedAt: null })).toBe(
+      "Samva's review of the organization; it sends once the review approves it",
     );
   });
 

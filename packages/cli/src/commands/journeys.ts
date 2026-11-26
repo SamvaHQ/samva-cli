@@ -672,10 +672,8 @@ const readiness = deriveOverride(
         yield* printFields([
           ["Ready", result.ready ? "Yes" : "No"],
           ["Channel", result.channel],
-          ["Shopify availability", result.availability.shopify ? "Enabled" : "Disabled"],
           ["Shopify connection", result.shopify?.status ?? "Unavailable"],
           ["Shop", result.shopify?.shop],
-          ["Journeys availability", result.availability.journeys ? "Enabled" : "Disabled"],
           ["Plan access", result.availability.plan ?? "Requires organization-wide access"],
           ["Publication", result.publication?.id ?? "Unavailable"],
           ...(result.channel === "email"
@@ -685,7 +683,6 @@ const readiness = deriveOverride(
                 ["Sending domain ID", result.email?.domainId],
               ] as const)
             : ([
-                ["WhatsApp availability", result.availability.whatsapp ? "Enabled" : "Disabled"],
                 ["WhatsApp account", result.whatsapp?.status ?? "Unavailable"],
                 ["Business number", result.whatsapp?.address],
                 ["Registration", result.whatsapp?.registration?.status ?? "Unavailable"],

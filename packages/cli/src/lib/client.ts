@@ -73,8 +73,8 @@ export const requestAuthHeaders = (config: Client.Config): Record<string, string
 };
 
 /**
- * Build an authenticated Samva SDK operation provider. This is the single seam all command
- * handlers go through. `SAMVA_API_KEY` takes precedence over stored OAuth
+ * Resolve credentials and the API origin for SDK and derived commands.
+ * `SAMVA_API_KEY` takes precedence over stored OAuth
  * credentials. OAuth is the interactive fallback; its user-scoped token sends
  * the active org (`samva org use`) as the `x-org-slug` header.
  */

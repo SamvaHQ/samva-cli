@@ -1,3 +1,72 @@
+## @samva/cli-linux-arm64@0.46.0
+
+### List snoozed threads by wake time
+
+Pass `snoozed: true` with `order: "wake"` to the thread list calls, for one mailbox or across
+your mailboxes, to get the threads due to wake soonest first. Threads that wake at the same time
+come back in thread ID order, and `nextCursor` continues in the same order. Search results
+(`q`) keep relevance order.
+
+In the CLI, pass `--snoozed --order wake` to `samva mailboxes threads` or
+`samva mailboxes all-threads`.
+
+### Continue WhatsApp account, integration search, and integration tool lists with a cursor
+
+**Breaking:** Read `items` from each response and pass `nextCursor` as `cursor` on the next
+request. Stop when `nextCursor` is `null`.
+
+- WhatsApp account lists replace `page` and the `pagination` object with cursors.
+- Integration search and tool lists replace `offset`, `nextOffset`, and `total`. To continue
+  the tool list on an integration, pass `toolPage.nextCursor` to `integrations.listTools`.
+  If the inventory changes and the request returns 409, restart the list without a cursor.
+- In the CLI, pass the printed cursor to `samva whatsapp status --cursor <cursor>`. With
+  `--json`, read `items` and `nextCursor` from the result.
+
+To read one tool descriptor in chunks, keep passing `nextOffset` as `offset` with the same
+`revision` to `integrations.readTool`.
+
+### Retry a send that is still in progress
+
+The SDK and CLI tell you how long to wait when a keyed send is still in progress. The Promise SDK
+exposes the delay in the error response's `Retry-After` header. Use the original idempotency key
+and request body to get the original message after the send succeeds.
+
+### Inspect message events and rejected sends
+
+Use `samva logs` or the SDK's `logs` operations to search message events by time, status, channel,
+sender, and attribution. Use `samva logs show` to look up a message, rejection, or request ID.
+API errors include the request ID when available.
+
+### Email and WhatsApp operations no longer return `FlagDisabledError`
+
+You can remove `FlagDisabledError` handling for email and WhatsApp messages sent directly, on a
+schedule, in a campaign, or from a mailbox. The error also leaves email campaign previews and
+test sends, newsletter issue sends and signup confirmations, and WhatsApp business account, setup
+link, template registration, and flow operations. SMS requests that require access to the staged
+channel can still return this error.
+
+### Journeys, newsletters, agents and integrations no longer return `FlagDisabledError`
+
+These operations no longer list `FlagDisabledError` among their errors, so you can remove any
+handling you added for them.
+
+### Read repeatable flags in CLI help
+
+In `--help --json`, each flag's `repeatable` field says whether you can pass it more than once.
+The `required` field says whether you need to pass it at least once.
+
+### Follow message logs from the CLI
+
+If a script parses plain `samva logs` output, switch it to tab-separated fields or use
+`--jsonl`. Piped timestamps use ISO 8601 UTC. The terminal shows local time with its offset
+and accepts `--utc`.
+
+Run `samva logs -f status:failed --jsonl` to print recent failures and follow new ones.
+Follow mode reconnects automatically and can replay the last 72 hours of stream events.
+Use `--since` to read older entries within your plan's log window.
+
+Effect SDK users can stream message log events with `events` from `samva/effect/logs`.
+
 ## @samva/cli-linux-arm64@0.45.0
 
 ### Responses no longer carry member emails

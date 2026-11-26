@@ -117,7 +117,7 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
     ...(machineMode && helpRequested
       ? {
           formatHelpDoc: (doc: Parameters<CliOutput.Formatter["formatHelpDoc"]>[0]) =>
-            JSON.stringify(helpDocJson(doc)),
+            JSON.stringify(helpDocJson(doc, cli)),
         }
       : {}),
   };
@@ -170,14 +170,13 @@ export const runCli = <Name extends string, Input, ContextInput, CommandError>(
         );
         return;
       }
-      yield* writeOutput(
-        process.stdout,
-        `${JSON.stringify(
-          resultEnvelope(commandNameFromArgv(argv), data.data, partial ? true : undefined),
-          null,
-          2,
-        )}\n`,
-      );
+      const command = commandNameFromArgv(argv);
+      // Log data is a Unix pipe contract. Help and error diagnostics keep their standard envelopes.
+      const output =
+        !helpRequested && (command === "logs" || command === "logs.show")
+          ? data.data
+          : resultEnvelope(command, data.data, partial ? true : undefined);
+      yield* writeOutput(process.stdout, `${JSON.stringify(output, null, 2)}\n`);
     });
 
   const flushLifecycleResult = (state: StdoutBuffer, error: CliMessageLifecycleError) =>

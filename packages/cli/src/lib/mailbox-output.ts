@@ -10,6 +10,7 @@ import type {
   WireThread,
 } from "./mailbox-wire";
 import { printFields } from "./output";
+import { waitReasonPhrase } from "./wait-reason";
 
 // Mailboxes, threads, messages, and receipts print from their wire form, which carries the phone
 // channels the SDK's email-only types leave out; an SDK value is a structural subset of it.
@@ -205,7 +206,7 @@ const printEmailMessage = (data: EmailMessage) =>
 export const printReceipt = (data: ReceiptView) =>
   Effect.gen(function* () {
     yield* Console.log(
-      `Send ${data.state}${data.waitReason === null ? "" : ` — waiting: ${data.waitReason}`}`,
+      `Send ${data.state}${data.waitReason === null ? "" : `, waiting for ${waitReasonPhrase(data.waitReason)}`}`,
     );
     yield* printFields([
       ["Message", present(data.messageId)],

@@ -93,6 +93,23 @@ describe("help text", () => {
     });
   });
 
+  it("reports repeatability separately from whether a flag is required", async () => {
+    const flagsFor = async (command: ReadonlyArray<string>) => {
+      const result = await runCli([...command, "--help", "--json"], { configHome });
+      expect(result.code, result.stderr).toBe(0);
+      return JSON.parse(result.stdout).data.flags as ReadonlyArray<{ name: string }>;
+    };
+    expect(await flagsFor(["api-keys", "create"])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "name", required: true, repeatable: false }),
+        expect.objectContaining({ name: "grant", required: false, repeatable: true }),
+      ]),
+    );
+    expect(await flagsFor(["email", "send"])).toContainEqual(
+      expect.objectContaining({ name: "to", required: true, repeatable: true }),
+    );
+  });
+
   it("groups mailboxes help and lists every derived operation under its summary", async () => {
     const result = await runCli(["mailboxes", "--help"], { configHome });
     expect(result.code, result.stderr).toBe(0);

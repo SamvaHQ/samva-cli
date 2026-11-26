@@ -337,7 +337,6 @@ describe("topic issue CLI subprocess contract", () => {
   it.each([
     [409, { _tag: "ConflictError", message: "Workspace moved", resource: "TopicIssue", id: ID }],
     [403, { _tag: "ForbiddenError", message: "Topic belongs to another namespace" }],
-    [403, { _tag: "FlagDisabledError", message: "Issues disabled", flag: "newsletters" }],
   ])("preserves upstream failure %s and exits nonzero", async (status, body) => {
     const api = await startApi({ status, body });
     try {

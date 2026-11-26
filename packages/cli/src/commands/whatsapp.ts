@@ -1,4 +1,5 @@
 import { WhatsAppBusinessAccountId } from "@samva/core/shared/base";
+import { CursorPage } from "@samva/core/shared/cursor";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
@@ -39,54 +40,49 @@ import { setupLinks } from "./whatsapp-setup-links";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 
-const WhatsAppAccountPage = Schema.Struct({
-  items: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      phoneNumber: Schema.String,
-      whatsappBusinessAccountId: Schema.optionalKey(Schema.String),
-      namespaceId: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      displayName: Schema.String,
-      verificationStatus: Schema.String,
-      credentialStatus: Schema.String,
-      isDefault: Schema.Boolean,
-      isActive: Schema.Boolean,
-      qualityRating: Schema.String,
-      messagingLimit: Schema.NullOr(Schema.String),
-      currentLimit: Schema.Finite,
-    }),
-  ),
-  pagination: Schema.Struct({
-    page: Schema.Finite,
-    limit: Schema.Finite,
-    total: Schema.Finite,
-    totalPages: Schema.Finite,
+const WhatsAppAccountPage = CursorPage(
+  Schema.Struct({
+    id: Schema.String,
+    phoneNumber: Schema.String,
+    whatsappBusinessAccountId: Schema.optionalKey(Schema.String),
+    namespaceId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    displayName: Schema.String,
+    verificationStatus: Schema.String,
+    credentialStatus: Schema.String,
+    isDefault: Schema.Boolean,
+    isActive: Schema.Boolean,
+    qualityRating: Schema.String,
+    messagingLimit: Schema.NullOr(Schema.String),
+    currentLimit: Schema.Finite,
   }),
-});
+);
 
 const status = deriveOverride(
   "status",
   {
-    page: Flag.Int("page").pipe(Flag.withDefault(1)),
+    cursor: Flag.String("cursor").pipe(
+      Flag.withDescription("Continuation from the previous page"),
+      Flag.optional,
+    ),
     limit: Flag.Int("limit").pipe(Flag.withDefault(20)),
     json: jsonFlag,
   },
   {
-    prepare: ({ page, limit }) =>
+    prepare: ({ cursor, limit }) =>
       Effect.gen(function* () {
-        if (page < 1 || page > 10_000 || limit < 1 || limit > 100)
+        if (limit < 1 || limit > 100)
           return yield* new CliUsageError({
             code: "invalid_pagination",
-            message: "--page must be between 1 and 10000; --limit must be between 1 and 100.",
+            message: "--limit must be between 1 and 100.",
           });
-        return { page, limit };
+        return { cursor: Option.getOrUndefined(cursor), limit };
       }),
     connect: connectOperation(
-      ({ page, limit }: { readonly page: number; readonly limit: number }) =>
+      ({ cursor, limit }: { readonly cursor?: string | undefined; readonly limit: number }) =>
         Effect.gen(function* () {
-          const body = yield* getAuthenticatedJson(
-            `/v1/whatsapp/business-accounts?page=${page}&limit=${limit}`,
-          ).pipe(
+          const query = new URLSearchParams({ limit: String(limit) });
+          if (cursor !== undefined) query.set("cursor", cursor);
+          const body = yield* getAuthenticatedJson(`/v1/whatsapp/business-accounts?${query}`).pipe(
             Effect.mapError((error) => toCliApiError("Could not read WhatsApp status", error)),
           );
           const result = yield* Schema.decodeUnknownEffect(WhatsAppAccountPage)(body).pipe(
@@ -102,11 +98,10 @@ const status = deriveOverride(
     ),
     render: (result) =>
       Effect.gen(function* () {
-        if (result.pagination.total === 0) {
+        if (result.items.length === 0) {
           yield* Console.log(
             "No WhatsApp numbers connected. Connect a number in the dashboard or create a connection link with `samva whatsapp setup-links create`.",
           );
-          return;
         }
         for (const account of result.items) {
           yield* printFields([
@@ -125,14 +120,7 @@ const status = deriveOverride(
           ]);
           yield* Console.log("");
         }
-        yield* printFields([
-          ["Page", `${result.pagination.page} of ${result.pagination.totalPages}`],
-          ["Total", result.pagination.total],
-        ]);
-        if (result.pagination.page < result.pagination.totalPages)
-          yield* Console.log(
-            `More numbers: samva whatsapp status --page ${result.pagination.page + 1} --limit ${result.pagination.limit}`,
-          );
+        if (result.nextCursor !== null) yield* printFields([["Next cursor", result.nextCursor]]);
       }),
   },
 ).pipe(
@@ -264,7 +252,6 @@ const WHATSAPP_NEXT: Readonly<Record<string, string>> = {
     "The template is not approved on the business account. Check `samva whatsapp templates list`, and resubmit with `samva whatsapp templates submit`.",
   SenderNotReadyError:
     "The business number is not registered yet. Finish WhatsApp signup or sync the number in the dashboard, then retry.",
-  FlagDisabledError: "WhatsApp is not enabled for this organization.",
 };
 
 /** A failed WhatsApp send with the recovery step that names the WhatsApp cause. */

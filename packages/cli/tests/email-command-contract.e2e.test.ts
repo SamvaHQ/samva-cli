@@ -475,7 +475,8 @@ describe("email doctor exit contract", () => {
       expect(payload.readyToSend).toBe(false);
       expect(payload.checks.find((c) => c.name === "Send review")).toMatchObject({
         status: "failed",
-        detail: "review_rejected; next action: reapply",
+        detail:
+          "Samva's review did not approve this organization to send email (review_rejected). Update the organization's details, then reapply for review.",
       });
     } finally {
       await api.close();
@@ -521,6 +522,21 @@ describe("email review commands", () => {
         nextAction: "reapply",
         canReapply: true,
       });
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("leads human output with what the review means and the next step", async () => {
+    const api = await startReviewApi();
+    try {
+      const result = await runCli(["email", "review", "status"], {
+        env: { SAMVA_API_KEY: "samva_sk_test_x", SAMVA_API_URL: api.url },
+      });
+      expect(result.code).toBe(0);
+      expect(result.stdout.split("\n")[0]).toBe(
+        "Samva's review did not approve this organization to send email (review_rejected). Update the organization's details, then reapply for review.",
+      );
     } finally {
       await api.close();
     }

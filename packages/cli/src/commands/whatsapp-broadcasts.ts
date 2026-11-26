@@ -171,7 +171,6 @@ export const skippedLine = (
 const BROADCAST_NEXT: Readonly<Record<string, string>> = {
   ValidationError:
     "Fix the listed fields: bind or give a --data value for every template parameter, drop parameters the template does not have, and check that the template is approved (`samva whatsapp templates list`).",
-  FlagDisabledError: "WhatsApp is not enabled for this organization.",
 };
 
 const withNext = (message: string, error: unknown): SamvaCliError => {
