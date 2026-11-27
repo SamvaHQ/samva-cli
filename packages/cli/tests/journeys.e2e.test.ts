@@ -8,6 +8,7 @@ import { createTestServer } from "./support/http-server";
 import { runCli } from "./support/run-cli";
 
 const id = "jrny_7q2xk9mvt4znw8rh";
+const namespaceId = "ns_7q2xk9mvt4znw8rh";
 const AT = "2026-10-13T00:00:00.000Z";
 const recipeCatalogPath = "/v1/integrations/catalog/recipes";
 const recipeReadinessPath = `${recipeCatalogPath}/post-delivery-check-in/readiness`;
@@ -155,6 +156,23 @@ const cli = (args: string[], stdin?: string) =>
   });
 
 describe("journeys CLI HTTP boundary", () => {
+  it("filters a journey list by namespace", async () => {
+    const result = await cli(["journeys", "list", "--namespace", namespaceId, "--json"]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: "journeys.list",
+      data: { items: [], nextCursor: null },
+    });
+    expect(
+      requests.map(({ method, url }) => [
+        method,
+        url.pathname,
+        url.searchParams.get("namespaceId"),
+      ]),
+    ).toEqual([["GET", "/v1/journeys", namespaceId]]);
+  });
+
   it("activates the exact reviewed setup revision and send selection", async () => {
     const result = await cli([
       "journeys",
@@ -257,6 +275,7 @@ describe("journeys CLI HTTP boundary", () => {
   it.each(["inline", "file", "stdin"])("creates a journey from %s definition", async (mode) => {
     const file = join(configHome, "journey.json");
     await writeFile(file, JSON.stringify(definition));
+    const namespaced = mode === "stdin";
     const result = await cli(
       [
         "journeys",
@@ -265,6 +284,7 @@ describe("journeys CLI HTTP boundary", () => {
         "Welcome",
         "--definition",
         mode === "inline" ? JSON.stringify(definition) : mode === "file" ? `@${file}` : "-",
+        ...(namespaced ? ["--namespace", namespaceId] : []),
         "--json",
       ],
       mode === "stdin" ? JSON.stringify(definition) : undefined,
@@ -273,7 +293,7 @@ describe("journeys CLI HTTP boundary", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ command: "journeys.create", data: journey });
     expect(requests[0]).toMatchObject({
       method: "POST",
-      body: { name: "Welcome", definition },
+      body: { name: "Welcome", definition, ...(namespaced ? { namespaceId } : {}) },
     });
   });
 
@@ -286,6 +306,8 @@ describe("journeys CLI HTTP boundary", () => {
         "W",
         "--definition",
         JSON.stringify(definition),
+        "--namespace",
+        namespaceId,
         "--dry-run",
         "--json",
       ],
@@ -295,6 +317,7 @@ describe("journeys CLI HTTP boundary", () => {
     expect(JSON.parse(result.stdout).data).toMatchObject({
       dryRun: true,
       action: "journeys.create",
+      request: { name: "W", namespaceId, definition },
     });
     expect(requests).toEqual([]);
   });
@@ -308,7 +331,11 @@ describe("journeys CLI HTTP boundary", () => {
       nodes: {
         send: {
           type: "send_whatsapp",
-          config: { template: "check-in", eventBindings: { order: "order.name" } },
+          config: {
+            template: "check-in",
+            eventBindings: { order: "order.name" },
+            flowActionDataBinding: "order",
+          },
           next: [{ nodeId: "done" }],
         },
         done: { type: "exit", config: {}, next: [] },
@@ -323,10 +350,14 @@ describe("journeys CLI HTTP boundary", () => {
         "--definition",
         JSON.stringify(orderDefinition),
         "--dry-run",
+        "--json",
       ],
       { configHome },
     );
     expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      data: { request: { definition: orderDefinition } },
+    });
     expect(requests).toEqual([]);
     orderDefinition.nodes.send.config.eventBindings.order = "order.unknown";
     const invalid = await runCli(

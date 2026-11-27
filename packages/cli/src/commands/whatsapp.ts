@@ -218,6 +218,12 @@ const flowTokenFlag = Flag.String("flow-token").pipe(
   ),
   Flag.optional,
 );
+const flowActionDataFlag = Flag.String("flow-action-data").pipe(
+  Flag.withDescription(
+    "JSON object the first screen reads. Requires --template with a navigate Flow button",
+  ),
+  Flag.optional,
+);
 const flowActionFlag = Flag.Literals("flow-action", WHATSAPP_FLOW_ACTIONS).pipe(
   Flag.withDescription(
     "How the flow opens: navigate (its own screens; takes --flow-screen and --flow-data) or data_exchange (the flow's endpoint answers the first screen; takes neither). Omitted, a data-exchange version opens with data_exchange and any other with navigate",
@@ -287,12 +293,13 @@ const send = Command.make("send", {
   flowScreen: flowScreenFlag,
   flowData: flowDataFlag,
   flowToken: flowTokenFlag,
+  flowActionData: flowActionDataFlag,
   flowAction: flowActionFlag,
   idempotencyKey: idempotencyKeyFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Send a WhatsApp message with exactly one content source: --text, --media-url, reply buttons (--body with --button), a --flow (with --cta and --body), a --react reaction, or any whatsapp object through --content, all inside the 24-hour customer service window; or an approved --template (with --data variables, and --flow-token for a template with a flow button) at any time.",
+    "Send a WhatsApp message with exactly one content source: --text, --media-url, reply buttons (--body with --button), a --flow (with --cta and --body), a --react reaction, or any whatsapp object through --content, all inside the 24-hour customer service window; or an approved --template at any time. Use --data for template variables and --flow-token or --flow-action-data for a template's flow button.",
   ),
   Command.withExamples([
     {
@@ -306,9 +313,8 @@ const send = Command.make("send", {
     },
     {
       command:
-        "samva whatsapp send --to +14155550123 --template booking-invite --flow-token booking-4821",
-      description:
-        "Send a template whose flow button opens a flow; the token comes back on the customer's flow response",
+        'samva whatsapp send --to +14155550123 --template booking-invite --flow-token booking-4821 --flow-action-data \'{"location":"Main office"}\'',
+      description: "Send a template whose flow button opens a flow with initial screen data",
     },
     {
       command:
@@ -362,6 +368,7 @@ const send = Command.make("send", {
       flowScreen,
       flowData,
       flowToken,
+      flowActionData,
       flowAction,
       idempotencyKey,
       json,
@@ -391,6 +398,7 @@ const send = Command.make("send", {
           flowScreen: Option.getOrUndefined(flowScreen),
           flowData: Option.getOrUndefined(flowData),
           flowToken: Option.getOrUndefined(flowToken),
+          flowActionData: Option.getOrUndefined(flowActionData),
           flowAction: Option.getOrUndefined(flowAction),
         });
         const key = idempotencyKey._tag === "Some" ? idempotencyKey.value : undefined;

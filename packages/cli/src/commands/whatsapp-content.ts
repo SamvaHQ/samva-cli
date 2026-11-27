@@ -37,6 +37,7 @@ export interface WhatsAppContentFlags {
   readonly flowScreen: string | undefined;
   readonly flowData: string | undefined;
   readonly flowToken: string | undefined;
+  readonly flowActionData: string | undefined;
   readonly flowAction: WhatsAppFlowAction | undefined;
 }
 
@@ -56,11 +57,13 @@ const isTemplateId = (reference: string): boolean => reference.startsWith("tmpl_
 const whatsappTemplateContent = (
   template: string,
   data: Readonly<Record<string, unknown>> | undefined,
-  flowToken?: string | undefined,
+  flowToken: string | undefined,
+  flowActionData: Readonly<Record<string, unknown>> | undefined,
 ) => ({
   ...(isTemplateId(template) ? { templateId: template } : { templateSlug: template }),
   ...(data === undefined ? {} : { templateData: data }),
   ...(flowToken === undefined ? {} : { flowToken }),
+  ...(flowActionData === undefined ? {} : { flowActionData }),
 });
 
 /** The `whatsapp` object of one media message sent by link. */
@@ -138,39 +141,14 @@ const whatsappReactionContent = (messageId: string, emoji: string) => ({
   reaction: { messageId, emoji },
 });
 
-/** Parse `--data`: a JSON object of template variables. */
-const parseWhatsappTemplateData = (
+const parseOptionalJsonObject = (
   raw: string | undefined,
+  flag: string,
+  code: string,
 ): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
   if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
-  const invalid = usage("invalid_data", "--data must be a JSON object.");
-  return Effect.try({
-    try: () => JSON.parse(raw) as unknown,
-    catch: () => invalid,
-  }).pipe(
-    Effect.flatMap((parsed) =>
-      Predicate.isObject(parsed) && !Array.isArray(parsed)
-        ? Effect.succeed(parsed as Readonly<Record<string, unknown>>)
-        : Effect.fail(invalid),
-    ),
-  );
-};
-
-/** Parse `--flow-data`: a JSON object the flow's opening screen reads. */
-const parseWhatsappFlowData = (
-  raw: string | undefined,
-): Effect.Effect<Readonly<Record<string, unknown>> | undefined, CliUsageError> => {
-  if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
-  const invalid = usage("invalid_flow_data", "--flow-data must be a JSON object.");
-  return Effect.try({
-    try: () => JSON.parse(raw) as unknown,
-    catch: () => invalid,
-  }).pipe(
-    Effect.flatMap((parsed) =>
-      Predicate.isObject(parsed) && !Array.isArray(parsed)
-        ? Effect.succeed(parsed as Readonly<Record<string, unknown>>)
-        : Effect.fail(invalid),
-    ),
+  return parseWhatsappContent(raw).pipe(
+    Effect.mapError(() => usage(code, `${flag} must be a JSON object.`)),
   );
 };
 
@@ -265,6 +243,9 @@ const orphanedCompanion = (
   if (flags.flowToken !== undefined && !only("--flow") && !only("--template")) {
     return needs("--flow-token", "--flow or --template");
   }
+  if (flags.flowActionData !== undefined && !only("--template")) {
+    return needs("--flow-action-data", "--template");
+  }
   if (flags.flowAction !== undefined && !only("--flow")) return needs("--flow-action", "--flow");
   if (flags.emoji !== undefined && !only("--react")) return needs("--emoji", "--react");
   return undefined;
@@ -306,8 +287,13 @@ export const resolveWhatsappContent = (
       }
       return whatsappTemplateContent(
         flags.template,
-        yield* parseWhatsappTemplateData(flags.data),
+        yield* parseOptionalJsonObject(flags.data, "--data", "invalid_data"),
         flags.flowToken,
+        yield* parseOptionalJsonObject(
+          flags.flowActionData,
+          "--flow-action-data",
+          "invalid_flow_action_data",
+        ),
       );
     }
     if (flags.content !== undefined) {
@@ -371,7 +357,7 @@ export const resolveWhatsappContent = (
         token: flags.flowToken,
         action: flags.flowAction,
         screen: flags.flowScreen,
-        data: yield* parseWhatsappFlowData(flags.flowData),
+        data: yield* parseOptionalJsonObject(flags.flowData, "--flow-data", "invalid_flow_data"),
       });
     }
     if (flags.react !== undefined) {

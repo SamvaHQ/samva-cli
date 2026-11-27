@@ -33,6 +33,7 @@ const none: WhatsAppContentFlags = {
   flowScreen: undefined,
   flowData: undefined,
   flowToken: undefined,
+  flowActionData: undefined,
   flowAction: undefined,
 };
 
@@ -100,6 +101,34 @@ describe("resolveWhatsappContent", () => {
     });
     expect(await resolve({ react: "msg_01j8k3m5n7p9q2r4s6tv", emoji: "👍" })).toMatchObject({
       success: { reaction: { messageId: "msg_01j8k3m5n7p9q2r4s6tv", emoji: "👍" } },
+    });
+  });
+
+  it("carries template Flow data separately from template variables", async () => {
+    expect(
+      await resolve({
+        template: "booking-invite",
+        data: '{"name":"Ada"}',
+        flowActionData: '{"locations":["Main office"]}',
+      }),
+    ).toEqual({
+      success: {
+        templateSlug: "booking-invite",
+        templateData: { name: "Ada" },
+        flowActionData: { locations: ["Main office"] },
+      },
+    });
+    expect(await resolve({ template: "booking-invite", flowActionData: "[]" })).toMatchObject({
+      failure: {
+        code: "invalid_flow_action_data",
+        message: "--flow-action-data must be a JSON object.",
+      },
+    });
+    expect(await resolve({ text: "Hi", flowActionData: "{}" })).toMatchObject({
+      failure: {
+        code: "flag_without_source",
+        message: "--flow-action-data applies only with --template.",
+      },
     });
   });
 

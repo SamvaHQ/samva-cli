@@ -53,7 +53,7 @@ const send = deriveOverride(
             (error) =>
               new CliUsageError({
                 code: "event_invalid",
-                message: `--data must match the event schema with exactly one contact id, externalId, or email: ${String(error)}. Try: samva events send --help`,
+                message: `--data must match the event schema with exactly one contact id, externalId, email, or E.164 phone number: ${String(error)}. Try: samva events send --help`,
               }),
           ),
         );
@@ -86,6 +86,9 @@ const send = deriveOverride(
   Command.withExamples([
     {
       command: `samva events send --data '{"contact":{"email":"ada@example.com"},"name":"trial.started"}' --idempotency-key trial-42 --json`,
+    },
+    {
+      command: `samva events send --data '{"contact":{"phone":"+12025550123"},"name":"trial.started"}' --json`,
     },
     { command: "samva events send --data @event.json --dry-run" },
     { command: "cat event.json | samva events send --data - --json" },

@@ -79,26 +79,28 @@ describe("contact events CLI HTTP boundary", () => {
   it.each(["inline", "file", "stdin"])(
     "records %s JSON and returns every event field",
     async (mode) => {
+      const input =
+        mode === "inline" ? { ...payload, contact: { phone: "+12025550123" } } : payload;
       const file = join(configHome, "event.json");
-      await writeFile(file, JSON.stringify(payload));
+      await writeFile(file, JSON.stringify(input));
       const result = await cli(
         [
           "events",
           "send",
           "--data",
-          mode === "inline" ? JSON.stringify(payload) : mode === "file" ? `@${file}` : "-",
+          mode === "inline" ? JSON.stringify(input) : mode === "file" ? `@${file}` : "-",
           "--idempotency-key",
           "trial-42",
           "--json",
         ],
-        mode === "stdin" ? JSON.stringify(payload) : undefined,
+        mode === "stdin" ? JSON.stringify(input) : undefined,
       );
       expect(result.code).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({ command: "events.send", data: event });
       expect(requests).toHaveLength(1);
       expect(requests[0]).toMatchObject({
-        body: payload,
+        body: input,
         key: "samva_sk_test_events",
         idempotencyKey: "trial-42",
       });

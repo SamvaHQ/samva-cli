@@ -1,3 +1,16 @@
+## @samva/cli-darwin-x64@0.47.0
+
+### Run WhatsApp Flows in a namespace
+
+Use a namespace-scoped API key to create a Flow in your namespace's template project and register
+it on your WhatsApp business account. Pass `flowJson` when recording a version, or run
+`samva whatsapp flows publish <flow-id> --file ./flow.json`.
+
+Pass `flowActionData` when sending a template with a navigate Flow button to supply data for its
+first screen. Set `submissionHandler: "app"` when creating the Flow to receive completions without
+a hosted-agent reply. WhatsApp `message.received` webhooks include `conversationId` and provide
+`replyToMetadata` when Samva can match the reply to the original send.
+
 ## @samva/cli-darwin-x64@0.46.0
 
 ### List snoozed threads by wake time

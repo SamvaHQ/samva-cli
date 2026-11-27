@@ -35,6 +35,7 @@ import * as Journeys from "samva/effect/journeys";
 import { CliUsageError, toCliApiError } from "../errors";
 import { yesFlag } from "../lib/confirm";
 import { deriveOverride } from "../lib/derive/curated";
+import { namespaceField, namespaceFlag } from "../lib/namespace";
 import { jsonFlag, printFields, printJson } from "../lib/output";
 import { holdFields } from "../lib/run-hold";
 import { readStdinUtf8 } from "../lib/stdin";
@@ -141,6 +142,7 @@ const printJourney = (journey: {
 const list = deriveOverride(
   "list",
   {
+    namespace: namespaceFlag("list"),
     status: Flag.Literals("status", JOURNEY_STATUSES).pipe(
       Flag.withDescription("Filter by status"),
       Flag.optional,
@@ -151,7 +153,8 @@ const list = deriveOverride(
     json: jsonFlag,
   },
   {
-    mapInput: ({ status, cursor, limit }) => ({
+    mapInput: ({ namespace, status, cursor, limit }) => ({
+      ...namespaceField(namespace),
       status: Option.getOrUndefined(status),
       cursor: Option.getOrUndefined(cursor),
       limit: Option.getOrUndefined(limit),
@@ -178,7 +181,7 @@ const list = deriveOverride(
   Command.withDescription("List journeys"),
   Command.withExamples([
     { command: "samva journeys list" },
-    { command: "samva journeys list --status active --json" },
+    { command: "samva journeys list --namespace ns_7q2xk9mvt4znw8rh --status active --json" },
     { command: "samva journeys list --all --jsonl", description: "Stream every page as JSONL" },
   ]),
 );
@@ -207,6 +210,7 @@ const create = deriveOverride(
   {
     name: nameFlag,
     definition: definitionFlag,
+    namespace: namespaceFlag("create"),
     dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription("Validate the definition offline without creating a journey"),
       Flag.withDefault(false),
@@ -214,9 +218,14 @@ const create = deriveOverride(
     json: jsonFlag,
   },
   {
-    prepare: ({ name, definition }) =>
+    prepare: ({ name, definition, namespace }) =>
       readDefinition(definition).pipe(
-        Effect.map((body) => ({ name, definition: body }) as Parameters<typeof Journeys.create>[0]),
+        Effect.map(
+          (body) =>
+            ({ name, definition: body, ...namespaceField(namespace) }) as Parameters<
+              typeof Journeys.create
+            >[0],
+        ),
       ),
     call: (request) => Journeys.create(request),
     failure: "Could not create journey",
@@ -234,7 +243,9 @@ const create = deriveOverride(
   Command.withDescription("Create a draft journey from a definition"),
   Command.withExamples([
     { command: `samva journeys create --name "Welcome" --definition @welcome.json --json` },
-    { command: `cat welcome.json | samva journeys create --name "Welcome" --definition -` },
+    {
+      command: `cat welcome.json | samva journeys create --name "Welcome" --definition - --namespace ns_7q2xk9mvt4znw8rh`,
+    },
   ]),
 );
 

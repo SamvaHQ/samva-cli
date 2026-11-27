@@ -1,3 +1,4 @@
+import { JsonObject } from "@samva/core/shared/json";
 import {
   WHATSAPP_FLOW_CATEGORY_VALUES,
   WhatsAppFlow,
@@ -5,12 +6,14 @@ import {
   WhatsAppFlowEndpointSettings,
   WhatsAppFlowRegistration,
   WhatsAppFlowVersion,
+  WhatsAppFlowSubmissionHandler,
 } from "@samva/core/whatsapp/flow";
 import * as Argument from "effect/cli/Argument";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
@@ -267,7 +270,9 @@ const create = deriveOverride(
       Flag.withDescription("Template project (tproj_…) whose flows/<handle>.json holds the flow"),
     ),
     handle: Flag.String("handle").pipe(
-      Flag.withDescription("Lowercase kebab-case name, unique in the organization"),
+      Flag.withDescription(
+        "Lowercase kebab-case name, unique in its namespace or at organization level",
+      ),
     ),
     category: Flag.Literals("category", WHATSAPP_FLOW_CATEGORY_VALUES).pipe(
       Flag.withDescription(
@@ -275,13 +280,18 @@ const create = deriveOverride(
       ),
       Flag.atLeast(1),
     ),
+    submissionHandler: Flag.Literals(
+      "submission-handler",
+      WhatsAppFlowSubmissionHandler.literals,
+    ).pipe(Flag.withDescription("Who handles Flow submissions (agent by default)"), Flag.optional),
     json: jsonFlag,
   },
   {
-    mapInput: ({ project, handle, category }) => ({
+    mapInput: ({ project, handle, category, submissionHandler }) => ({
       projectId: project,
       handle,
       categories: category,
+      ...(Option.isSome(submissionHandler) ? { submissionHandler: submissionHandler.value } : {}),
     }),
     call: (request) => WhatsAppFlows.create(request),
     failure: flowError("create the flow"),
@@ -307,81 +317,113 @@ const create = deriveOverride(
   ]),
 );
 
+const readFlowJson = Effect.fn("WhatsAppFlowsCli.readFlowJson")(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const source = yield* fs
+    .readFileString(path)
+    .pipe(
+      Effect.mapError(
+        () => new SamvaCliError({ message: `Could not read Flow JSON file ${path}.` }),
+      ),
+    );
+  return yield* Schema.decodeEffect(Schema.fromJsonString(JsonObject))(source).pipe(
+    Effect.mapError(() => new SamvaCliError({ message: `Expected a JSON object in ${path}.` })),
+  );
+});
+
+const committedFlowVersion = Effect.fn("WhatsAppFlowsCli.committedFlowVersion")(function* (
+  flow: WireFlow,
+  commit: string,
+) {
+  const status = yield* runGit(["status", "--porcelain"]);
+  if (status.length > 0) {
+    return yield* new SamvaCliError({
+      message: "Commit or discard every local change before publishing.",
+    });
+  }
+  const clonedProject = yield* gitConfig("samva.projectId");
+  if (clonedProject !== undefined && clonedProject !== "" && clonedProject !== flow.projectId) {
+    return yield* new SamvaCliError({
+      message: `This clone is template project ${clonedProject}; flow ${flow.id} reads ${flow.projectId}. Run the command in a clone of that project.`,
+    });
+  }
+  const commitSha = yield* runGit(["rev-parse", `${commit}^{commit}`]);
+  yield* runGit(["fetch", "--quiet", "origin"]);
+  yield* runGit(["cat-file", "-e", `${commitSha}:${flow.path}`]).pipe(
+    Effect.mapError(
+      () =>
+        new SamvaCliError({
+          message: `${flow.path} does not exist at commit ${commitSha}. Commit the flow file first.`,
+        }),
+    ),
+  );
+  // The git and workspace endpoints address a template; any one of the project's names it.
+  const first = yield* firstProjectTemplate(flow.projectId);
+  const client = yield* getClientProvider;
+  const [repository, workspace] = yield* Effect.all(
+    [
+      Templates.getGitRepository({ id: first.id }).pipe(client.provide),
+      Templates.openWorkspace({ id: first.id }).pipe(client.provide),
+    ],
+    { concurrency: 2 },
+  ).pipe(Effect.mapError((error) => toCliApiError("Could not open the template project", error)));
+  yield* runGit([
+    "merge-base",
+    "--is-ancestor",
+    commitSha,
+    `refs/remotes/origin/${repository.defaultBranch}`,
+  ]).pipe(
+    Effect.mapError(
+      () =>
+        new SamvaCliError({
+          message: `Commit ${commitSha} is not on origin/${repository.defaultBranch}. Push it to the template project's default branch before publishing.`,
+        }),
+    ),
+  );
+  return { commitSha, expectedWorkspaceRevision: workspace.workspace.revision };
+});
+
 const publish = Command.make("publish", {
   id: flowIdArgument,
   commit: Flag.String("commit").pipe(
     Flag.withDescription("Exact commit or Git revision of the flow file to record"),
-    Flag.withDefault("HEAD"),
+    Flag.optional,
+  ),
+  file: Flag.String("file").pipe(
+    Flag.withDescription("Path to a Flow JSON document to commit and record"),
+    Flag.optional,
   ),
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
-    "Record the flow's file at a clean, pushed commit as its next version. Run it inside a clone of the flow's template project.",
+    "Record a Flow JSON file directly, or record a clean, pushed commit from the project's clone.",
   ),
   Command.withExamples([
+    {
+      command: "samva whatsapp flows publish waflow_abc123 --file ./survey.json",
+      description: "Save the Flow JSON and record its version",
+    },
     {
       command: "samva whatsapp flows publish waflow_abc123",
       description: "Record the flow file at the current commit",
     },
   ]),
-  Command.withHandler(({ id, commit, json }) =>
+  Command.withHandler(({ id, commit, file, json }) =>
     quiet(
       json,
       Effect.gen(function* () {
         const flow = yield* readFlow(id);
-        const status = yield* runGit(["status", "--porcelain"]);
-        if (status.length > 0) {
-          return yield* new SamvaCliError({
-            message: "Commit or discard every local change before publishing.",
-          });
+        if (Option.isSome(file) && Option.isSome(commit)) {
+          return yield* new SamvaCliError({ message: "Supply either --file or --commit." });
         }
-        const clonedProject = yield* gitConfig("samva.projectId");
-        if (
-          clonedProject !== undefined &&
-          clonedProject !== "" &&
-          clonedProject !== flow.projectId
-        ) {
-          return yield* new SamvaCliError({
-            message: `This clone is template project ${clonedProject}; flow ${flow.id} reads ${flow.projectId}. Run the command in a clone of that project.`,
-          });
-        }
-        const commitSha = yield* runGit(["rev-parse", `${commit}^{commit}`]);
-        yield* runGit(["fetch", "--quiet", "origin"]);
-        yield* runGit(["cat-file", "-e", `${commitSha}:${flow.path}`]).pipe(
-          Effect.mapError(
-            () =>
-              new SamvaCliError({
-                message: `${flow.path} does not exist at commit ${commitSha}. Commit the flow file first.`,
-              }),
-          ),
-        );
-        // The git and workspace endpoints address a template; any one of the project's names it.
-        const first = yield* firstProjectTemplate(flow.projectId);
-        const client = yield* getClientProvider;
-        const [repository, workspace] = yield* Effect.all(
-          [
-            Templates.getGitRepository({ id: first.id }).pipe(client.provide),
-            Templates.openWorkspace({ id: first.id }).pipe(client.provide),
-          ],
-          { concurrency: 2 },
-        ).pipe(
-          Effect.mapError((error) => toCliApiError("Could not open the template project", error)),
-        );
-        yield* runGit([
-          "merge-base",
-          "--is-ancestor",
-          commitSha,
-          `refs/remotes/origin/${repository.defaultBranch}`,
-        ]).pipe(
-          Effect.mapError(
-            () =>
-              new SamvaCliError({
-                message: `Commit ${commitSha} is not on origin/${repository.defaultBranch}. Push it to the template project's default branch before publishing.`,
-              }),
-          ),
-        );
+        const body = Option.isSome(file)
+          ? { flowJson: yield* readFlowJson(file.value) }
+          : yield* committedFlowVersion(
+              flow,
+              Option.getOrElse(commit, () => "HEAD"),
+            );
         const recorded = yield* postAuthenticatedJson(flowsPath(id, "versions"), {
-          body: { commitSha, expectedWorkspaceRevision: workspace.workspace.revision },
+          body,
         }).pipe(Effect.mapError(flowError("record the flow version")));
         const version = yield* Schema.decodeUnknownEffect(WireVersion)(recorded).pipe(
           Effect.mapError(unreadable("flow version")),
